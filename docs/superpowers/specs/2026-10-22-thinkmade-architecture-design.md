@@ -1,7 +1,7 @@
 # ThinkMade — Architecture Design
 
 Date: 2026-10-22
-Status: Draft for review
+Status: Approved by the owner on 2026-10-22 (see §9 for the recorded decisions)
 Source requirements: `docs/MASTER-BUILD-SPEC.md` (the v3.0 master build instructions)
 
 This document records the technical decisions that turn the master spec into a buildable system. It does not restate product requirements; it says how they will be met, what the free-tier constraints really are, and which decisions need the owner's approval.
@@ -173,17 +173,16 @@ Not viable or no longer free: Fly.io (no free tier for new accounts), Hugging Fa
 
 ---
 
-## 9. Decisions needing the owner's approval
+## 9. Owner decisions (recorded 2026-10-22)
 
-1. **Vercel plan.** The Hobby plan prohibits commercial use. If ThinkMade is operated by a company (even free to users), Vercel's definition likely applies and the Pro plan ($20/month) is the compliant choice. Development and previews can run on Hobby now; the plan must be decided before the public domain goes live.
-2. **LLM provider for launch.** Recommended: Groq free tier (fast, capable 70B-class models, no training on data, no card) with Ollama as the self-hosted fallback and local evaluation path. Alternative: self-hosted only on the Oracle VM (slower, smaller models, lower script quality). Groq is a third-party API with a free tier, so this needs explicit approval under the "no paid APIs without approval" rule even though no payment is involved.
-3. **Worker host.** Recommended: Oracle Always Free A1 VM. Alternative: a Mac kept running on site.
-4. **Database and storage accounts.** Recommended: Neon (Postgres) and Cloudflare R2. Both need accounts created by the owner; R2 may ask for a payment method on file even though usage stays in the free tier.
-5. **Email provider.** Recommended: Resend if DNS records can be added for `zicaworld.com`; otherwise Brevo with a verified sender mailbox.
-
-None of these block Phase 1, which runs entirely on the developer machine with local Postgres and local storage.
-
----
+| Decision | Choice | Notes |
+|---|---|---|
+| Architecture | Approved as described in this document | — |
+| LLM provider at launch | Groq free tier, with Ollama as the self-hosted fallback and local evaluation path | Switchable per pipeline stage from the admin dashboard. Zero-data-retention to be enabled in the Groq console. |
+| Worker host | Oracle Cloud Always Free Ampere A1 VM (2 OCPU / 12 GB) | Worker ships as a Docker image; the same image runs on a Mac if Oracle capacity is unavailable. |
+| Vercel plan | Hobby for launch | Owner's decision. Recorded risk: Vercel's fair-use guidelines restrict Hobby to non-commercial personal use and Vercel may pause deployments it judges commercial. Revisit if Vercel objects or if the product becomes commercial. |
+| Database and object storage | Neon (Postgres + pgvector) and Cloudflare R2 | Accounts to be created by the owner when Phase 1 reaches deployment; local Postgres and local disk storage until then. |
+| Email | Resend if DNS records can be added for zicaworld.com, otherwise Brevo | Decided when bug-report email is wired up in Phase 9. |
 
 ## 10. Out of scope for launch
 
