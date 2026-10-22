@@ -12,5 +12,12 @@ export function testOnlyRoutes(ctx: AppContext) {
     if (!message) return c.json({ error: 'not_found' }, 404);
     return c.json({ to: message.to, subject: message.subject, text: message.text });
   });
+  r.post('/make-admin', async (c) => {
+    const email = c.req.query('email') ?? '';
+    const { eq } = await import('drizzle-orm');
+    const { schema } = await import('@thinkmade/db');
+    const updated = await ctx.db.update(schema.user).set({ role: 'admin' }).where(eq(schema.user.email, email)).returning({ id: schema.user.id });
+    return updated.length ? c.json({ ok: true }) : c.json({ error: 'not_found' }, 404);
+  });
   return r;
 }

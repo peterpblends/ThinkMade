@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { BRAND } from '@thinkmade/shared';
-import { api, ApiError } from '../lib/api';
+import { collectDiagnostics, getRecentErrorIds } from '../lib/diagnostics';
 import { Button, Card, Notice, PageHeader } from '../components/ui';
 
 export function HelpScreen() {
@@ -51,47 +51,59 @@ export function HelpScreen() {
 }
 
 export function ReportBugScreen() {
-  const [state, setState] = useState<'idle' | 'busy' | 'unavailable' | 'sent' | 'error'>('idle');
+  const [state, setState] = useState<'idle' | 'busy' | 'sent' | 'error'>('idle');
+  const [result, setResult] = useState<{ emailed: boolean } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const diagnostics = collectDiagnostics(getRecentErrorIds());
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setState('busy');
+    setError(null);
+    const form = new FormData(e.currentTarget);
+    form.set('diagnostics', JSON.stringify(diagnostics));
+    const shot = form.get('screenshot');
+    if (shot instanceof File && shot.size === 0) form.delete('screenshot');
     try {
-      await api('/api/bug-reports', {
-        method: 'POST',
-        body: JSON.stringify({ description: String(new FormData(e.currentTarget).get('description') ?? '') }),
-      });
+      const res = await fetch('/api/bug-reports', { method: 'POST', body: form, credentials: 'same-origin' });
+      const body = (await res.json().catch(() => ({}))) as { emailed?: boolean; message?: string };
+      if (!res.ok) {
+        setError(body.message ?? 'We could not send your report. Please try again.');
+        return setState('error');
+      }
+      setResult({ emailed: !!body.emailed });
       setState('sent');
-    } catch (err) {
-      setState(err instanceof ApiError && err.status === 501 ? 'unavailable' : 'error');
+    } catch {
+      setError('You seem to be offline. Please try again when connected.');
+      setState('error');
     }
   };
+  if (state === 'sent') {
+    return (
+      <div>
+        <PageHeader title="Thank you" />
+        <Notice>
+          Your report was saved{result?.emailed ? ' and our team has been notified' : ''}. We read every report.
+        </Notice>
+      </div>
+    );
+  }
   return (
     <div>
-      <PageHeader title="Report a Bug" subtitle="Tell us what went wrong. We never collect passwords or your private podcasts with a report." />
+      <PageHeader title="Report a Bug" subtitle="Tell us what went wrong. Reports never include your password or your private podcasts." />
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <label htmlFor="bug-description" className="text-sm font-medium">
-          What happened?
-        </label>
-        <textarea
-          id="bug-description"
-          name="description"
-          required
-          rows={6}
-          maxLength={5000}
-          className="w-full rounded-xl border border-line bg-surface px-4 py-3 text-ink focus:border-accent focus:outline-none"
-        />
-        <Button type="submit" block busy={state === 'busy'}>
-          Send report
-        </Button>
-        {state === 'unavailable' && (
-          <Notice role="alert">Bug reporting isn't connected yet, so this report was not sent. It arrives in a later release.</Notice>
-        )}
-        {state === 'sent' && <Notice>Thanks. Your report was received.</Notice>}
-        {state === 'error' && (
-          <Notice tone="error" role="alert">
-            We couldn't send your report. Please try again.
-          </Notice>
-        )}
+        <label htmlFor="bug-description" className="text-sm font-medium">What happened?</label>
+        <textarea id="bug-description" name="description" required minLength={3} rows={6} maxLength={5000} className="w-full rounded-xl border border-line bg-surface px-4 py-3 text-ink focus:border-accent focus:outline-none" />
+        <label htmlFor="bug-screenshot" className="text-sm font-medium">Screenshot (optional)</label>
+        <input id="bug-screenshot" name="screenshot" type="file" accept="image/*" className="text-sm" />
+        {/* Hidden from people; bots fill it in. */}
+        <input name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" className="hidden" />
+        <details className="rounded-xl border border-line p-3 text-sm">
+          <summary className="cursor-pointer font-semibold">What else is sent</summary>
+          <p className="mt-2 text-muted">To help us fix it, we include these details about your device:</p>
+          <pre className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-surface-2 p-2 text-xs">{JSON.stringify(diagnostics, null, 2)}</pre>
+        </details>
+        <Button type="submit" block busy={state === 'busy'}>Send report</Button>
+        {error && <Notice tone="error" role="alert">{error}</Notice>}
       </form>
     </div>
   );

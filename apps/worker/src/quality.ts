@@ -1,44 +1,9 @@
-import { z } from 'zod';
 import { countWords } from '@thinkmade/ai';
 
-export const CRITERIA = ['model', 'thinking', 'seeing', 'doing', 'flow', 'accuracy', 'sources', 'repetition'] as const;
-export type Criterion = (typeof CRITERIA)[number];
+import { CRITERIA, type Criterion, type Judgement } from '@thinkmade/shared';
+export { CRITERIA, CRITERIA_LABELS, judgementSchema, VALIDATE_TASK, type Criterion, type Judgement } from '@thinkmade/shared';
+
 type Segment = { speaker: 'A' | 'B'; text: string };
-
-/** Plain-language names used in reviewer notes and the admin dashboard. */
-export const CRITERIA_LABELS: Record<Criterion, string> = {
-  model: 'Teaches a clearly identified mental model',
-  thinking: 'Listener understands the model',
-  seeing: 'Listener learns when to recognise opportunities to use it',
-  doing: 'Listener understands practical application',
-  flow: 'Discussion flows naturally',
-  accuracy: 'Information is accurate',
-  sources: 'Supporting sources are credible and verified',
-  repetition: 'Avoids unnecessary repetition',
-};
-
-const score = z.coerce.number().int().min(1).max(5);
-export const judgementSchema = z.object({
-  scores: z.object(Object.fromEntries(CRITERIA.map((c) => [c, score])) as Record<Criterion, typeof score>),
-  problems: z.array(z.string().max(400)).max(20).default([]),
-  sectionsToRevise: z.array(z.coerce.number().int().min(1)).max(20).default([]),
-  revisionNotes: z.string().max(2000).default(''),
-});
-export type Judgement = z.infer<typeof judgementSchema>;
-
-export const VALIDATE_TASK = `
-You are the quality reviewer. Grade this podcast script before it is turned into audio. Score each criterion from 1 (absent or wrong) to 5 (excellent):
-- model: the episode teaches the named primary mental model clearly.
-- thinking: the listener will understand what the model is, why it works, its assumptions and limits.
-- seeing: the listener learns the signals and situations where it applies, and where it does not.
-- doing: the listener sees step-by-step practical application with concrete examples.
-- flow: it sounds like a natural, engaging conversation, not a lecture with announced sections; hosts have real roles.
-- accuracy: claims are accurate; nothing invented (books, quotes, studies, statistics, cases); hypotheticals are labelled.
-- sources: only books from the verified list are named, with correct authors; no quotations from them.
-- repetition: no needless repetition within the script or of earlier sections.
-You are reviewing a window of the script (sections listed). Judge coverage criteria on what you can see; the full episode outcomes are given for context.
-List concrete problems, the section numbers that must be rewritten, and specific revision notes the writer can act on.
-Shape: {"scores": {"model": n, "thinking": n, "seeing": n, "doing": n, "flow": n, "accuracy": n, "sources": n, "repetition": n}, "problems": string[], "sectionsToRevise": number[], "revisionNotes": string}`;
 
 export interface CheckProblem {
   code: 'too_short' | 'too_long' | 'announced_labels' | 'one_sided' | 'repetition' | 'unspeakable';

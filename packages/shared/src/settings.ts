@@ -61,6 +61,21 @@ const playerSchema = z.strictObject({
   completionThreshold: z.number().min(0.5).max(1),
 });
 
+/** Optional unit prices for the cost estimate (0 on free tiers). */
+const costsSchema = z.strictObject({
+  llmPerMillionTokensUsd: z.number().min(0),
+  ttsPerHourUsd: z.number().min(0),
+  storagePerGbMonthUsd: z.number().min(0),
+});
+
+/** Free-tier allowances the dashboard warns about at 80%. */
+const alertsSchema = z.strictObject({
+  storageGb: z.number().min(0),
+  databaseMb: z.number().min(0),
+  dailyLlmTokens: z.number().int().min(0),
+  monthlyEmails: z.number().int().min(0),
+});
+
 const bugReportsSchema = z.strictObject({
   email: z.union([z.literal(''), z.email()]),
 });
@@ -72,6 +87,8 @@ const settingsShape = {
   limits: limitsSchema,
   quality: qualitySchema.default({ minScore: 4, maxRevisions: 2 }),
   player: playerSchema.default({ completionThreshold: 0.95 }),
+  costs: costsSchema.default({ llmPerMillionTokensUsd: 0, ttsPerHourUsd: 0, storagePerGbMonthUsd: 0 }),
+  alerts: alertsSchema.default({ storageGb: 10, databaseMb: 1024, dailyLlmTokens: 100_000, monthlyEmails: 3000 }),
   bugReports: bugReportsSchema,
 };
 
@@ -102,6 +119,8 @@ export const appSettingsPatchSchema = z.strictObject({
   limits: limitsSchema.partial().optional(),
   quality: qualitySchema.partial().optional(),
   player: playerSchema.partial().optional(),
+  costs: costsSchema.partial().optional(),
+  alerts: alertsSchema.partial().optional(),
   bugReports: bugReportsSchema.partial().optional(),
 });
 
@@ -163,6 +182,17 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   player: {
     completionThreshold: 0.95,
   },
+  costs: {
+    llmPerMillionTokensUsd: 0,
+    ttsPerHourUsd: 0,
+    storagePerGbMonthUsd: 0,
+  },
+  alerts: {
+    storageGb: 10,
+    databaseMb: 1024,
+    dailyLlmTokens: 100_000,
+    monthlyEmails: 3000,
+  },
   bugReports: {
     email: '',
   },
@@ -177,6 +207,8 @@ export function applySettingsPatch(current: AppSettings, patch: AppSettingsPatch
     limits: { ...current.limits, ...patch.limits },
     quality: { ...current.quality, ...patch.quality },
     player: { ...current.player, ...patch.player },
+    costs: { ...current.costs, ...patch.costs },
+    alerts: { ...current.alerts, ...patch.alerts },
     bugReports: { ...current.bugReports, ...patch.bugReports },
   };
   return appSettingsSchema.parse(merged);

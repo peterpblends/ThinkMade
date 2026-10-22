@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { AppContext } from '../create-context';
 import { requireAdmin, type AppVariables } from '../middleware/session';
 import { adminSettingsRoutes } from './admin-settings';
+import { adminOpsRoutes } from './admin-ops';
 
 /** Everything under /api/admin requires the admin role with two-factor enabled. */
 export function adminRoutes(ctx: AppContext) {
@@ -9,5 +10,6 @@ export function adminRoutes(ctx: AppContext) {
   admin.use('*', requireAdmin(ctx.db, ctx.env));
   admin.get('/whoami', (c) => c.json({ user: c.var.session!.user }));
   admin.route('/', adminSettingsRoutes(ctx));
+  admin.route('/', adminOpsRoutes(ctx));
   return admin;
 }

@@ -10,6 +10,7 @@ const apiTarget = process.env.API_PROXY_TARGET ?? 'http://localhost:8787';
 const proxy = { '/api': { target: apiTarget, changeOrigin: false, xfwd: true } };
 
 export default defineConfig({
+  define: { 'import.meta.env.VITE_APP_VERSION': JSON.stringify(process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'dev') },
   plugins: [
     react(),
     tailwindcss(),

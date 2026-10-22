@@ -94,7 +94,7 @@ export function TopBar() {
                 </button>
               )}
               {user && isAdmin(user) && (
-                <button role="menuitem" className={item} onClick={() => go('/admin/settings')}>
+                <button role="menuitem" className={item} onClick={() => go('/admin')}>
                   <Shield aria-hidden size={20} /> Admin
                 </button>
               )}

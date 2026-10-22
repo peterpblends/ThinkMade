@@ -73,17 +73,36 @@ Use the value from the dashboard. Each project has its own, so don't copy one fr
 
 ## 6. Email
 
-Until an email provider is configured, the API logs emails to the server console. Production verification emails will not arrive until this step is done. Wiring a provider is tracked in the roadmap, Phase 9.
+Set `RESEND_API_KEY` or `BREVO_API_KEY`, and `EMAIL_FROM`.
+
+- **Resend.** Add the DNS records Resend shows for `zicaworld.com`. These are new TXT and MX records on a subdomain such as `send.zicaworld.com`, so they don't affect existing mail.
+- **Brevo.** Verify the single sender address instead; no DNS changes are needed.
+
+In production with no provider configured, every email is recorded as failed in the admin Overview, and sign-ups cannot be verified. The app never pretends an email was sent.
+
+## 6a. Cloudflare R2 CORS
+
+Downloads for offline listening fetch audio from the browser through a presigned R2 URL, so the bucket needs a CORS rule. In the R2 bucket's **Settings**, open **CORS policy** and allow `GET` and `HEAD` from `https://thinkmade.zicaworld.com`. Large photo and video uploads go straight to R2 too, so also allow `PUT` with the `content-type` header.
 
 ## 7. Vercel plan note
 
 Vercel's Fair Use Guidelines, updated 2026-09-14, limit the Hobby plan to non-commercial personal use. Commercial use means any deployment "used for the purpose of financial gain of anyone involved in any part of the production of the project". The owner chose Hobby for launch. If Vercel decides the project is commercial, it can pause deployments, and moving to Pro ($20 per member per month) resolves that. Section 6 of the architecture design records this risk.
 
-## 8. Worker (from Phase 2)
+## 8. Worker
 
-The podcast worker runs separately on the Oracle Cloud Always Free Ampere A1 VM, with 2 OCPU and 12 GB. It only makes outbound connections, to Postgres, R2 and the model APIs, so it needs no open inbound ports. Phase 2 adds setup steps here.
+See [worker.md](worker.md). It runs on the Oracle Cloud Always Free VM in Docker and needs no inbound ports.
 
-## 9. Local development
+## 9. First administrator
+
+Sign up on the live site and verify your email. Then promote yourself from your machine:
+
+```bash
+DATABASE_URL='postgresql://…' npm run seed:admin -- you@example.com
+```
+
+Then turn on two-step verification in **Settings**. Admin tools stay closed until you do.
+
+## 10. Local development
 
 ```bash
 npm install

@@ -28,6 +28,15 @@ const HelpScreen = lazyNamed(pages, 'HelpScreen');
 const ReportBugScreen = lazyNamed(pages, 'ReportBugScreen');
 const SettingsScreen = lazyNamed(() => import('./screens/settings'), 'SettingsScreen');
 const AdminSettingsScreen = lazyNamed(() => import('./screens/admin/settings'), 'AdminSettingsScreen');
+const AdminLayout = lazyNamed(() => import('./screens/admin/layout'), 'AdminLayout');
+const AdminOverview = lazyNamed(() => import('./screens/admin/overview'), 'AdminOverview');
+const AdminModels = lazyNamed(() => import('./screens/admin/models'), 'AdminModels');
+const AdminPrompts = lazyNamed(() => import('./screens/admin/prompts'), 'AdminPrompts');
+const AdminQuality = lazyNamed(() => import('./screens/admin/quality'), 'AdminQuality');
+const AdminBugs = lazyNamed(() => import('./screens/admin/bugs'), 'AdminBugs');
+const AdminUsers = lazyNamed(() => import('./screens/admin/users'), 'AdminUsers');
+const AdminPublic = lazyNamed(() => import('./screens/admin/public'), 'AdminPublic');
+const AdminAudit = lazyNamed(() => import('./screens/admin/audit'), 'AdminAudit');
 const GenerationProgressScreen = lazyNamed(() => import('./screens/generation-progress'), 'GenerationProgressScreen');
 const SeriesScreen = lazyNamed(() => import('./screens/series'), 'SeriesScreen');
 const PublicSeriesScreen = lazyNamed(() => import('./screens/series'), 'PublicSeriesScreen');
@@ -73,7 +82,21 @@ const router = createBrowserRouter([
       { path: '/player', element: page(<PlayerScreen />) },
       { path: '/coach/:episodeId', element: <RequireAuth>{page(<CoachScreen />)}</RequireAuth> },
       { path: '/settings', element: <RequireAuth>{page(<SettingsScreen />)}</RequireAuth> },
-      { path: '/admin/settings', element: <RequireAuth>{page(<AdminSettingsScreen />)}</RequireAuth> },
+      {
+        path: '/admin',
+        element: <RequireAuth>{page(<AdminLayout />)}</RequireAuth>,
+        children: [
+          { index: true, element: page(<AdminOverview />) },
+          { path: 'settings', element: page(<AdminSettingsScreen />) },
+          { path: 'models', element: page(<AdminModels />) },
+          { path: 'prompts', element: page(<AdminPrompts />) },
+          { path: 'quality', element: page(<AdminQuality />) },
+          { path: 'bugs', element: page(<AdminBugs />) },
+          { path: 'users', element: page(<AdminUsers />) },
+          { path: 'public', element: page(<AdminPublic />) },
+          { path: 'audit', element: page(<AdminAudit />) },
+        ],
+      },
       { path: '*', element: <NotFoundScreen /> },
     ],
   },

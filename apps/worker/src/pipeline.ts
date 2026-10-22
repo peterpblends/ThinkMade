@@ -10,7 +10,7 @@ import {
   type BookVerification,
   type ChatMessage,
 } from '@thinkmade/ai';
-import { queryRows, schema, seriesSearchText, vectorLiteral, type Db, type ModelStage } from '@thinkmade/db';
+import { getActivePrompts, queryRows, schema, seriesSearchText, vectorLiteral, type Db, type ModelStage } from '@thinkmade/db';
 import { HOST_NAMES, type GenerationOptions, type GenerationStage } from '@thinkmade/shared';
 import { JobCancelledError, PermanentJobError, type WorkerDeps } from './deps';
 import { input, PLAN_TASK, RESEARCH_TASK, SCRIPT_TASK, SELECT_MODELS_TASK, stageSystem, UNDERSTAND_TASK } from './prompts';
@@ -178,10 +178,11 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
   state.tokens ??= 0;
   let seriesId = job.series_id;
 
+  const overrides = await getActivePrompts(db);
   const chat = async <T>(stage: ModelStage, task: string, data: unknown, zschema: Parameters<typeof completeJson<T>>[2], maxTokens = 4096) => {
     const llm = await deps.llm(stage);
     const messages: ChatMessage[] = [
-      { role: 'system', content: stageSystem(stage, task) },
+      { role: 'system', content: stageSystem(stage, overrides.get(stage) ?? task) },
       { role: 'user', content: input(data) },
     ];
     const res = await completeJson(llm, messages, zschema, { temperature: stage === 'script' ? 0.8 : 0.4, maxTokens });
@@ -511,8 +512,12 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
 
       for (let i = done.length; i < ep.sections.length; i++) await writeSection(i);
 
-      // Quality gate: review, revise, and only voice a script that passes.
-      for (let revision = 1; ; revision++) {
+      // Quality gate: review, revise, and only voice a script that passes (or that a person approved).
+      const [humanApproval] = await db
+        .select({ id: schema.episodeQualityCheck.id })
+        .from(schema.episodeQualityCheck)
+        .where(and(eq(schema.episodeQualityCheck.episodeId, episodeId), eq(schema.episodeQualityCheck.checkedBy, 'human'), eq(schema.episodeQualityCheck.passed, 1)));
+      for (let revision = 1; !humanApproval; revision++) {
         const verdict = await runner.run('validate', async () => {
           const sections = done.map((d) => d.segments);
           const checks = scriptChecks(sections, { targetWords: totalWords, format });

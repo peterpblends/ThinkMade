@@ -39,10 +39,13 @@
   "allowScripts": {
     "ffmpeg-static@5.3.0": true,
     "onnxruntime-node@1.21.0": true,
-    "sharp@0.34.5": true,
     "esbuild@0.18.20": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true,
-    "protobufjs@7.6.6": true
+    "protobufjs@7.6.6": true,
+    "sharp@0.35.5": true
+  },
+  "overrides": {
+    "sharp": "^0.35.5"
   }
 }

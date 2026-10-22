@@ -7,10 +7,10 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "start": "tsx src/main.ts",
+    "start": "tsx --env-file-if-exists=../../.env src/main.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
-    "live-check": "tsx scripts/live-check.ts"
+    "live-check": "tsx --env-file-if-exists=../../.env scripts/live-check.ts"
   },
   "dependencies": {
     "@thinkmade/ai": "*",

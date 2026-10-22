@@ -18,64 +18,39 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 - [ ] Real iPhone and Android device check. Only Playwright device emulation so far.
 - [x] Phase report: `docs/reports/phase-1.md`
 
-## Phase 2 — Core Podcast Generation
-- [ ] Create screen: "What would you like to think through today?", text input, Create My Podcasts, Customize
-- [ ] Voice input (MediaRecorder upload + server transcription; Web Speech enhancement)
-- [ ] Job submission, durable queue, worker skeleton with real stage reporting
-- [ ] Understand → select models → research (with book verification) → plan → script
-- [ ] Kokoro TTS, segment assembly with ffmpeg, measured durations
-- [ ] Episodes appear in the library as they complete
-- [ ] Phase report
+## Phase 2: Core Podcast Generation
+- [x] Create screen submits for real; voice input (recording plus server transcription, with Web Speech fallback)
+- [x] Durable job queue and worker, with real progress stages
+- [x] Understand, select models, research with book verification, plan, script
+- [x] Kokoro speech and ffmpeg assembly, with durations measured from the file
+- [x] Episodes appear as they complete. See `reports/phase-2.md`.
 
-## Phase 3 — Thinking, Seeing, Doing
-- [ ] Structured outcomes per episode in the plan stage
-- [ ] Script prompts weaving Thinking/Seeing/Doing naturally
-- [ ] Validation pass with the eight-point quality gate and bounded revision loop
-- [ ] Source verification results surfaced in episode details
-- [ ] Phase report
+## Phase 3: Thinking, Seeing, Doing
+- [x] Outcomes in the plan; scripts weave them together naturally
+- [x] Eight-point quality review with a revision loop, holding failures for people. See `reports/phase-3.md`.
 
-## Phase 4 — Photo and Video
-- [ ] Camera capture and photo upload with limits; presigned direct upload
-- [ ] Video record/upload; worker audio extraction, transcription, keyframe sampling, vision analysis
-- [ ] Combined context in the understand stage; evidence vs assumption separation
-- [ ] Retention and deletion policies; uploads never exposed on public pages
-- [ ] Phase report
+## Phase 4: Photo and Video
+- [x] Content-checked private uploads, presigned R2 uploads, and retention
+- [x] Video key frames, soundtrack transcription and vision analysis (evidence kept apart from assumptions). See `reports/phase-4.md`.
 
-## Phase 5 — Library and Player
-- [ ] Full player and mini-player with all required controls
-- [ ] Episode details: primary model, supporting models, books, sources, takeaways, transcript
-- [ ] Progress tracking with Not Started / In Progress / Completed (95% threshold, manual override)
-- [ ] Favorites, ratings, continue listening, completed, search, sort, filters
-- [ ] Phase report
+## Phase 5: Library and Player
+- [x] Full player and mini player, Media Session, progress rules, favourites, ratings, completion
+- [x] Library tabs, search, filter and sort; delete; visibility. See `reports/phase-5.md`.
 
-## Phase 6 — Offline PWA
-- [ ] Installability (Chromium prompt, iOS instructions, standalone detection)
-- [ ] Downloads to IndexedDB with verification and storage estimates
-- [ ] Offline playback and local progress/favorites/ratings
-- [ ] Sync queue with conflict rules; sync on reopen, foreground and reconnect
-- [ ] Service-worker update flow that never interrupts playback
-- [ ] Real iPhone and Android checks recorded
-- [ ] Phase report
+## Phase 6: Offline PWA
+- [x] Verified downloads, offline playback, offline-first outbox sync, and playback-safe updates
+- [ ] Real iPhone and Android device checks (emulated only). See `reports/phase-6.md`.
 
-## Phase 7 — AI Coaching
-- [ ] Coach Me with full episode context and saved history
-- [ ] Spoken questions and optional spoken answers
-- [ ] Create a Podcast About This from a coaching session
-- [ ] Phase report
+## Phase 7: AI Coaching
+- [x] Context-aware Coach Me, saved history, voice in and out, and Create a Podcast About This. See `reports/phase-7.md`.
 
-## Phase 8 — Discovery and Continued Learning
-- [ ] Public/private visibility, public pages with share previews
-- [ ] Semantic search over public podcasts (pgvector)
-- [ ] Existing-podcast suggestions before generation (public only)
-- [ ] Explore / Deepen / Reinforce with model history tracking; topic updates
-- [ ] Phase report
+## Phase 8: Discovery and Continued Learning
+- [x] Public search, reuse suggestions, share pages with previews, saving others' series
+- [x] Explore, Go Deeper, Reinforce and Update. See `reports/phase-8.md`.
 
-## Phase 9 — Administration and Reporting
-- [ ] Admin dashboard: defaults, AI model config per stage, prompts with versions and test runs, limits
-- [ ] Usage and cost analytics
-- [ ] Bug reporting with diagnostics, email notifications, status workflow
-- [ ] Admin MFA, audit logs
-- [ ] Phase report
+## Phase 9: Administration and Reporting
+- [x] Admin dashboard: usage and alerts, AI models with tests, versioned prompts with test runs, quality queue, bug reports, people, moderation, audit log
+- [x] Bug reporting with safe diagnostics, screenshots and logged email notifications. See `reports/phase-9.md`.
 
 ## Phase 10 — Final Validation
 - [ ] Acceptance tests 1–42 from the spec, each with evidence

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { AppContext } from './create-context';
 import { clientIp, rateLimit } from './middleware/rate-limit';
 import { securityHeaders } from './middleware/security-headers';
+import { originCheck } from './middleware/origin-check';
 import { loadSession, requireAdmin, type AppVariables } from './middleware/session';
 import { adminRoutes } from './routes/admin';
 import { healthRoutes } from './routes/health';
@@ -38,6 +39,7 @@ export function createApp(ctx: AppContext) {
   app.on(['GET', 'POST'], '/api/auth/*', (c) => ctx.auth.handler(c.req.raw));
 
   const api = new Hono<{ Variables: AppVariables }>();
+  api.use('*', originCheck(ctx.env.TRUSTED_ORIGINS));
   api.use('*', loadSession(ctx.auth));
   api.use(
     '*',
@@ -54,7 +56,7 @@ export function createApp(ctx: AppContext) {
   api.route('/', meRoutes());
   api.route('/', publicSettingsRoutes(ctx));
   api.route('/', accountRoutes(ctx));
-  api.route('/', bugReportRoutes());
+  api.route('/', bugReportRoutes(ctx));
   api.route('/', generationRoutes(ctx));
   api.route('/', seriesRoutes(ctx));
   api.route('/', transcribeRoutes(ctx));

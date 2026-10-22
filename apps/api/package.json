@@ -7,11 +7,11 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "start": "tsx src/server.ts",
+    "dev": "tsx watch --env-file-if-exists=../../.env src/server.ts",
+    "start": "tsx --env-file-if-exists=../../.env src/server.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
-    "seed:admin": "tsx scripts/seed-admin.ts"
+    "seed:admin": "tsx --env-file-if-exists=../../.env scripts/seed-admin.ts"
   },
   "dependencies": {
     "@better-auth/passkey": "^1.7.12",

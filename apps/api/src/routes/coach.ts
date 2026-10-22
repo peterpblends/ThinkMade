@@ -2,7 +2,7 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { LlmError, ProviderNotConfiguredError, type ChatMessage } from '@thinkmade/ai';
-import { schema } from '@thinkmade/db';
+import { getActivePrompts, schema } from '@thinkmade/db';
 import type { AppContext } from '../create-context';
 import { COACH_INSTRUCTIONS, selectExcerpts } from '../coach/context';
 import { rateLimit } from '../middleware/rate-limit';
@@ -83,7 +83,8 @@ export function coachRoutes(ctx: AppContext) {
         mentalModels: details?.models.map((m) => ({ name: m.name, summary: m.summary, role: m.role })) ?? [],
         verifiedBooks: details?.sources.map((s) => s.title) ?? [],
       };
-      const system = `STAGE: coach\n${COACH_INSTRUCTIONS}\n\nEpisode context (JSON):\n${JSON.stringify(context, null, 2)}\n\nTranscript excerpts:\n${excerpts.map((x, i) => `[${i + 1}] ${x}`).join('\n\n') || '(none)'}`;
+      const instructions = (await getActivePrompts(ctx.db)).get('coach') ?? COACH_INSTRUCTIONS;
+      const system = `STAGE: coach\n${instructions}\n\nEpisode context (JSON):\n${JSON.stringify(context, null, 2)}\n\nTranscript excerpts:\n${excerpts.map((x, i) => `[${i + 1}] ${x}`).join('\n\n') || '(none)'}`;
       const messages: ChatMessage[] = [
         { role: 'system', content: system },
         ...history.map((m) => ({ role: m.role === 'coach' ? ('assistant' as const) : ('user' as const), content: m.content })),

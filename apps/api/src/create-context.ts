@@ -1,5 +1,5 @@
-import { createDb, getStageModel, runMigrations, type Db, type ModelStage } from '@thinkmade/db';
-import { consoleEmailSender, createEmbedder, createLlm, createStorage, createLocalStorage, createStt, memoryEmailSender, type EmailSender, type Embedder, type LlmClient, type ObjectStorage, type SttEngine } from '@thinkmade/ai';
+import { createDb, getStageModel, runMigrations, schema, type Db, type ModelStage } from '@thinkmade/db';
+import { createEmailSender, createEmbedder, createLlm, createStorage, createLocalStorage, createStt, memoryEmailSender, type EmailSender, type Embedder, type LlmClient, type ObjectStorage, type SttEngine } from '@thinkmade/ai';
 import { createAuth, type Auth } from './auth';
 import { loadEnv, type Env } from './env';
 import { createSettingsService, type SettingsService } from './settings/settings-service';
@@ -15,6 +15,8 @@ export interface AppContext {
   auth: Auth;
   env: Env;
   email: EmailSender;
+  /** Sends and records the outcome in email_delivery, so failures are visible to administrators. */
+  sendEmail: (message: { to: string; subject: string; text: string }, kind: string) => Promise<{ ok: boolean; error?: string }>;
   settings: SettingsService;
   storage: ObjectStorage;
   stt: SttEngine | null;
@@ -71,10 +73,25 @@ export async function createContext(
     pgliteDir: options.pgliteDir ?? env.PGLITE_DIR,
   });
   if (options.migrate ?? true) await runMigrations(handle);
-  const email = options.email ?? (env.NODE_ENV === 'test' ? memoryEmailSender() : consoleEmailSender());
+  const email = options.email ?? (env.NODE_ENV === 'test' ? memoryEmailSender() : createEmailSender({ ...process.env, NODE_ENV: env.NODE_ENV }));
+  const sendEmail: AppContext['sendEmail'] = async (message, kind) => {
+    const r = await email.send(message);
+    await handle.db
+      .insert(schema.emailDelivery)
+      .values({ to: message.to, subject: message.subject, kind, provider: email.provider, status: r.ok ? 'sent' : 'failed', providerId: r.ok ? r.id : null, error: r.ok ? null : r.error })
+      .catch(() => {});
+    return r.ok ? { ok: true } : { ok: false, error: r.error };
+  };
   const rawEnv = { ...process.env, NODE_ENV: env.NODE_ENV };
   const storage = options.storageDir ? createLocalStorage(options.storageDir) : createStorage(rawEnv);
-  const auth = createAuth({ db: handle.db, env, email, storage });
+  const loggedAuthEmail: EmailSender = {
+    provider: email.provider,
+    send: async (m) => {
+      const r = await sendEmail(m, 'auth');
+      return r.ok ? { ok: true, id: 'logged' } : { ok: false, error: r.error ?? 'failed' };
+    },
+  };
+  const auth = createAuth({ db: handle.db, env, email: loggedAuthEmail, storage });
   const settings = createSettingsService(handle.db);
   await settings.seedDefaults();
   const stt = createStt(rawEnv);
@@ -95,6 +112,7 @@ export async function createContext(
     auth,
     env,
     email,
+    sendEmail,
     settings,
     storage,
     stt,
