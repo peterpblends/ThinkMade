@@ -69,6 +69,12 @@ export function generationRoutes(ctx: AppContext) {
       if (!cs) return c.json({ error: 'invalid_coaching_session' }, 400);
     }
 
+    if (parsed.data.parentSeriesId) {
+      const { readableSeries } = await import('./series');
+      const ps = await readableSeries(ctx.db, parsed.data.parentSeriesId, user.id);
+      if (!ps) return c.json({ error: 'invalid_parent_series' }, 400);
+    }
+
     const [req] = await ctx.db
       .insert(schema.learningRequest)
       .values({
@@ -79,6 +85,8 @@ export function generationRoutes(ctx: AppContext) {
         customization: parsed.data.customization ?? {},
         parentRequestId: null,
         coachingSessionId: parsed.data.coachingSessionId ?? null,
+        parentSeriesId: parsed.data.parentSeriesId ?? null,
+        updateMode: Boolean(parsed.data.update && parsed.data.parentSeriesId),
       })
       .returning({ id: schema.learningRequest.id });
     const [job] = await ctx.db

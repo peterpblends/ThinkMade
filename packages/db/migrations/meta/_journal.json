@@ -15,6 +15,13 @@
       "when": 1792658147979,
       "tag": "0001_generation_queue",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792663575247,
+      "tag": "0002_continued_learning",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { index, integer, jsonb, pgTable, real, text, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, jsonb, pgTable, real, text, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 import { createdAt, id, tz, updatedAt } from './_helpers';
 import { user } from './auth';
 
@@ -18,6 +18,10 @@ export const learningRequest = pgTable(
     learningMode: text('learning_mode').notNull().default('explore'),
     customization: jsonb('customization').notNull().$type<Record<string, unknown>>().default({}),
     parentRequestId: text('parent_request_id'),
+    /** Continued learning: the series this request builds on. */
+    parentSeriesId: text('parent_series_id'),
+    /** Topic update: look for newer verified material than the parent series. */
+    updateMode: boolean('update_mode').notNull().default(false),
     coachingSessionId: text('coaching_session_id'),
     createdAt: createdAt(),
   },

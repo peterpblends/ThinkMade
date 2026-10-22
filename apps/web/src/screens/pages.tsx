@@ -1,30 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import { Compass } from 'lucide-react';
 import { BRAND } from '@thinkmade/shared';
 import { api, ApiError } from '../lib/api';
 import { Button, Card, Notice, PageHeader } from '../components/ui';
-
-export function DiscoverScreen() {
-  return (
-    <div>
-      <PageHeader title="Discover" subtitle="Explore podcasts other people have chosen to share." />
-      <label htmlFor="discover-search" className="sr-only">
-        Search public podcasts
-      </label>
-      <input
-        id="discover-search"
-        type="search"
-        disabled
-        placeholder="Search by topic, mental model, book or author"
-        className="min-h-12 w-full rounded-full border border-line bg-surface px-5 text-ink placeholder:text-muted disabled:opacity-60"
-      />
-      <div className="mt-10 flex flex-col items-center gap-3 text-center">
-        <Compass aria-hidden size={40} className="text-sage" />
-        <p className="max-w-sm text-muted">Public podcasts and search arrive in a later release. Nothing has been shared yet.</p>
-      </div>
-    </div>
-  );
-}
 
 export function HelpScreen() {
   return (

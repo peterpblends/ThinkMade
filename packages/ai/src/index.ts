@@ -1,6 +1,7 @@
 export * from './email/types';
 export * from './email/memory';
 export * from './email/console';
+export * from './email/providers';
 export * from './llm/types';
 export * from './llm/structured';
 export * from './llm/fake';
@@ -20,3 +21,4 @@ export * from './audio/assemble';
 export * from './audio/ffmpeg';
 export * from './text/split';
 export * from './media/media';
+export * from './embed/embed';

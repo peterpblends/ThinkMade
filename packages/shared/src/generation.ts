@@ -33,8 +33,10 @@ export const createGenerationSchema = z.strictObject({
   visibility: visibilitySchema.optional(),
   mediaUploadIds: z.array(z.string().uuid()).max(10).default([]),
   parentSeriesId: z.string().uuid().optional(),
+  /** With parentSeriesId: look for newer verified material on the same topic. */
+  update: z.boolean().optional(),
   coachingSessionId: z.string().uuid().optional(),
-}).refine((v) => v.topic.length >= 3 || v.mediaUploadIds.length > 0 || !!v.coachingSessionId, {
+}).refine((v) => v.topic.length >= 3 || v.mediaUploadIds.length > 0 || !!v.coachingSessionId || !!v.parentSeriesId, {
   path: ['topic'],
   message: 'Tell us a little more about what you want to think through, or add a photo or video.',
 });

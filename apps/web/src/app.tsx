@@ -3,7 +3,8 @@ import { createBrowserRouter, RouterProvider } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppShell, RequireAuth } from './components/app-shell';
 import { CreateScreen } from './screens/create';
-import { DiscoverScreen, NotFoundScreen } from './screens/pages';
+import { NotFoundScreen } from './screens/pages';
+import { DiscoverScreen } from './screens/discover';
 import { LibraryScreen } from './screens/library';
 import { PlayerProvider } from './player/player-context';
 import { makeOfflineSender, resolveSource } from './offline/player-adapters';
@@ -29,6 +30,7 @@ const SettingsScreen = lazyNamed(() => import('./screens/settings'), 'SettingsSc
 const AdminSettingsScreen = lazyNamed(() => import('./screens/admin/settings'), 'AdminSettingsScreen');
 const GenerationProgressScreen = lazyNamed(() => import('./screens/generation-progress'), 'GenerationProgressScreen');
 const SeriesScreen = lazyNamed(() => import('./screens/series'), 'SeriesScreen');
+const PublicSeriesScreen = lazyNamed(() => import('./screens/series'), 'PublicSeriesScreen');
 const PlayerScreen = lazyNamed(() => import('./player/player-screen'), 'PlayerScreen');
 const CoachScreen = lazyNamed(() => import('./screens/coach'), 'CoachScreen');
 
@@ -67,6 +69,7 @@ const router = createBrowserRouter([
       { path: '/report-bug', element: page(<ReportBugScreen />) },
       { path: '/generations/:id', element: <RequireAuth>{page(<GenerationProgressScreen />)}</RequireAuth> },
       { path: '/series/:id', element: page(<SeriesScreen />) },
+      { path: '/p/:slug', element: page(<PublicSeriesScreen />) },
       { path: '/player', element: page(<PlayerScreen />) },
       { path: '/coach/:episodeId', element: <RequireAuth>{page(<CoachScreen />)}</RequireAuth> },
       { path: '/settings', element: <RequireAuth>{page(<SettingsScreen />)}</RequireAuth> },

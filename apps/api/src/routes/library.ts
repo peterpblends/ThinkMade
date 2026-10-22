@@ -6,6 +6,7 @@ import { applyPlaybackEvent, playbackEventSchema, type ListenStatus, type Playba
 import type { AppContext } from '../create-context';
 import { requireSession, type AppVariables } from '../middleware/session';
 import { readableSeries } from './series';
+import { indexSeries } from './discover';
 
 /** Episode the user may see (own or public), or null. */
 async function readableEpisode(ctx: AppContext, episodeId: string, userId: string) {
@@ -225,6 +226,7 @@ export function libraryRoutes(ctx: AppContext) {
       .set({ visibility: body.data.visibility, publicSlug })
       .where(eq(schema.podcastSeries.id, s.id))
       .returning({ id: schema.podcastSeries.id, visibility: schema.podcastSeries.visibility, publicSlug: schema.podcastSeries.publicSlug });
+    if (body.data.visibility === 'public') await indexSeries(ctx, s.id);
     await ctx.db.insert(schema.auditLog).values({ actorId: c.var.session!.user.id, action: 'series.visibility', targetType: 'podcast_series', targetId: s.id, before: { visibility: s.visibility }, after: { visibility: body.data.visibility } });
     return c.json(updated);
   });

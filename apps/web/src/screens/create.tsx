@@ -5,7 +5,10 @@ import { BRAND } from '@thinkmade/shared';
 import { api, ApiError, type PublicSettings } from '../lib/api';
 import { useSession } from '../lib/auth-client';
 import { InstallCard } from '../components/install';
-import { Notice } from '../components/ui';
+import { Button, Notice } from '../components/ui';
+import { Sheet } from '../components/sheet';
+import { Link } from 'react-router';
+import type { DiscoverResult } from './discover';
 import { CreateForm, type Attachment, type CreateRequest } from './create-form';
 
 /** Uploads one attachment: straight to storage when the server offers a presigned URL, else through the API. */
@@ -54,9 +57,25 @@ export function CreateScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<{ req: CreateRequest; items: Array<Pick<DiscoverResult, 'id' | 'title' | 'description' | 'publicSlug' | 'models'>> } | null>(null);
   const settings = useQuery({ queryKey: ['settings', 'public'], queryFn: () => api<PublicSettings>('/api/settings/public') });
 
-  const onCreate = async (req: CreateRequest) => {
+  /** Before creating, offer strong public matches (reuse), without adding a step when there are none. */
+  const onCreate = async (req: CreateRequest, skipSuggest = false) => {
+    if (!skipSuggest && user?.emailVerified && req.topic.length >= 3 && req.attachments.length === 0) {
+      const found = await api<{ suggestions: Array<Pick<DiscoverResult, 'id' | 'title' | 'description' | 'publicSlug' | 'models'>> }>('/api/discover/suggest', {
+        method: 'POST',
+        body: JSON.stringify({ topic: req.topic }),
+      }).catch(() => ({ suggestions: [] }));
+      if (found.suggestions.length) {
+        setSuggestions({ req, items: found.suggestions });
+        return;
+      }
+    }
+    return createNow(req);
+  };
+
+  const createNow = async (req: CreateRequest) => {
     saveDraft(req.topic);
     if (!user) {
       navigate('/sign-up?next=/');
@@ -150,6 +169,30 @@ export function CreateScreen() {
           <p className="text-sm text-muted">{BRAND.promise}</p>
         </section>
       )}
+
+      <Sheet open={!!suggestions} onClose={() => setSuggestions(null)} title="Others have explored this">
+        <p className="mb-3 text-[0.95rem] text-muted">You can listen now, or create your own personalized version.</p>
+        <ul className="mb-4 flex flex-col gap-2">
+          {suggestions?.items.map((s) => (
+            <li key={s.id}>
+              <Link to={`/p/${s.publicSlug}`} className="flex flex-col rounded-xl border border-line p-3 hover:bg-surface-2">
+                <span className="font-semibold">{s.title}</span>
+                {s.models.length > 0 && <span className="text-sm text-muted">{s.models.join(' · ')}</span>}
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <Button
+          block
+          onClick={() => {
+            const req = suggestions!.req;
+            setSuggestions(null);
+            void createNow(req);
+          }}
+        >
+          Create my own version
+        </Button>
+      </Sheet>
 
       <InstallCard />
     </div>

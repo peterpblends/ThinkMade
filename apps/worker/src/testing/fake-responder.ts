@@ -50,6 +50,12 @@ function words(target: number): string {
   return out.join(' ');
 }
 
+const STOPWORDS = new Set(['why', 'do', 'does', 'my', 'our', 'the', 'a', 'an', 'how', 'i', 'can', 'to', 'in', 'of', 'and', 'is', 'me', 'help', 'with', 'what', 'about']);
+/** A lower-case keyword paraphrase, as a real model would summarise rather than quote. */
+function keywords(q: string): string {
+  return q.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w && !STOPWORDS.has(w)).slice(0, 8).join(' ') || 'this question';
+}
+
 /**
  * Deterministic model for tests and offline demos. It reads the STAGE marker and INPUT block and returns
  * well-formed JSON for that stage, including one unverifiable book per model so verification is exercised.
@@ -68,7 +74,7 @@ export function fakeResponder(messages: ChatMessage[]): string {
         evidence: inp.question ? [String(inp.question).slice(0, 200)] : [],
         assumptions: ['They want practical steps they can use this week.'],
         seriesTitle: 'Thinking It Through',
-        seriesDescription: 'A short series on the mental models that help with this question, drawn from the best books on each.',
+        seriesDescription: `A short series on the mental models behind ${keywords(String(inp.question ?? ''))}, drawn from the best books on each.`,
       });
     case 'select_models': {
       const covered: string[] = inp.coveredModels ?? [];

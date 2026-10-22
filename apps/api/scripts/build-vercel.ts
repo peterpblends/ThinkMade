@@ -68,13 +68,15 @@ export function buildRoutes(indexHtml: string): Route[] {
     { src: '^/sw\\.js$', headers: { 'Cache-Control': 'no-cache' }, continue: true },
     { src: '^/manifest\\.webmanifest$', headers: { 'Cache-Control': 'no-cache' }, continue: true },
     { src: '^/api(?:/.*)?$', dest: '/api' },
+    // Shared links are rendered by the API so link previews show the series title and description.
+    { src: '^/p/[^/]+/?$', dest: '/api' },
     { handle: 'filesystem' },
     { src: '^/(?!api/).*$', dest: '/index.html' },
   ];
 }
 
 /** Bundles the API into one ESM file. PGlite stays external: production always uses Postgres. */
-export async function bundleApi(funcDir: string): Promise<void> {
+export async function bundleApi(funcDir: string, indexHtml?: string): Promise<void> {
   await build({
     entryPoints: [join(root, 'apps', 'api', 'src', 'vercel.ts')],
     outfile: join(funcDir, 'index.mjs'),
@@ -89,7 +91,7 @@ export async function bundleApi(funcDir: string): Promise<void> {
       '@electric-sql/pglite', '@electric-sql/pglite-pgvector', 'pg-native',
       '@thinkmade/worker', 'kokoro-js', '@huggingface/transformers', 'onnxruntime-node', 'onnxruntime-web', 'sharp', 'ffmpeg-static',
     ],
-    define: { __THINKMADE_MIGRATIONS_REL__: '"./migrations"' },
+    define: { __THINKMADE_MIGRATIONS_REL__: '"./migrations"', ...(indexHtml ? { __THINKMADE_INDEX_HTML__: JSON.stringify(indexHtml) } : {}) },
     banner: {
       js: "import { createRequire as __tmCreateRequire } from 'node:module'; const require = __tmCreateRequire(import.meta.url);",
     },
@@ -115,8 +117,9 @@ export async function assemble(opts: { webDist: string; outDir: string }): Promi
   cpSync(opts.webDist, join(opts.outDir, 'static'), { recursive: true });
   const funcDir = join(opts.outDir, 'functions', 'api.func');
   mkdirSync(funcDir, { recursive: true });
-  await bundleApi(funcDir);
-  const routes = buildRoutes(readFileSync(indexPath, 'utf8'));
+  const indexHtml = readFileSync(indexPath, 'utf8');
+  await bundleApi(funcDir, indexHtml);
+  const routes = buildRoutes(indexHtml);
   writeFileSync(join(opts.outDir, 'config.json'), JSON.stringify({ version: 3, routes }, null, 2) + '\n');
 }
 

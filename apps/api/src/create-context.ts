@@ -1,5 +1,5 @@
 import { createDb, getStageModel, runMigrations, type Db, type ModelStage } from '@thinkmade/db';
-import { consoleEmailSender, createLlm, createStorage, createLocalStorage, createStt, memoryEmailSender, type EmailSender, type LlmClient, type ObjectStorage, type SttEngine } from '@thinkmade/ai';
+import { consoleEmailSender, createEmbedder, createLlm, createStorage, createLocalStorage, createStt, memoryEmailSender, type EmailSender, type Embedder, type LlmClient, type ObjectStorage, type SttEngine } from '@thinkmade/ai';
 import { createAuth, type Auth } from './auth';
 import { loadEnv, type Env } from './env';
 import { createSettingsService, type SettingsService } from './settings/settings-service';
@@ -20,6 +20,10 @@ export interface AppContext {
   stt: SttEngine | null;
   /** Language model for a stage, as configured by administrators. */
   llm: (stage: ModelStage) => Promise<LlmClient>;
+  /** Text embedder for search vectors, as configured by administrators. */
+  embedder: () => Promise<Embedder>;
+  /** The built web app's index.html, for server-rendered share pages. */
+  indexHtml: () => Promise<string>;
   worker: InProcessWorker | null;
   /** Wakes the in-process worker loop after a job is created. */
   pokeWorker: () => void;
@@ -40,6 +44,21 @@ export interface CreateContextOptions {
   embeddedWorker?: boolean;
   /** Build worker dependencies in this process at all. Serverless functions never run jobs. */
   inProcessWorker?: boolean;
+}
+
+declare const __THINKMADE_INDEX_HTML__: string | undefined;
+
+const FALLBACK_HTML = `<!doctype html><html lang="en"><head><meta charset="UTF-8" /><title>ThinkMade</title><meta name="description" content="" /><meta property="og:title" content="" /><meta property="og:description" content="" /><meta property="og:url" content="" /></head><body><div id="root"></div></body></html>`;
+
+/** The bundled index.html on Vercel; the built file locally; a minimal page otherwise. */
+async function loadIndexHtml(): Promise<string> {
+  if (typeof __THINKMADE_INDEX_HTML__ === 'string') return __THINKMADE_INDEX_HTML__;
+  try {
+    const { readFile } = await import('node:fs/promises');
+    return await readFile(new URL('../../web/dist/index.html', import.meta.url), 'utf8');
+  } catch {
+    return FALLBACK_HTML;
+  }
 }
 
 /** Builds the database, runs migrations and wires auth. One context per process or serverless instance. */
@@ -83,6 +102,8 @@ export async function createContext(
       const cfg = (await getStageModel(handle.db, stage)) ?? { provider: process.env.DEFAULT_LLM_PROVIDER ?? 'groq', model: process.env.DEFAULT_LLM_MODEL ?? 'llama-3.3-70b-versatile' };
       return createLlm(cfg, rawEnv);
     },
+    embedder: async () => createEmbedder(await getStageModel(handle.db, 'embed'), rawEnv),
+    indexHtml: loadIndexHtml,
     worker,
     pokeWorker: () => loop?.poke(),
     now: () => new Date(),

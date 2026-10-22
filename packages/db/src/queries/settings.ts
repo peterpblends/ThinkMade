@@ -12,7 +12,7 @@ export async function getActiveAppSettings(db: Db): Promise<AppSettings> {
   return row ? appSettingsSchema.parse(row.document) : DEFAULT_APP_SETTINGS;
 }
 
-export const MODEL_STAGES = ['understand', 'select_models', 'research', 'plan', 'script', 'validate', 'coach', 'vision'] as const;
+export const MODEL_STAGES = ['understand', 'select_models', 'research', 'plan', 'script', 'validate', 'coach', 'vision', 'embed'] as const;
 export type ModelStage = (typeof MODEL_STAGES)[number];
 
 export interface StageModel {
@@ -28,7 +28,12 @@ export async function seedModelConfig(db: Db, defaults: { provider: string; mode
     if (existing.has(stage)) continue;
     await db
       .insert(aiModelConfig)
-      .values({ stage, provider: defaults.provider, model: stage === 'vision' && defaults.visionModel ? defaults.visionModel : defaults.model, params: {} })
+      .values(
+        stage === 'embed'
+          ? // The built-in keyword embedder works everywhere at no cost; admins can switch to a semantic model.
+            { stage, provider: 'hash', model: 'hash-384', params: {} }
+          : { stage, provider: defaults.provider, model: stage === 'vision' && defaults.visionModel ? defaults.visionModel : defaults.model, params: {} },
+      )
       .onConflictDoNothing();
   }
 }

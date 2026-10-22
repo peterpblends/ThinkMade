@@ -1,4 +1,4 @@
-import type { BookClaim, BookVerification, LlmClient, ObjectStorage, SttEngine, TtsEngine } from '@thinkmade/ai';
+import type { BookClaim, BookVerification, Embedder, LlmClient, ObjectStorage, SttEngine, TtsEngine } from '@thinkmade/ai';
 import type { Db, ModelStage } from '@thinkmade/db';
 
 export interface WorkerDeps {
@@ -8,6 +8,8 @@ export interface WorkerDeps {
   tts: TtsEngine;
   /** Speech-to-text for video soundtracks; null when no service is configured. */
   stt?: SttEngine | null;
+  /** For search vectors of public series. */
+  embedder?: Embedder;
   storage: ObjectStorage;
   verifyBook: (claim: BookClaim) => Promise<BookVerification>;
   workDir: string;

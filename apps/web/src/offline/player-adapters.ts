@@ -22,9 +22,16 @@ export async function resolveSource(ep: PlayableEpisode): Promise<string> {
   return url;
 }
 
+let signedIn = false;
+/** Kept current by the app; signed-out listeners (public pages) have no progress to save. */
+export function setSignedIn(v: boolean) {
+  signedIn = v;
+}
+
 /** Offline-first progress: record locally with the shared rules, queue for the server, try to send now. */
 export function makeOfflineSender(durationFor: (episodeId: string) => number | null): ProgressSender {
   return async (episodeId, event, opts) => {
+    if (!signedIn) return;
     await queueProgress(episodeId, event, durationFor(episodeId));
     if (opts?.keepalive) {
       // The page may be closing; also send directly in case IndexedDB work does not finish.

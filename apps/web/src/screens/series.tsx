@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router';
 import { BookOpen, Lightbulb, MessageCircleQuestion, Pause, Play } from 'lucide-react';
 import { usePlayer, type PlayableEpisode } from '../player/player-context';
@@ -8,7 +8,10 @@ import { startPositionFor } from '../offline/player-adapters';
 import { api } from '../lib/api';
 import { formatDuration } from '../lib/format';
 import type { EpisodeSummary, SeriesDetail } from '../lib/types';
-import { Notice, PageHeader } from '../components/ui';
+import { Button, Notice, PageHeader } from '../components/ui';
+import { SeriesOwnerActions, shareLink } from './series-actions';
+import { useSession } from '../lib/auth-client';
+import { useNavigate } from 'react-router';
 
 export function toPlayable(ep: EpisodeSummary, seriesTitle: string): PlayableEpisode {
   return {
@@ -137,28 +140,75 @@ function EpisodeCard({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTit
   );
 }
 
+function PublicActions({ s }: { s: SeriesDetail }) {
+  const { user } = useSession();
+  const navigate = useNavigate();
+  const [note, setNote] = useState<string | null>(null);
+  return (
+    <div className="mb-6 flex flex-wrap gap-2">
+      <Button
+        variant="secondary"
+        onClick={async () => {
+          if (!user) return navigate(`/sign-in?next=${encodeURIComponent(`/p/${s.publicSlug}`)}`);
+          await api(`/api/library/${s.id}`, { method: 'PUT', body: '{}' });
+          setNote('Saved to My Library.');
+        }}
+      >
+        Save to My Library
+      </Button>
+      <Button
+        variant="ghost"
+        onClick={async () => {
+          const r = await shareLink(s.title, s.publicSlug!);
+          setNote(r === 'copied' ? 'Link copied.' : r === 'shared' ? 'Shared.' : 'Could not share the link.');
+        }}
+      >
+        Share
+      </Button>
+      {note && <p role="status" className="w-full text-sm text-muted">{note}</p>}
+    </div>
+  );
+}
+
+export function PublicSeriesScreen() {
+  const { slug = '' } = useParams();
+  const q = useQuery({ queryKey: ['public', slug], queryFn: () => api<SeriesDetail>(`/api/public/${slug}`) });
+  if (q.isError) return <Notice tone="error" role="alert">This podcast is not shared, or the link has changed.</Notice>;
+  if (!q.data) return <p role="status" className="text-muted">Loading…</p>;
+  return <SeriesView s={q.data} />;
+}
+
 export function SeriesScreen() {
   const { id = '' } = useParams();
-  const location = useLocation();
   const q = useQuery({
     queryKey: ['series', id],
     queryFn: () => api<SeriesDetail>(`/api/series/${id}`),
     refetchInterval: (query) => (query.state.data?.status === 'generating' ? 4000 : false),
   });
-  useEffect(() => {
-    if (q.data && location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
-  }, [q.data, location.hash]);
   if (q.isError) return <Notice tone="error" role="alert">This series doesn't exist or isn't shared with you.</Notice>;
   if (!q.data) return <p role="status" className="text-muted">Loading…</p>;
-  const s = q.data;
+  return <SeriesView s={q.data} />;
+}
+
+function SeriesView({ s }: { s: SeriesDetail }) {
+  const location = useLocation();
+  useEffect(() => {
+    if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
+  }, [s.id, location.hash]);
   return (
     <div>
       <PageHeader title={s.title} subtitle={s.description} />
+      {!s.isOwner && s.visibility === 'public' && <PublicActions s={s} />}
       <div className="flex flex-col gap-5">
         {s.episodes.map((ep) => (
           <EpisodeCard key={ep.id} ep={ep} seriesTitle={s.title} queue={s.episodes.filter((e) => e.status === 'ready').map((e) => toPlayable(e, s.title))} />
         ))}
       </div>
+      {s.isOwner && (
+        <div className="mt-8">
+          <SeriesOwnerActions series={s} />
+        </div>
+      )}
     </div>
   );
 }

@@ -10,7 +10,7 @@ import {
   type BookVerification,
   type ChatMessage,
 } from '@thinkmade/ai';
-import { queryRows, schema, type Db, type ModelStage } from '@thinkmade/db';
+import { queryRows, schema, seriesSearchText, vectorLiteral, type Db, type ModelStage } from '@thinkmade/db';
 import { HOST_NAMES, type GenerationOptions, type GenerationStage } from '@thinkmade/shared';
 import { JobCancelledError, PermanentJobError, type WorkerDeps } from './deps';
 import { input, PLAN_TASK, RESEARCH_TASK, SCRIPT_TASK, SELECT_MODELS_TASK, stageSystem, UNDERSTAND_TASK } from './prompts';
@@ -219,6 +219,30 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         coaching = { episodeTitle: e?.title ?? '', episodeModel: m?.name ?? null, conversation: msgs.slice(-12).map((x) => ({ role: x.role, content: x.content.slice(0, 1500) })) };
       }
     }
+    // Continued learning: build on a parent series (explore new models, go deeper, reinforce, or update).
+    let parent: { title: string; objective: string | null; modelSlugs: string[]; modelNames: string[]; books: string[]; year: number } | null = null;
+    if (request.parentSeriesId) {
+      const [ps] = await db.select().from(schema.podcastSeries).where(eq(schema.podcastSeries.id, request.parentSeriesId));
+      if (ps) {
+        const rows = await queryRows<{ slug: string; name: string }>(
+          db,
+          sql`select distinct m.slug, m.name from episode e join episode_mental_model em on em.episode_id = e.id join mental_model m on m.id = em.mental_model_id where e.series_id = ${ps.id}`,
+        );
+        const books = await queryRows<{ title: string }>(
+          db,
+          sql`select distinct so.title from episode e join episode_source es on es.episode_id = e.id join source so on so.id = es.source_id where e.series_id = ${ps.id}`,
+        );
+        const [pr] = await db.select().from(schema.learningRequest).where(eq(schema.learningRequest.id, ps.learningRequestId));
+        parent = {
+          title: ps.title,
+          objective: ps.userId === job.user_id ? (pr?.objective ?? null) : ps.description,
+          modelSlugs: rows.map((r) => r.slug),
+          modelNames: rows.map((r) => r.name),
+          books: books.map((b) => b.title),
+          year: ps.createdAt.getFullYear(),
+        };
+      }
+    }
     const mediaAnalysis = state.media?.analyses.length
       ? state.media.analyses.map((a) => ({ kind: a.kind, summary: a.summary, visibleEvidence: a.visibleEvidence, assumptions: a.assumptions, visibleText: a.visibleText, ...(a.transcript ? { spokenInVideo: a.transcript } : {}) }))
       : null;
@@ -227,7 +251,16 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     if (!state.understanding) {
       state.understanding = await runner.run('understand', () =>
         chat<Understanding>('understand', UNDERSTAND_TASK, {
-          question: request.inputText || (mediaAnalysis ? 'Help me think about what I am showing you.' : coaching ? `Build on my coaching conversation about "${coaching.episodeTitle}".` : ''),
+          question:
+            request.inputText ||
+            (mediaAnalysis
+              ? 'Help me think about what I am showing you.'
+              : coaching
+                ? `Build on my coaching conversation about "${coaching.episodeTitle}".`
+                : parent
+                  ? `${request.updateMode ? 'Update' : 'Continue'} my learning from "${parent.title}".`
+                  : ''),
+          continuingFrom: parent && { seriesTitle: parent.title, objective: parent.objective, mentalModels: parent.modelNames, updateMode: request.updateMode },
           coachingConversation: coaching,
           spokenTranscript: request.inputTranscript ?? '',
           mediaAnalysis,
@@ -264,6 +297,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           keyQuestions: u.keyQuestions,
           learningMode: options.learningMode,
           coveredModels: covered,
+          ...(parent && options.learningMode !== 'explore' ? { focusModels: parent.modelSlugs } : {}),
           count: want,
         }, modelSelectionSchema),
       );
@@ -279,7 +313,12 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     // 3. Research and verify books
     if (!state.research) {
       state.research = await runner.run('research', async () => {
-        const r = await chat('research', RESEARCH_TASK, { models: state.models!.map((m) => ({ slug: m.slug, name: m.name, summary: m.summary })), note: 'Return the models in the same order, keeping each slug exactly as given.' }, researchSchema);
+        const r = await chat('research', RESEARCH_TASK, {
+          models: state.models!.map((m) => ({ slug: m.slug, name: m.name, summary: m.summary })),
+          note: 'Return the models in the same order, keeping each slug exactly as given.',
+          ...(parent && options.learningMode === 'reinforce' ? { avoidBooks: parent.books, instruction: 'Prefer different books from those in avoidBooks.' } : {}),
+          ...(parent && request.updateMode ? { publishedAfterYear: parent.year - 1, instruction: 'Prefer books published after publishedAfterYear.' } : {}),
+        }, researchSchema);
         const out: ResearchState = {};
         const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, '');
         for (const [idx, m] of state.models!.entries()) {
@@ -558,6 +597,10 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     // 8. Publish
     await runner.run('publish', async () => {
       await db.update(schema.podcastSeries).set({ status: 'ready' }).where(eq(schema.podcastSeries.id, seriesId!));
+      if (options.visibility === 'public' && deps.embedder) {
+        const [v] = await deps.embedder.embed([await seriesSearchText(db, seriesId!)]);
+        if (v) await db.execute(sql`update podcast_series set embedding = ${vectorLiteral(v)}::vector where id = ${seriesId}`);
+      }
     });
     await db.insert(schema.usageMetric).values({ metric: 'llm_tokens', value: state.tokens ?? 0, userId: job.user_id, jobId: job.id });
     await db

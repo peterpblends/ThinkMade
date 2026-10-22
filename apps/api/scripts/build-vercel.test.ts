@@ -14,8 +14,9 @@ describe('buildRoutes', () => {
   const html = '<html><head><script>var a=1;</script><script type="module" src="/x.js"></script></head></html>';
   const routes = buildRoutes(html);
 
-  it('sends /api requests to the api function', () => {
+  it('sends /api requests and shared links to the api function', () => {
     expect(routes).toContainEqual({ src: '^/api(?:/.*)?$', dest: '/api' });
+    expect(routes).toContainEqual({ src: '^/p/[^/]+/?$', dest: '/api' });
   });
 
   it('allows exactly the inline scripts in index.html by hash', () => {
