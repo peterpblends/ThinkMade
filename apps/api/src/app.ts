@@ -6,6 +6,7 @@ import { loadSession, type AppVariables } from './middleware/session';
 import { adminRoutes } from './routes/admin';
 import { healthRoutes } from './routes/health';
 import { meRoutes } from './routes/me';
+import { publicSettingsRoutes } from './routes/settings';
 
 export function createApp(ctx: AppContext) {
   const app = new Hono<{ Variables: AppVariables }>();
@@ -38,6 +39,7 @@ export function createApp(ctx: AppContext) {
   );
   api.route('/', healthRoutes(ctx));
   api.route('/', meRoutes());
+  api.route('/', publicSettingsRoutes(ctx));
   api.route('/admin', adminRoutes(ctx));
   api.notFound((c) => c.json({ error: 'not_found' }, 404));
   app.route('/api', api);

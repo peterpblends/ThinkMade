@@ -2,6 +2,7 @@ import { createDb, runMigrations, type Db } from '@thinkmade/db';
 import { consoleEmailSender, type EmailSender } from '@thinkmade/ai';
 import { createAuth, type Auth } from './auth';
 import { loadEnv, type Env } from './env';
+import { createSettingsService, type SettingsService } from './settings/settings-service';
 
 export interface AppContext {
   db: Db;
@@ -9,6 +10,7 @@ export interface AppContext {
   auth: Auth;
   env: Env;
   email: EmailSender;
+  settings: SettingsService;
   now: () => Date;
 }
 
@@ -30,12 +32,15 @@ export async function createContext(
   await runMigrations(handle);
   const email = options.email ?? consoleEmailSender();
   const auth = createAuth({ db: handle.db, env, email });
+  const settings = createSettingsService(handle.db);
+  await settings.seedDefaults();
   return {
     db: handle.db,
     dbKind: handle.kind,
     auth,
     env,
     email,
+    settings,
     now: () => new Date(),
     close: () => handle.close(),
   };
