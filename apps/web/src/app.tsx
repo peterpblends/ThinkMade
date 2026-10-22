@@ -6,6 +6,9 @@ import { CreateScreen } from './screens/create';
 import { DiscoverScreen, NotFoundScreen } from './screens/pages';
 import { LibraryScreen } from './screens/library';
 import { PlayerProvider } from './player/player-context';
+import { makeOfflineSender, resolveSource } from './offline/player-adapters';
+import { SyncManager } from './offline/sync-manager';
+import { getDownload } from './offline/downloads';
 
 /** Screens a first-time visitor doesn't need are loaded on demand to keep the Create screen fast on phones. */
 function lazyNamed<M, K extends keyof M>(load: () => Promise<M>, name: K) {
@@ -32,7 +35,19 @@ const page = (node: ReactNode) => (
   <Suspense fallback={<p role="status" className="text-muted">Loading…</p>}>{node}</Suspense>
 );
 
-const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } });
+const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1, networkMode: 'offlineFirst' } } });
+
+/** Durations of episodes the player has seen, for completion rules when offline. */
+const durations = new Map<string, number>();
+const sendProgress = makeOfflineSender((id) => durations.get(id) ?? null);
+const resolve = async (ep: Parameters<typeof resolveSource>[0]) => {
+  if (ep.durationSeconds) durations.set(ep.id, ep.durationSeconds * 1000);
+  else {
+    const d = await getDownload(ep.id).catch(() => undefined);
+    if (d?.durationSeconds) durations.set(ep.id, d.durationSeconds * 1000);
+  }
+  return resolveSource(ep);
+};
 
 const router = createBrowserRouter([
   {
@@ -62,7 +77,8 @@ const router = createBrowserRouter([
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <PlayerProvider>
+      <PlayerProvider sendProgress={sendProgress} resolveSource={resolve}>
+        <SyncManager />
         <RouterProvider router={router} />
       </PlayerProvider>
     </QueryClientProvider>

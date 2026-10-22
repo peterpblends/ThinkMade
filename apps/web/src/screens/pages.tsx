@@ -63,8 +63,10 @@ export function HelpScreen() {
       <Card className="flex flex-col gap-2">
         <h2 className="text-xl">Listening offline</h2>
         <p>
-          Offline listening arrives in a later release. Your device controls how much it lets apps store. It may clear downloads when space
-          runs low, so ThinkMade will always check a download before calling it available.
+          Tap Download on any episode to listen without a connection. Your progress, favorites and ratings are saved on the device and sync
+          when you are back online, or the next time you open ThinkMade. Your device controls how much apps can store and may clear downloads
+          when space runs low, so ThinkMade checks every download before showing it as available. On iPhone, keep ThinkMade on your home
+          screen and open it now and then; iOS does not sync apps in the background.
         </p>
       </Card>
     </div>

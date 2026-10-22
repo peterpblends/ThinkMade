@@ -7,7 +7,11 @@ import { useSession } from '../lib/auth-client';
 import { formatDuration } from '../lib/format';
 import type { SeriesListItem } from '../lib/types';
 import { usePlayer, type PlayableEpisode } from '../player/player-context';
-import { PageHeader } from '../components/ui';
+import { Notice, PageHeader } from '../components/ui';
+import { useDownloads, useOnline, announceDownloadsChanged } from '../offline/hooks';
+import { removeAllDownloads, removeDownload } from '../offline/downloads';
+import { Trash2 } from 'lucide-react';
+import type { DownloadRecord } from '../offline/db';
 
 export interface LibraryEpisode {
   id: string;
@@ -106,10 +110,51 @@ interface GenerationListItem {
   topic: string | null;
 }
 
-/** Overridable so Phase 6 can supply the downloads list without this file knowing about storage. */
-export function LibraryScreen({ downloads }: { downloads?: React.ReactNode }) {
-  const { user } = useSession();
-  const [tab, setTab] = useState<LibraryTab>('Continue Listening');
+function downloadToEpisode(d: DownloadRecord): LibraryEpisode {
+  return {
+    id: d.episodeId, seriesId: d.seriesId, seriesTitle: d.seriesTitle, number: d.number, title: d.title, description: '',
+    durationSeconds: d.durationSeconds, positionMs: 0, listenStatus: 'not_started', favorite: false, rating: null,
+    primaryModel: d.primaryModelName ? { slug: '', name: d.primaryModelName } : null, audioUrl: `/api/episodes/${d.episodeId}/audio`,
+  };
+}
+
+function DownloadsList() {
+  const items = useDownloads();
+  const player = usePlayer();
+  if (items === null) return <p role="status" className="text-muted">Loading…</p>;
+  if (!items.length) return <Empty>Downloaded episodes play without a connection. Tap Download on any episode.</Empty>;
+  const total = items.reduce((n, d) => n + d.bytes, 0);
+  const eps = items.map(downloadToEpisode);
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-muted">
+        {items.length} episode{items.length > 1 ? 's' : ''} · {(total / 1048576).toFixed(1)} MB on this device
+      </p>
+      <ul className="flex flex-col gap-2">
+        {eps.map((e) => (
+          <EpisodeRow
+            key={e.id}
+            e={e}
+            queue={eps}
+            extra={
+              <button type="button" aria-label={`Remove download of ${e.title}`} onClick={async () => { if (player.current?.id === e.id) player.stop(); await removeDownload(e.id); announceDownloadsChanged(); }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted hover:bg-surface-2">
+                <Trash2 aria-hidden size={18} />
+              </button>
+            }
+          />
+        ))}
+      </ul>
+      <button type="button" onClick={async () => { player.stop(); await removeAllDownloads(); announceDownloadsChanged(); }} className="self-start text-sm font-semibold text-danger underline-offset-4 hover:underline">
+        Remove all downloads
+      </button>
+    </div>
+  );
+}
+
+export function LibraryScreen() {
+  const { user, isPending } = useSession();
+  const online = useOnline();
+  const [tab, setTab] = useState<LibraryTab>(() => (typeof navigator !== 'undefined' && navigator.onLine === false ? 'Downloads' : 'Continue Listening'));
   const [q, setQ] = useState('');
   const [model, setModel] = useState('');
   const [sort, setSort] = useState('recent');
@@ -119,6 +164,16 @@ export function LibraryScreen({ downloads }: { downloads?: React.ReactNode }) {
   const gens = useQuery({ queryKey: ['generations'], queryFn: () => api<{ generations: GenerationListItem[] }>('/api/generations'), enabled: !!user?.emailVerified, refetchInterval: 5000 });
   const active = (gens.data?.generations ?? []).filter((g) => g.status === 'queued' || g.status === 'running');
 
+  if (!user && (!online || isPending)) {
+    // Offline (or session unknown): downloads still work.
+    return (
+      <div>
+        <PageHeader title="My Library" />
+        <Notice>You're offline. Your downloaded episodes are below.</Notice>
+        <div className="mt-4"><DownloadsList /></div>
+      </div>
+    );
+  }
   if (!user) {
     return (
       <div>
@@ -179,6 +234,11 @@ export function LibraryScreen({ downloads }: { downloads?: React.ReactNode }) {
         </div>
       ) : null}
 
+      {!online && tab !== 'Downloads' && (
+        <div className="mb-4">
+          <Notice>You're offline. Open Downloads to listen to saved episodes.</Notice>
+        </div>
+      )}
       <div role="tabpanel" aria-label={tab}>
         {active.length > 0 && (tab === 'Continue Listening' || tab === 'My Podcasts') && (
           <section aria-labelledby="in-progress" className="mb-6">
@@ -204,7 +264,7 @@ export function LibraryScreen({ downloads }: { downloads?: React.ReactNode }) {
               Nothing here yet. Your podcasts appear here as soon as you create them. <Link to="/" className="font-semibold text-accent-ink underline">Create your first series</Link>
             </Empty>
           ))}
-        {tab === 'Downloads' && (downloads ?? <Empty>Downloads arrive with offline listening.</Empty>)}
+        {tab === 'Downloads' && <DownloadsList />}
         {tab === 'Completed' && list(lib.data?.completed, 'Episodes you finish appear here.')}
         {tab === 'Favorites' && list(lib.data?.favorites, 'Tap the heart in the player to save favorites here.')}
       </div>

@@ -8,6 +8,10 @@ import type { EpisodeSummary } from '../lib/types';
 import { LogoSymbol } from '../components/logo';
 import { Notice } from '../components/ui';
 import { RATES, usePlayer } from './player-context';
+import { DownloadButton } from '../offline/download-button';
+import { getDownload } from '../offline/downloads';
+import { db } from '../offline/db';
+import { flushOutbox, queueFavorite, queueRating } from '../offline/sync';
 
 interface PlaybackInfo {
   positionMs: number;
@@ -41,8 +45,37 @@ export function PlayerScreen() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const id = p.current?.id;
-  const detail = useQuery({ queryKey: ['episode', id], queryFn: () => api<EpisodeSummary & { isOwner: boolean }>(`/api/episodes/${id}`), enabled: !!id });
-  const info = useQuery({ queryKey: ['playback', id], queryFn: () => api<PlaybackInfo>(`/api/playback/${id}`), enabled: !!id, retry: false });
+  const detail = useQuery({
+    queryKey: ['episode', id],
+    queryFn: async () => {
+      try {
+        return await api<EpisodeSummary & { isOwner: boolean }>(`/api/episodes/${id}`);
+      } catch (err) {
+        const d = await getDownload(id!);
+        if (d?.detail) return d.detail as EpisodeSummary & { isOwner: boolean };
+        throw err;
+      }
+    },
+    enabled: !!id,
+  });
+  const info = useQuery({
+    queryKey: ['playback', id],
+    queryFn: async () => {
+      const local = await db.prefs.get(id!).catch(() => undefined);
+      const server = await api<PlaybackInfo & { clientUpdatedAt: string | null }>(`/api/playback/${id}`).catch(() => null);
+      const lp = await db.playback.get(id!).catch(() => undefined);
+      // The newer of this device's record and the server's wins, matching the sync rules.
+      const useLocal = !!lp && (!server || Date.parse(lp.clientUpdatedAt ?? '0') >= Date.parse(server.clientUpdatedAt ?? '0'));
+      return {
+        positionMs: useLocal ? lp!.positionMs : (server?.positionMs ?? 0),
+        status: useLocal ? lp!.status : (server?.status ?? 'not_started'),
+        favorite: local?.favorite ?? server?.favorite ?? false,
+        rating: local?.rating ?? server?.rating ?? null,
+      } satisfies PlaybackInfo;
+    },
+    enabled: !!id,
+    retry: false,
+  });
   const [shareNote, setShareNote] = useState<string | null>(null);
 
   if (!p.current) {
@@ -55,17 +88,24 @@ export function PlayerScreen() {
   }
   const ep = p.current;
   const remaining = Math.max(0, p.duration - p.position);
+  // Favourites and ratings apply on this device at once and sync when online.
   const setFav = async (on: boolean) => {
-    await api(`/api/favorites/${ep.id}`, { method: on ? 'PUT' : 'DELETE', body: '{}' });
+    await queueFavorite(ep.id, on);
     await qc.invalidateQueries({ queryKey: ['playback', ep.id] });
+    await flushOutbox();
     await qc.invalidateQueries({ queryKey: ['library'] });
   };
   const setRating = async (n: number) => {
-    await api(`/api/ratings/${ep.id}`, { method: 'PUT', body: JSON.stringify({ stars: n }) });
+    await queueRating(ep.id, n);
     await qc.invalidateQueries({ queryKey: ['playback', ep.id] });
+    await flushOutbox();
   };
   const share = async () => {
-    const series = await api<{ visibility: string; publicSlug: string | null }>(`/api/series/${ep.seriesId}`);
+    const series = await api<{ visibility: string; publicSlug: string | null }>(`/api/series/${ep.seriesId}`).catch(() => null);
+    if (!series) {
+      setShareNote('Sharing needs a connection.');
+      return;
+    }
     if (series.visibility !== 'public' || !series.publicSlug) {
       setShareNote('This podcast is private. Make it public from its series page to share it.');
       return;
@@ -168,6 +208,9 @@ export function PlayerScreen() {
         >
           <CircleCheck aria-hidden size={18} /> {status === 'completed' ? 'Mark as not started' : 'Mark as completed'}
         </button>
+      </div>
+      <div className="flex justify-center">
+        <DownloadButton ep={ep} loadDetail={() => api(`/api/episodes/${ep.id}`)} />
       </div>
       {shareNote && <Notice>{shareNote}</Notice>}
 

@@ -20,7 +20,7 @@ export function shouldSaveProgress(o: { lastSavedAt: number; now: number; lastPo
   return o.now - o.lastSavedAt >= 5000 && Math.abs(o.positionMs - o.lastPositionMs) >= 1000;
 }
 
-export type ProgressSender = (episodeId: string, event: PlaybackEvent, opts?: { keepalive?: boolean }) => Promise<void>;
+export type ProgressSender = (episodeId: string, event: PlaybackEvent, opts?: { keepalive?: boolean; durationMs?: number | null }) => Promise<void>;
 
 /** Default sender: straight to the API. Phase 6 replaces this with the offline-first queue. */
 export const sendProgressOnline: ProgressSender = async (episodeId, event, opts) => {

@@ -3,6 +3,8 @@ import { useEffect } from 'react';
 import { useLocation, useParams } from 'react-router';
 import { BookOpen, Lightbulb, Pause, Play } from 'lucide-react';
 import { usePlayer, type PlayableEpisode } from '../player/player-context';
+import { DownloadButton } from '../offline/download-button';
+import { startPositionFor } from '../offline/player-adapters';
 import { api } from '../lib/api';
 import { formatDuration } from '../lib/format';
 import type { EpisodeSummary, SeriesDetail } from '../lib/types';
@@ -30,8 +32,7 @@ function PlayButton({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTitl
       type="button"
       onClick={async () => {
         if (isCurrent) return player.toggle();
-        const saved = await fetch(`/api/playback/${ep.id}`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)).catch(() => null) as { positionMs: number; status: string } | null;
-        player.play(toPlayable(ep, seriesTitle), { queue, startAtMs: saved && saved.status !== 'completed' ? saved.positionMs : 0 });
+        player.play(toPlayable(ep, seriesTitle), { queue, startAtMs: await startPositionFor(ep.id) });
       }}
       aria-label={`${playing ? 'Pause' : 'Play'} episode ${ep.number}: ${ep.title}`}
       className="mt-4 inline-flex min-h-12 items-center gap-2 rounded-full bg-accent-strong px-5 font-semibold text-on-accent shadow-card"
@@ -60,7 +61,12 @@ function EpisodeCard({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTit
       <p className="mt-3 text-[0.98rem]">{ep.description}</p>
 
       {ep.status === 'ready' && ep.audioUrl ? (
-        <PlayButton ep={ep} seriesTitle={seriesTitle} queue={queue} />
+        <div className="flex flex-wrap items-center gap-2">
+          <PlayButton ep={ep} seriesTitle={seriesTitle} queue={queue} />
+          <span className="mt-4">
+            <DownloadButton ep={toPlayable(ep, seriesTitle)} compact loadDetail={() => fetch(`/api/episodes/${ep.id}`, { credentials: 'same-origin' }).then((r) => r.json())} />
+          </span>
+        </div>
       ) : ep.status === 'failed' ? (
         <p className="mt-4 text-sm text-danger">This episode could not be finished.</p>
       ) : ep.status === 'needs_review' ? (
@@ -105,6 +111,9 @@ function EpisodeCard({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTit
           )}
           {ep.supportingModels.length > 0 && (
             <p><span className="font-semibold">Related models:</span> {ep.supportingModels.map((m) => m.name).join(', ')}</p>
+          )}
+          {ep.sources.length === 0 && (
+            <p className="text-muted">We could not verify a book for this mental model in library catalogues, so this episode does not cite one.</p>
           )}
           {ep.sources.length > 0 && (
             <div>

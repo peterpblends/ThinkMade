@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { authClient, supportsPasskeys, useSession } from '../lib/auth-client';
 import { getTheme, setTheme, type ThemeChoice } from '../lib/theme';
 import { Button, Card, Field, Notice, PageHeader } from '../components/ui';
+import { StorageSection } from './storage-section';
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -270,6 +271,7 @@ export function SettingsScreen() {
       <AppearanceSection />
       <PasskeySection />
       <TwoFactorSection />
+      <StorageSection />
       <DataSection />
     </div>
   );

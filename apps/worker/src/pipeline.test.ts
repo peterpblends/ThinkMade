@@ -203,3 +203,22 @@ describe('quality gate', () => {
     setFakeValidation(() => ({ scores: { model: 5, thinking: 5, seeing: 5, doing: 5, flow: 5, accuracy: 5, sources: 5, repetition: 5 }, passed: true, problems: [], sectionsToRevise: [], revisionNotes: '' }));
   });
 });
+
+describe('research matching', () => {
+  it('still attaches books when the model renames the slugs in its research reply', async () => {
+    world = await makeWorld((messages: ChatMessage[]) => {
+      const sys = String(messages[0]!.content);
+      const out = fakeResponder(messages);
+      if (sys.startsWith('STAGE: research')) {
+        const parsed = JSON.parse(out) as { models: Array<{ slug: string }> };
+        parsed.models = parsed.models.map((m, i) => ({ ...m, slug: `renamed-${i}` }));
+        return JSON.stringify(parsed);
+      }
+      return out;
+    });
+    await world.enqueue('Renamed slugs', { episodes: 1 });
+    await runNextJob(world.deps);
+    const sources = await world.db.select().from(schema.source);
+    expect(sources.length).toBeGreaterThan(0);
+  });
+});

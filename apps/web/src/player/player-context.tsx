@@ -67,7 +67,7 @@ export function PlayerProvider({ children, sendProgress = sendProgressOnline, re
       if (!ep || !el) return;
       const positionMs = Math.round(el.currentTime * 1000);
       saved.current = { at: Date.now(), positionMs };
-      void sendProgress(ep.id, { positionMs, event, clientUpdatedAt: new Date().toISOString(), deviceId: deviceId(), ...(opts?.status ? { status: opts.status } : {}) }, { keepalive: opts?.keepalive ?? false });
+      void sendProgress(ep.id, { positionMs, event, clientUpdatedAt: new Date().toISOString(), deviceId: deviceId(), ...(opts?.status ? { status: opts.status } : {}) }, { keepalive: opts?.keepalive ?? false, durationMs: ep.durationSeconds ? ep.durationSeconds * 1000 : null });
     },
     [sendProgress],
   );

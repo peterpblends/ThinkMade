@@ -264,10 +264,16 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     // 3. Research and verify books
     if (!state.research) {
       state.research = await runner.run('research', async () => {
-        const r = await chat('research', RESEARCH_TASK, { models: state.models!.map((m) => ({ slug: m.slug, name: m.name, summary: m.summary })) }, researchSchema);
+        const r = await chat('research', RESEARCH_TASK, { models: state.models!.map((m) => ({ slug: m.slug, name: m.name, summary: m.summary })), note: 'Return the models in the same order, keeping each slug exactly as given.' }, researchSchema);
         const out: ResearchState = {};
-        for (const m of state.models!) {
-          const found = r.models.find((x) => x.slug === m.slug);
+        const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, '');
+        for (const [idx, m] of state.models!.entries()) {
+          // Models sometimes rename slugs in their reply: match by slug, then by name, then by position.
+          const found =
+            r.models.find((x) => x.slug === m.slug) ??
+            r.models.find((x) => norm(x.slug) === norm(m.name) || norm(x.slug).includes(norm(m.slug)) || norm(m.slug).includes(norm(x.slug))) ??
+            (r.models.length === state.models!.length ? r.models[idx] : undefined);
+          if (!found) log('research reply missing model', { jobId: job.id, slug: m.slug });
           const verified: VerifiedBook[] = [];
           let rejected = 0;
           for (const claim of (found?.books ?? []).slice(0, 4)) {
