@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsx scripts/build-icons.ts",
     "build:icons": "tsx scripts/build-icons.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"

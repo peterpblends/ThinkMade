@@ -5,17 +5,18 @@ Tracks the ten phases from the master spec. A box is ticked only when the item i
 Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!]` blocked (reason noted)
 
 ## Phase 1 — Foundation
-- [ ] Monorepo structure (apps/web, apps/api, apps/worker, packages/db, packages/shared, packages/ai, packages/brand)
-- [ ] Development environment: local Postgres (pgvector), local object storage, `.env.example`, one-command dev start
-- [ ] Design tokens and Tailwind theme (Warm Ivory, Deep Charcoal, Terracotta, Sage Green, Soft White; light and dark)
-- [ ] Logo and brand assets (symbol, wordmark, horizontal, stacked, light/dark/mono, SVG + PNG, favicons, Apple touch icon, maskable PWA icons, social image) tested at 32/48/64/128/180/192/512 px
-- [ ] Mobile shell: three-tab bottom navigation, header avatar menu, safe-area handling, no horizontal overflow
-- [ ] Accounts: register, verify email, sign in, reset password, passkeys, sign out, delete account, export data
-- [ ] Database schema and migrations for the core model
-- [ ] Admin settings store with versioning and rollback; seeded defaults from the spec
-- [ ] Vercel project configuration, custom-domain documentation, DNS record documentation
-- [ ] CI: lint, typecheck, unit tests, dependency audit, secret scan
-- [ ] Phase report
+- [x] Monorepo structure (apps/web, apps/api, packages/db, packages/shared, packages/ai, packages/brand). `apps/worker` arrives with Phase 2.
+- [x] Development environment: embedded Postgres (PGlite with pgvector), `.env.example`, one-command `npm run dev`
+- [x] Design tokens and Tailwind theme, light and dark, AA contrast measured
+- [x] Logo and brand assets, rendered and reviewed at 16–512 px
+- [x] Mobile shell: three-tab bottom navigation, account menu, safe areas, no horizontal overflow (Playwright iPhone, Pixel, desktop)
+- [x] Accounts: register, verify email, sign in, reset password, passkeys, two-step verification, sign out, delete account, export data
+- [x] Database schema and migrations for the core model
+- [x] Admin settings store with versioning, rollback and audit log; spec defaults seeded; admin screen
+- [~] Vercel: build output, routing, headers and docs done. **Not deployed:** it needs the owner's Vercel, Neon and DNS access.
+- [~] CI workflow written (lint, types, tests, audit, e2e, secret scan). **Not yet observed green on GitHub.**
+- [ ] Real iPhone and Android device check. Only Playwright device emulation so far.
+- [x] Phase report: `docs/reports/phase-1.md`
 
 ## Phase 2 — Core Podcast Generation
 - [ ] Create screen: "What would you like to think through today?", text input, Create My Podcasts, Customize

@@ -34,3 +34,21 @@ describe('loadEnv production database', () => {
     expect(() => loadEnv({ NODE_ENV: 'production', AUTH_SECRET: 'x'.repeat(40) })).toThrow(/DATABASE_URL/);
   });
 });
+
+describe('local start-up without configuration', () => {
+  it('boots without env: embedded database, generated secret, healthy API', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { createContext } = await import('./create-context');
+    const { createApp } = await import('./app');
+    const ctx = await createContext({ env: loadEnv({}), pgliteDir: ':memory:' });
+    try {
+      const res = await createApp(ctx).request('/api/health');
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ ok: true, db: 'pglite' });
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes('AUTH_SECRET'))).toHaveLength(1);
+    } finally {
+      await ctx.close();
+      warn.mockRestore();
+    }
+  });
+});

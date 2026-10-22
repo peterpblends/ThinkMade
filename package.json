@@ -12,7 +12,7 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "tsx scripts/dev.ts",
+    "dev": "concurrently -n api,web -c \"#829284,#C56B4E\" \"npm run dev -w apps/api\" \"npm run dev -w apps/web\"",
     "build": "npm run build --workspaces --if-present",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -20,7 +20,10 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "format": "prettier --write .",
     "db:migrate": "npm run db:migrate -w packages/db",
-    "build:vercel": "npm run build -w apps/web && tsx apps/api/scripts/build-vercel.ts"
+    "build:vercel": "npm run build -w apps/web && tsx apps/api/scripts/build-vercel.ts",
+    "e2e": "npm run e2e -w apps/web",
+    "seed:admin": "npm run seed:admin -w apps/api --",
+    "build:icons": "npm run build:icons -w packages/brand"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

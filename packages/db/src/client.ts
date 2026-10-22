@@ -29,6 +29,11 @@ export async function createDb(options: CreateDbOptions): Promise<DbHandle> {
   const { vector } = await import('@electric-sql/pglite-pgvector');
   const { drizzle } = await import('drizzle-orm/pglite');
   const dir = options.pgliteDir ?? '.data/pglite';
+  if (dir !== ':memory:') {
+    // PGlite creates only the final folder, so make sure its parents exist on a fresh clone.
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(dir, { recursive: true });
+  }
   const client =
     dir === ':memory:' ? new PGlite({ extensions: { vector } }) : new PGlite(dir, { extensions: { vector } });
   await client.waitReady;
