@@ -33,12 +33,16 @@ const SENTENCES = [
   'That is the habit worth practising this week.',
 ];
 
+let sentenceCounter = 0;
+const ORDINALS = ['first', 'next', 'another', 'a further', 'one more', 'a final'];
+/** Distinct sentences (so the repetition check passes) of roughly `target` words. */
 function words(target: number): string {
   const out: string[] = [];
   let n = 0;
-  let i = 0;
   while (n < target) {
-    const s = SENTENCES[i++ % SENTENCES.length]!;
+    const k = sentenceCounter++;
+    const base = SENTENCES[k % SENTENCES.length]!.replace(/\.$/, '');
+    const s = `${base}, which is the ${ORDINALS[k % ORDINALS.length]} idea in thread ${Math.floor(k / SENTENCES.length) + 1}.`;
     out.push(s);
     n += s.split(' ').length;
   }

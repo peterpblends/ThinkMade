@@ -50,6 +50,7 @@ export interface GenerationOptions {
   bitrateKbps: number;
   maxTokens: number;
   maxAudioMinutes: number;
+  quality?: { minScore: number; maxRevisions: number };
 }
 
 export const HOST_NAMES = { A: 'Maya', B: 'Theo' } as const;

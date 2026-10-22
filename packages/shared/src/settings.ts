@@ -47,6 +47,13 @@ const limitsSchema = z.strictObject({
   maxAudioMinutesPerJob: z.number().int().min(0),
 });
 
+const qualitySchema = z.strictObject({
+  /** Every criterion must score at least this (1–5) for a script to be voiced. */
+  minScore: z.number().int().min(1).max(5),
+  /** Rewrites allowed after the first review before an episode is held for human review. */
+  maxRevisions: z.number().int().min(0).max(5),
+});
+
 const bugReportsSchema = z.strictObject({
   email: z.union([z.literal(''), z.email()]),
 });
@@ -56,6 +63,7 @@ const settingsShape = {
   voices: voicesSchema,
   media: mediaSchema,
   limits: limitsSchema,
+  quality: qualitySchema.default({ minScore: 4, maxRevisions: 2 }),
   bugReports: bugReportsSchema,
 };
 
@@ -84,6 +92,7 @@ export const appSettingsPatchSchema = z.strictObject({
   voices: voicesSchema.partial().optional(),
   media: mediaSchema.partial().optional(),
   limits: limitsSchema.partial().optional(),
+  quality: qualitySchema.partial().optional(),
   bugReports: bugReportsSchema.partial().optional(),
 });
 
@@ -137,6 +146,10 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     maxTokensPerJob: 400_000,
     maxAudioMinutesPerJob: 240,
   },
+  quality: {
+    minScore: 4,
+    maxRevisions: 2,
+  },
   bugReports: {
     email: '',
   },
@@ -149,6 +162,7 @@ export function applySettingsPatch(current: AppSettings, patch: AppSettingsPatch
     voices: { ...current.voices, ...patch.voices },
     media: { ...current.media, ...patch.media },
     limits: { ...current.limits, ...patch.limits },
+    quality: { ...current.quality, ...patch.quality },
     bugReports: { ...current.bugReports, ...patch.bugReports },
   };
   return appSettingsSchema.parse(merged);

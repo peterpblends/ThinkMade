@@ -11,6 +11,7 @@ interface AdminSettings {
     voices: { single: string; hostA: string; hostB: string; available: string[] };
     media: Record<string, number>;
     limits: Record<string, number>;
+    quality: Record<string, number>;
     bugReports: { email: string };
   };
 }
@@ -22,7 +23,7 @@ interface VersionRow {
   active: boolean;
 }
 
-const NUMBER_FIELDS: Array<[section: 'podcast' | 'media' | 'limits', key: string, label: string]> = [
+const NUMBER_FIELDS: Array<[section: 'podcast' | 'media' | 'limits' | 'quality', key: string, label: string]> = [
   ['podcast', 'defaultLengthMinutes', 'Default episode length (minutes)'],
   ['podcast', 'defaultEpisodes', 'Default number of episodes'],
   ['podcast', 'maxEpisodeMinutes', 'Maximum episode length (minutes)'],
@@ -35,6 +36,8 @@ const NUMBER_FIELDS: Array<[section: 'podcast' | 'media' | 'limits', key: string
   ['limits', 'perUserDailyJobs', 'Generations per user per day'],
   ['limits', 'maxTokensPerJob', 'Language model tokens per generation'],
   ['limits', 'maxAudioMinutesPerJob', 'Audio minutes per generation'],
+  ['quality', 'minScore', 'Minimum quality score to record (1–5)'],
+  ['quality', 'maxRevisions', 'Script rewrites before holding for human review'],
 ];
 
 const SELECTS: Array<[key: string, label: string, options: Array<[string, string]>]> = [
@@ -86,6 +89,7 @@ export function AdminSettingsScreen() {
       },
       media: Object.fromEntries(NUMBER_FIELDS.filter(([sec]) => sec === 'media').map(([, k]) => [k, num(`media.${k}`)])),
       limits: Object.fromEntries(NUMBER_FIELDS.filter(([sec]) => sec === 'limits').map(([, k]) => [k, num(`limits.${k}`)])),
+      quality: Object.fromEntries(NUMBER_FIELDS.filter(([sec]) => sec === 'quality').map(([, k]) => [k, num(`quality.${k}`)])),
       voices: { single: String(f.get('voices.single')), hostA: String(f.get('voices.hostA')), hostB: String(f.get('voices.hostB')) },
       bugReports: { email: String(f.get('bugReports.email') ?? '').trim() },
     };
@@ -147,7 +151,7 @@ export function AdminSettingsScreen() {
           ))}
         </Card>
         <Card className="flex flex-col gap-4">
-          <h2 className="text-xl">Media and usage limits</h2>
+          <h2 className="text-xl">Media, usage and quality limits</h2>
           {NUMBER_FIELDS.filter(([sec]) => sec !== 'podcast').map(([sec, k, label]) => (
             <Field key={k} label={label} name={`${sec}.${k}`} type="number" inputMode="numeric" defaultValue={s[sec][k]} min={0} required />
           ))}

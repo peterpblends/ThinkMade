@@ -15,6 +15,7 @@ import { HOST_NAMES, type GenerationOptions, type GenerationStage } from '@think
 import { JobCancelledError, PermanentJobError, type WorkerDeps } from './deps';
 import { input, PLAN_TASK, RESEARCH_TASK, SCRIPT_TASK, SELECT_MODELS_TASK, stageSystem, UNDERSTAND_TASK } from './prompts';
 import type { ClaimedJob } from './queue';
+import { aggregateJudgements, CRITERIA_LABELS, failingCriteria, judgementSchema, judgeWindows, scriptChecks, VALIDATE_TASK, type Judgement } from './quality';
 import { extendLease, requeueJob } from './queue';
 import {
   modelSelectionSchema,
@@ -354,20 +355,36 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     state.scripts ??= {};
     const episodes = await db.select().from(schema.episode).where(eq(schema.episode.seriesId, seriesId));
     let audioSeconds = 0;
+    let held = 0;
     for (const planned of state.plan.episodes) {
       const row = episodes.find((e) => e.number === planned.number)!;
       if (row.status === 'ready') continue;
-      await writeAndVoiceEpisode(planned, row.id, row.speakerFormat as 'single' | 'two_hosts', row.hosts ?? []);
+      if (row.status === 'needs_review') {
+        held++;
+        continue;
+      }
+      const result = await writeAndVoiceEpisode(planned, row.id, row.speakerFormat as 'single' | 'two_hosts', row.hosts ?? []);
+      if (result === 'needs_review') held++;
+    }
+    if (held > 0) {
+      const message =
+        held === state.plan.episodes.length
+          ? 'Your podcasts did not pass our quality review, so we did not record them. Our team has been notified. Please try rephrasing your question.'
+          : `${held} episode${held > 1 ? 's' : ''} did not pass our quality review and ${held > 1 ? 'were' : 'was'} not recorded. The rest are ready.`;
+      await db.insert(schema.usageMetric).values({ metric: 'llm_tokens', value: state.tokens ?? 0, userId: job.user_id, jobId: job.id });
+      return await finalise('failed', message);
     }
 
-    async function writeAndVoiceEpisode(ep: PlannedEpisode, episodeId: string, format: 'single' | 'two_hosts', hosts: Array<{ id: string; name: string; voice: string }>) {
+    async function writeAndVoiceEpisode(ep: PlannedEpisode, episodeId: string, format: 'single' | 'two_hosts', hosts: Array<{ id: string; name: string; voice: string }>): Promise<'ready' | 'needs_review'> {
       const totalWords = WORDS_PER_MINUTE * options.lengthMinutes;
       const perSection = Math.round(totalWords / ep.sections.length);
       const key = String(ep.number);
       state.scripts![key] ??= { sections: [] };
       const done = state.scripts![key]!.sections;
+      const quality = options.quality ?? { minScore: 4, maxRevisions: 2 };
       await db.update(schema.episode).set({ status: 'scripting' }).where(eq(schema.episode.id, episodeId));
-      for (let i = done.length; i < ep.sections.length; i++) {
+
+      const writeSection = async (i: number, revision?: { notes: string; problems: string[]; previous: string }) => {
         const section = await runner.run('script', () =>
           chat('script', SCRIPT_TASK, {
             seriesTitle: state.understanding!.seriesTitle,
@@ -380,26 +397,64 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
             section: { index: i + 1, of: ep.sections.length, heading: ep.sections[i]!.heading, goal: ep.sections[i]!.goal },
             isFirstSection: i === 0,
             isLastSection: i === ep.sections.length - 1,
-            earlierSections: done.map((d) => d.summary),
+            earlierSections: done.slice(0, i).map((d) => d.summary),
             targetWords: perSection,
             listenerObjective: state.understanding!.objective,
+            ...(revision ? { revision: { instruction: 'Rewrite this section to fix the reviewer\'s problems. Keep what works.', reviewerNotes: revision.notes, problems: revision.problems, previousText: revision.previous } } : {}),
           }, scriptSectionSchema, 6000),
           ep.number,
-          `section ${i + 1} of ${ep.sections.length}`,
+          `section ${i + 1} of ${ep.sections.length}${revision ? ' (revision)' : ''}`,
         );
         if (format === 'single') section.segments = section.segments.map((s) => ({ ...s, speaker: 'A' as const }));
-        done.push({ segments: section.segments, summary: section.summary });
+        done[i] = { segments: section.segments, summary: section.summary };
         await saveState(db, job.id, state);
+      };
+
+      for (let i = done.length; i < ep.sections.length; i++) await writeSection(i);
+
+      // Quality gate: review, revise, and only voice a script that passes.
+      for (let revision = 1; ; revision++) {
+        const verdict = await runner.run('validate', async () => {
+          const sections = done.map((d) => d.segments);
+          const checks = scriptChecks(sections, { targetWords: totalWords, format });
+          const windows = judgeWindows(sections.map((segs) => segs.reduce((n, x) => n + countWords(x.text), 0)), 4500);
+          const judgements: Judgement[] = [];
+          for (const w of windows) {
+            judgements.push(
+              await chat('validate', VALIDATE_TASK, {
+                episode: { title: ep.title, learningObjective: ep.learningObjective, outcomes: ep.outcomes, primaryModel: state.models!.find((m) => m.slug === ep.primaryModelSlug)?.name },
+                verifiedBooks: [ep.primaryModelSlug, ...ep.supportingModelSlugs].flatMap((s) => state.research![s]?.books ?? []).map((b) => ({ title: b.title, author: b.authors.join(', ') })),
+                format,
+                sections: w.map((i) => ({ number: i + 1, heading: ep.sections[i]!.heading, text: done[i]!.segments.map((x) => `${x.speaker}: ${x.text}`).join('\n') })),
+                windowCoversWholeEpisode: windows.length === 1,
+              }, judgementSchema, 2000),
+            );
+          }
+          const agg = aggregateJudgements(judgements);
+          const failing = failingCriteria(agg.scores, quality.minScore);
+          const passed = failing.length === 0 && checks.length === 0;
+          const notes = [...failing.map((c) => `Below standard: ${CRITERIA_LABELS[c]}.`), ...checks.map((c) => c.message), ...agg.problems];
+          await db
+            .insert(schema.episodeQualityCheck)
+            .values({ episodeId, revision, passed: passed ? 1 : 0, scores: agg.scores, notes, checkedBy: 'auto' })
+            .onConflictDoUpdate({ target: [schema.episodeQualityCheck.episodeId, schema.episodeQualityCheck.revision], set: { passed: passed ? 1 : 0, scores: agg.scores, notes } });
+          return { passed, agg, checks, notes };
+        }, ep.number, `review ${revision}`);
+        if (verdict.passed) break;
+        if (revision > quality.maxRevisions) {
+          await db.update(schema.episode).set({ status: 'needs_review', script: done.flatMap((d) => d.segments) }).where(eq(schema.episode.id, episodeId));
+          log('episode held for review', { jobId: job.id, episode: ep.number });
+          return 'needs_review';
+        }
+        const wholeScript = verdict.checks.some((c) => c.section === null);
+        const targets = new Set<number>(wholeScript ? ep.sections.map((_, i) => i + 1) : [...verdict.agg.sectionsToRevise, ...verdict.checks.map((c) => c.section!).filter(Boolean)]);
+        if (targets.size === 0) ep.sections.forEach((_, i) => targets.add(i + 1));
+        for (const n of [...targets].filter((n) => n >= 1 && n <= ep.sections.length).sort((a, b) => a - b)) {
+          await writeSection(n - 1, { notes: verdict.agg.revisionNotes, problems: verdict.notes, previous: done[n - 1]!.segments.map((x) => x.text).join(' ').slice(0, 6000) });
+        }
       }
 
       const segments = done.flatMap((d) => d.segments);
-      await runner.run('validate', async () => {
-        const words = segments.reduce((n, s) => n + countWords(s.text), 0);
-        if (words < totalWords * 0.4) {
-          throw new Error(`The script for episode ${ep.number} is far too short (${words} of about ${totalWords} words).`);
-        }
-      }, ep.number);
-
       const nameOf = (id: string) => hosts.find((h) => h.id === id)?.name ?? 'Host';
       const voiceOf = (id: string) => hosts.find((h) => h.id === id)?.voice ?? options.voices.single;
       await db.update(schema.episode).set({ status: 'synthesizing', script: segments }).where(eq(schema.episode.id, episodeId));
@@ -437,6 +492,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       if (options.maxAudioMinutes && audioSeconds / 60 > options.maxAudioMinutes) {
         throw new PermanentJobError(`This series hit its audio budget (${options.maxAudioMinutes} minutes).`);
       }
+      return 'ready';
     }
 
     // 8. Publish

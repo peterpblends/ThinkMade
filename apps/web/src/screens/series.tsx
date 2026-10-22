@@ -29,6 +29,8 @@ function EpisodeCard({ ep }: { ep: EpisodeSummary }) {
         <audio className="mt-4 w-full" controls preload="metadata" src={ep.audioUrl} aria-label={`Play episode ${ep.number}: ${ep.title}`} />
       ) : ep.status === 'failed' ? (
         <p className="mt-4 text-sm text-danger">This episode could not be finished.</p>
+      ) : ep.status === 'needs_review' ? (
+        <p className="mt-4 text-sm text-danger">This script did not pass our quality review, so it was not recorded. It is waiting for a person to review it.</p>
       ) : (
         <p role="status" className="mt-4 text-sm text-muted">
           Still being prepared…
@@ -50,6 +52,20 @@ function EpisodeCard({ ep }: { ep: EpisodeSummary }) {
               <h3 className="text-base">Key takeaways</h3>
               <ul className="mt-1 list-disc pl-5">
                 {ep.keyTakeaways.map((k) => <li key={k}>{k}</li>)}
+              </ul>
+            </div>
+          )}
+          {ep.examples.length > 0 && (
+            <div>
+              <h3 className="text-base">Examples</h3>
+              <ul className="mt-1 flex flex-col gap-1">
+                {ep.examples.map((x) => (
+                  <li key={x.title}>
+                    <span className="font-semibold">{x.title}</span>{' '}
+                    <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted">{x.kind === 'real' ? 'Real case' : 'Hypothetical'}</span>
+                    <span className="block text-muted">{x.summary}</span>
+                  </li>
+                ))}
               </ul>
             </div>
           )}

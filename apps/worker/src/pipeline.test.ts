@@ -155,3 +155,51 @@ describe('generation pipeline', () => {
     expect(again?.attempts).toBe(2);
   });
 });
+
+describe('quality gate', () => {
+  it('revises a script that fails review, then voices it', async () => {
+    const { setFakeValidation } = await import('./testing/fake-responder');
+    let judged = 0;
+    setFakeValidation(() => {
+      judged++;
+      return judged === 1
+        ? { scores: { model: 5, thinking: 5, seeing: 2, doing: 5, flow: 4, accuracy: 5, sources: 5, repetition: 5 }, passed: false, problems: ['Never shows how to recognise the situation.'], sectionsToRevise: [1], revisionNotes: 'Add the signals that tell the listener this model applies.' }
+        : { scores: { model: 5, thinking: 5, seeing: 5, doing: 5, flow: 5, accuracy: 5, sources: 5, repetition: 5 }, passed: true, problems: [], sectionsToRevise: [], revisionNotes: '' };
+    });
+    const scriptCalls: string[] = [];
+    world = await makeWorld((messages) => {
+      const sys = String(messages[0]!.content);
+      if (sys.startsWith('STAGE: script')) scriptCalls.push(String(messages[1]!.content));
+      return fakeResponder(messages);
+    });
+    const job = await world.enqueue('Quality please', { episodes: 1, speakerFormat: 'single' });
+    await runNextJob(world.deps);
+    expect((await jobRow(job.id)).status).toBe('succeeded');
+    const [ep] = await world.db.select().from(schema.episode);
+    expect(ep!.status).toBe('ready');
+    const checks = await world.db.select().from(schema.episodeQualityCheck).where(eq(schema.episodeQualityCheck.episodeId, ep!.id));
+    expect(checks.map((c) => [c.revision, c.passed])).toEqual([[1, 0], [2, 1]]);
+    expect(checks[0]!.notes).toContain('Never shows how to recognise the situation.');
+    // The revision request carried the reviewer's notes.
+    expect(scriptCalls.at(-1)).toContain('Add the signals that tell the listener this model applies.');
+    setFakeValidation(() => ({ scores: { model: 5, thinking: 5, seeing: 5, doing: 5, flow: 5, accuracy: 5, sources: 5, repetition: 5 }, passed: true, problems: [], sectionsToRevise: [], revisionNotes: '' }));
+  });
+
+  it('holds a script that keeps failing for review instead of voicing it', async () => {
+    const { setFakeValidation } = await import('./testing/fake-responder');
+    setFakeValidation(() => ({ scores: { model: 5, thinking: 5, seeing: 5, doing: 5, flow: 5, accuracy: 2, sources: 2, repetition: 5 }, passed: false, problems: ['Cites a statistic with no source.'], sectionsToRevise: [1], revisionNotes: 'Remove the statistic.' }));
+    world = await makeWorld();
+    const job = await world.enqueue('Doomed', { episodes: 1, speakerFormat: 'single' });
+    await runNextJob(world.deps);
+    const j = await jobRow(job.id);
+    expect(j.status).toBe('failed');
+    expect(j.error).toMatch(/did not pass our quality review/i);
+    const [ep] = await world.db.select().from(schema.episode);
+    expect(ep!.status).toBe('needs_review');
+    expect(ep!.audioKey).toBeNull();
+    const checks = await world.db.select().from(schema.episodeQualityCheck);
+    expect(checks).toHaveLength(3); // first review + 2 revisions (admin default)
+    expect(checks.every((c) => c.passed === 0)).toBe(true);
+    setFakeValidation(() => ({ scores: { model: 5, thinking: 5, seeing: 5, doing: 5, flow: 5, accuracy: 5, sources: 5, repetition: 5 }, passed: true, problems: [], sectionsToRevise: [], revisionNotes: '' }));
+  });
+});
