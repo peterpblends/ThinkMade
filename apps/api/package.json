@@ -1,0 +1,24 @@
+{
+  "name": "@thinkmade/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@better-auth/passkey": "^1.7.12",
+    "@hono/node-server": "^2.1.5",
+    "@thinkmade/ai": "*",
+    "@thinkmade/db": "*",
+    "@thinkmade/shared": "*",
+    "better-auth": "^1.7.12",
+    "drizzle-orm": "^0.45.4",
+    "hono": "^4.13.13",
+    "zod": "^4.6.7"
+  }
+}
