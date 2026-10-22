@@ -13,11 +13,14 @@ const envSchema = z.object({
   API_URL: z.string().url().default('http://localhost:8787'),
   PASSKEY_RP_ID: z.string().default('localhost'),
   ADMIN_SKIP_2FA: z.preprocess(emptyToUndefined, z.enum(['true', 'false']).optional()),
+  VERCEL_GIT_COMMIT_SHA: z.string().optional(),
 });
 
 export type Env = Omit<z.infer<typeof envSchema>, 'AUTH_SECRET' | 'ADMIN_SKIP_2FA'> & {
   AUTH_SECRET: string;
   ADMIN_SKIP_2FA: boolean;
+  /** Short commit sha on Vercel, 'dev' elsewhere. */
+  APP_VERSION: string;
 };
 
 /** Validates environment variables. Generates a throwaway AUTH_SECRET outside production. */
@@ -37,5 +40,10 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
       '[env] AUTH_SECRET is not set; generated a temporary secret. Sessions will not survive a restart.',
     );
   }
-  return { ...parsed, AUTH_SECRET: secret, ADMIN_SKIP_2FA: parsed.ADMIN_SKIP_2FA === 'true' };
+  return {
+    ...parsed,
+    AUTH_SECRET: secret,
+    ADMIN_SKIP_2FA: parsed.ADMIN_SKIP_2FA === 'true',
+    APP_VERSION: parsed.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'dev',
+  };
 }
