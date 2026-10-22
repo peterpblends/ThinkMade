@@ -25,7 +25,9 @@ async function deliver(email: EmailSender, to: string, subject: string, text: st
 export function createAuth({ db, env, email }: AuthDeps) {
   return betterAuth({
     appName: BRAND.name,
-    baseURL: env.API_URL,
+    // The API is always served under the app origin (Vercel rewrite in production, Vite proxy locally),
+    // so links and cookies use the public app URL.
+    baseURL: env.APP_URL,
     basePath: '/api/auth',
     secret: env.AUTH_SECRET,
     trustedOrigins: [env.APP_URL, env.API_URL],

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>ThinkMade — Better Thinking. Made Personal.</title>
+    <meta name="description" content="ThinkMade transforms the world's best books and mental models into personalized podcasts that teach you how to think through whatever you're trying to learn or solve." />
+    <meta name="theme-color" content="#F7F4EE" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1C1A18" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="ThinkMade" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="ThinkMade" />
+    <meta property="og:title" content="ThinkMade — Better Thinking. Made Personal." />
+    <meta property="og:description" content="Personalized podcasts that teach you how to think." />
+    <meta property="og:url" content="https://thinkmade.zicaworld.com/" />
+    <meta property="og:image" content="https://thinkmade.zicaworld.com/social-card.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="ThinkMade — Better Thinking. Made Personal." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      try {
+        var t = localStorage.getItem('tm-theme');
+        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

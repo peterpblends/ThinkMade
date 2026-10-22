@@ -17,5 +17,8 @@
     "@resvg/resvg-js": "^2.6.2",
     "@types/opentype.js": "^1.3.10",
     "opentype.js": "1.3.4"
+  },
+  "exports": {
+    ".": "./src/logo.ts"
   }
 }

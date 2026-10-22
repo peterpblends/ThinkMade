@@ -14,6 +14,8 @@ const envSchema = z.object({
   PASSKEY_RP_ID: z.string().default('localhost'),
   ADMIN_SKIP_2FA: z.preprocess(emptyToUndefined, z.enum(['true', 'false']).optional()),
   VERCEL_GIT_COMMIT_SHA: z.string().optional(),
+  /** Credential POSTs allowed per IP per 15 minutes. */
+  AUTH_RATE_LIMIT: z.coerce.number().int().positive().default(20),
 });
 
 export type Env = Omit<z.infer<typeof envSchema>, 'AUTH_SECRET' | 'ADMIN_SKIP_2FA'> & {

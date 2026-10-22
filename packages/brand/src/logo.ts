@@ -34,6 +34,15 @@ function arc(r: number, a0: number, a1: number): string {
   return `M${x0} ${y0} A${r} ${r} 0 ${large} 1 ${x1} ${y1}`;
 }
 
+/** Geometry for drawing the symbol inline (e.g. in React with currentColor). */
+export const SYMBOL_GEOMETRY = {
+  viewBox: `0 0 ${GRID} ${GRID}`,
+  ridgePath: RIDGES.map(([r, a0, a1]) => arc(r, a0, a1)).join(' '),
+  strokeWidth: STROKE,
+  center: CENTER,
+  coreRadius: CORE_RADIUS,
+} as const;
+
 export interface SymbolColors {
   ridge: string;
   core: string;

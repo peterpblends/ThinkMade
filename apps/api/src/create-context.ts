@@ -1,5 +1,5 @@
 import { createDb, runMigrations, type Db } from '@thinkmade/db';
-import { consoleEmailSender, type EmailSender } from '@thinkmade/ai';
+import { consoleEmailSender, memoryEmailSender, type EmailSender } from '@thinkmade/ai';
 import { createAuth, type Auth } from './auth';
 import { loadEnv, type Env } from './env';
 import { createSettingsService, type SettingsService } from './settings/settings-service';
@@ -30,7 +30,7 @@ export async function createContext(
     pgliteDir: options.pgliteDir ?? env.PGLITE_DIR,
   });
   await runMigrations(handle);
-  const email = options.email ?? consoleEmailSender();
+  const email = options.email ?? (env.NODE_ENV === 'test' ? memoryEmailSender() : consoleEmailSender());
   const auth = createAuth({ db: handle.db, env, email });
   const settings = createSettingsService(handle.db);
   await settings.seedDefaults();

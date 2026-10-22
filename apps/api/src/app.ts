@@ -7,6 +7,9 @@ import { adminRoutes } from './routes/admin';
 import { healthRoutes } from './routes/health';
 import { meRoutes } from './routes/me';
 import { publicSettingsRoutes } from './routes/settings';
+import { accountRoutes } from './routes/account';
+import { testOnlyRoutes } from './routes/test-only';
+import { bugReportRoutes } from './routes/bug-reports';
 
 export function createApp(ctx: AppContext) {
   const app = new Hono<{ Variables: AppVariables }>();
@@ -17,7 +20,7 @@ export function createApp(ctx: AppContext) {
     db: ctx.db,
     name: 'auth',
     key: clientIp,
-    limit: 20,
+    limit: ctx.env.AUTH_RATE_LIMIT,
     windowSeconds: 15 * 60,
     now: ctx.now,
   });
@@ -40,6 +43,9 @@ export function createApp(ctx: AppContext) {
   api.route('/', healthRoutes(ctx));
   api.route('/', meRoutes());
   api.route('/', publicSettingsRoutes(ctx));
+  api.route('/', accountRoutes(ctx));
+  api.route('/', bugReportRoutes());
+  if (ctx.env.NODE_ENV === 'test') api.route('/_test', testOnlyRoutes(ctx));
   api.route('/admin', adminRoutes(ctx));
   api.notFound((c) => c.json({ error: 'not_found' }, 404));
   app.route('/api', api);

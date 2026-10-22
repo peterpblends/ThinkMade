@@ -1,0 +1,147 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource/newsreader/500.css';
+@import '@fontsource/newsreader/600.css';
+
+/*
+ * ThinkMade design tokens. Brand colors are fixed; semantic tokens switch for dark mode.
+ * Text-on-color pairs are chosen for WCAG 2.2 AA (4.5:1 for body text):
+ *   light: ink/bg 13.3, muted/bg 6.2, accent-ink/bg 5.2, white/accent-strong 5.4, danger/surface 6.9
+ *   dark:  ink/bg 15.0, muted/bg 8.0, accent-ink/bg 7.6, on-accent/accent-strong 6.2, danger/surface 6.4
+ * Brand Terracotta (#C56B4E) is used for marks and large display accents, not body text.
+ */
+:root {
+  --tm-ivory: #f7f4ee;
+  --tm-charcoal: #292929;
+  --tm-terracotta: #c56b4e;
+  --tm-sage: #829284;
+  --tm-white: #ffffff;
+
+  --tm-bg: var(--tm-ivory);
+  --tm-surface: var(--tm-white);
+  --tm-surface-2: #efebe3;
+  --tm-ink: var(--tm-charcoal);
+  --tm-muted: #5f5a53;
+  --tm-border: #e2dcd1;
+  --tm-accent: var(--tm-terracotta);
+  --tm-accent-ink: #a14f35;
+  --tm-accent-strong: #a65237;
+  --tm-on-accent: #ffffff;
+  --tm-sage-ink: #566658;
+  --tm-sage-soft: #e5ebe5;
+  --tm-danger: #a3322a;
+  --tm-focus: #c56b4e;
+  --tm-shadow: 0 1px 2px rgb(41 41 41 / 0.06), 0 8px 24px rgb(41 41 41 / 0.06);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --tm-bg: #1c1a18;
+    --tm-surface: #26231f;
+    --tm-surface-2: #302c27;
+    --tm-ink: #f2eee6;
+    --tm-muted: #b7afa3;
+    --tm-border: #3b362f;
+    --tm-accent: #d98466;
+    --tm-accent-ink: #e39a7e;
+    --tm-accent-strong: #d98466;
+    --tm-on-accent: #1c1a18;
+    --tm-sage-ink: #a9b8aa;
+    --tm-sage-soft: #2a302a;
+    --tm-danger: #f08a80;
+    --tm-focus: #e39a7e;
+    --tm-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.25);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --tm-bg: #1c1a18;
+  --tm-surface: #26231f;
+  --tm-surface-2: #302c27;
+  --tm-ink: #f2eee6;
+  --tm-muted: #b7afa3;
+  --tm-border: #3b362f;
+  --tm-accent: #d98466;
+  --tm-accent-ink: #e39a7e;
+  --tm-accent-strong: #d98466;
+  --tm-on-accent: #1c1a18;
+  --tm-sage-ink: #a9b8aa;
+  --tm-sage-soft: #2a302a;
+  --tm-danger: #f08a80;
+  --tm-focus: #e39a7e;
+  --tm-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.25);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--tm-bg);
+  --color-surface: var(--tm-surface);
+  --color-surface-2: var(--tm-surface-2);
+  --color-ink: var(--tm-ink);
+  --color-muted: var(--tm-muted);
+  --color-line: var(--tm-border);
+  --color-accent: var(--tm-accent);
+  --color-accent-ink: var(--tm-accent-ink);
+  --color-accent-strong: var(--tm-accent-strong);
+  --color-on-accent: var(--tm-on-accent);
+  --color-sage: var(--tm-sage);
+  --color-sage-ink: var(--tm-sage-ink);
+  --color-sage-soft: var(--tm-sage-soft);
+  --color-danger: var(--tm-danger);
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-serif: 'Newsreader', ui-serif, Georgia, 'Times New Roman', serif;
+  --shadow-card: var(--tm-shadow);
+  --radius-card: 1.25rem;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    margin: 0;
+    background: var(--tm-bg);
+    color: var(--tm-ink);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.55;
+    overflow-x: hidden;
+    overscroll-behavior-y: none;
+  }
+  h1, h2, h3 {
+    font-family: var(--font-serif);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+  :focus-visible {
+    outline: 3px solid var(--tm-focus);
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--tm-accent) 30%, transparent);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility px-safe {
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
