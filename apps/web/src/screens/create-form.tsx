@@ -1,5 +1,6 @@
-import { useId, useState, type FormEvent, type ReactNode } from 'react';
-import { Camera, Mic, SlidersHorizontal, Video } from 'lucide-react';
+import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
+import { Camera, Mic, Square, SlidersHorizontal, Video, X } from 'lucide-react';
+import { useVoiceInput, type VoiceInput } from '../lib/voice';
 import type { PublicPodcastSettings } from '../lib/api';
 import { Button } from '../components/ui';
 
@@ -72,6 +73,52 @@ function ChoiceGroup<T extends string | number>({
   );
 }
 
+function VoiceControls({ voice, soonId }: { voice: VoiceInput; soonId: string }) {
+  const unsupportedId = useId();
+  if (voice.state === 'recording') {
+    return (
+      <>
+        <span role="status" className="flex items-center gap-2 px-2 text-sm font-semibold text-danger">
+          <span aria-hidden className="h-2.5 w-2.5 animate-pulse rounded-full bg-danger" /> Recording…
+        </span>
+        <button type="button" onClick={voice.stop} aria-label="Stop recording" className="flex h-11 w-11 items-center justify-center rounded-full bg-accent-strong text-on-accent">
+          <Square aria-hidden size={18} />
+        </button>
+        <button type="button" onClick={voice.cancel} aria-label="Cancel recording" className="flex h-11 w-11 items-center justify-center rounded-full text-muted hover:bg-surface-2">
+          <X aria-hidden size={20} />
+        </button>
+      </>
+    );
+  }
+  if (voice.state === 'transcribing') {
+    return <span role="status" className="px-2 text-sm text-muted">Turning your words into text…</span>;
+  }
+  return (
+    <>
+      <button
+        type="button"
+        onClick={voice.start}
+        disabled={!voice.supported}
+        aria-label="Speak your topic"
+        aria-describedby={voice.supported ? undefined : unsupportedId}
+        className="flex h-11 w-11 items-center justify-center rounded-full text-ink hover:bg-surface-2 disabled:cursor-not-allowed disabled:text-muted disabled:opacity-60"
+      >
+        <Mic aria-hidden size={22} />
+      </button>
+      {!voice.supported && (
+        <span id={unsupportedId} className="sr-only">
+          Voice input is not supported in this browser.
+        </span>
+      )}
+      <MediaButton label="Add a photo" icon={<Camera aria-hidden size={22} />} describedBy={soonId} />
+      <MediaButton label="Add a video" icon={<Video aria-hidden size={22} />} describedBy={soonId} />
+      <span id={soonId} className="ml-1 text-xs text-muted">
+        Photo and video input are coming soon.
+      </span>
+    </>
+  );
+}
+
 function MediaButton({ label, icon, describedBy }: { label: string; icon: ReactNode; describedBy: string }) {
   return (
     <button
@@ -92,13 +139,21 @@ export function CreateForm({
   onCreate,
   initialTopic = '',
   busy = false,
+  voice: voiceProp,
 }: {
   defaults: PublicPodcastSettings;
   onCreate: (request: CreateRequest) => void;
   initialTopic?: string;
   busy?: boolean;
+  /** Injected in tests; the real hook is used otherwise. */
+  voice?: VoiceInput;
 }) {
+  const ownVoice = useVoiceInput();
+  const voice = voiceProp ?? ownVoice;
   const [topic, setTopic] = useState(initialTopic);
+  useEffect(() => {
+    if (voice.transcript) setTopic((t) => (t.trim() ? `${t.trim()} ${voice.transcript}` : voice.transcript!));
+  }, [voice.transcript]);
   const [error, setError] = useState<string | null>(null);
   const [customOpen, setCustomOpen] = useState(false);
   const [touchedCustom, setTouchedCustom] = useState(false);
@@ -145,15 +200,15 @@ export function CreateForm({
           aria-describedby={error ? ids.error : undefined}
           className="block w-full resize-none rounded-t-[var(--radius-card)] bg-transparent px-4 pb-2 pt-4 text-[1.05rem] leading-relaxed text-ink [overflow-wrap:anywhere] placeholder:text-muted focus:outline-none"
         />
-        <div className="flex items-center gap-1 border-t border-line/70 px-2 py-1">
-          <MediaButton label="Speak your topic" icon={<Mic aria-hidden size={22} />} describedBy={ids.soon} />
-          <MediaButton label="Add a photo" icon={<Camera aria-hidden size={22} />} describedBy={ids.soon} />
-          <MediaButton label="Add a video" icon={<Video aria-hidden size={22} />} describedBy={ids.soon} />
-          <span id={ids.soon} className="ml-1 text-xs text-muted">
-            Voice, photo and video input are coming soon.
-          </span>
+        <div className="flex min-h-12 flex-wrap items-center gap-1 border-t border-line/70 px-2 py-1">
+          <VoiceControls voice={voice} soonId={ids.soon} />
         </div>
       </div>
+      {voice.error && (
+        <p role="alert" className="text-sm text-danger">
+          {voice.error}
+        </p>
+      )}
 
       {error && (
         <p id={ids.error} role="alert" className="text-sm text-danger">

@@ -13,7 +13,7 @@ function getApp() {
   appPromise ??= (async () => {
     const env = loadEnv();
     // Production uses Postgres with migrations applied at deploy time; local runs use PGlite and migrate here.
-    const ctx = await createContext({ env, migrate: !env.DATABASE_URL });
+    const ctx = await createContext({ env, migrate: !env.DATABASE_URL, inProcessWorker: false });
     return createApp(ctx);
   })().catch((err) => {
     appPromise = null; // allow the next request to retry after a failed cold start

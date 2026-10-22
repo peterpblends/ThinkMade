@@ -21,3 +21,13 @@ export async function signUp(page: Page, email: string, password = 'correct-hors
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Create account' }).click();
 }
+
+/** Signs up, follows the verification link, and lands on Create signed in. */
+export async function signUpAndVerify(page: Page, prefix: string) {
+  const email = uniqueEmail(prefix);
+  await signUp(page, email);
+  await page.getByRole('heading', { name: 'Check your email' }).waitFor();
+  await page.goto(await lastEmailLink(page, email));
+  await page.getByRole('heading', { name: 'What would you like to think through today?' }).waitFor();
+  return email;
+}

@@ -18,6 +18,16 @@ export const generationJob = pgTable(
     status: text('status').notNull().default('queued'), // queued | running | succeeded | partial | failed | cancelled
     currentStage: text('current_stage'),
     error: text('error'),
+    /** Resolved creation options (admin defaults + user customisation) captured at submit time. */
+    options: jsonb('options').notNull().$type<Record<string, unknown>>().default({}),
+    /** Outputs of completed stages, so a retried job resumes where it stopped. */
+    state: jsonb('state').notNull().$type<Record<string, unknown>>().default({}),
+    attempts: integer('attempts').notNull().default(0),
+    maxAttempts: integer('max_attempts').notNull().default(3),
+    runAfter: tz('run_after').notNull().defaultNow(),
+    lockedBy: text('locked_by'),
+    lockedUntil: tz('locked_until'),
+    cancelRequested: integer('cancel_requested').notNull().default(0),
     tokensUsed: integer('tokens_used').notNull().default(0),
     audioSecondsGenerated: real('audio_seconds_generated').notNull().default(0),
     estimatedCostUsd: real('estimated_cost_usd').notNull().default(0),
@@ -26,7 +36,11 @@ export const generationJob = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index('generation_job_user_idx').on(t.userId), index('generation_job_status_idx').on(t.status)],
+  (t) => [
+    index('generation_job_user_idx').on(t.userId),
+    index('generation_job_status_idx').on(t.status),
+    index('generation_job_claim_idx').on(t.status, t.runAfter),
+  ],
 );
 
 export const generationStage = pgTable(

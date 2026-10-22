@@ -1,0 +1,19 @@
+{
+  "name": "@thinkmade/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@thinkmade/ai": "*",
+    "@thinkmade/db": "*",
+    "@thinkmade/shared": "*",
+    "drizzle-orm": "^0.45.4",
+    "zod": "^4.6.7"
+  }
+}

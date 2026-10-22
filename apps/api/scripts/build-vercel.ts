@@ -84,7 +84,11 @@ export async function bundleApi(funcDir: string): Promise<void> {
     target: 'node22',
     sourcemap: 'linked',
     legalComments: 'none',
-    external: ['@electric-sql/pglite', '@electric-sql/pglite-pgvector', 'pg-native'],
+    // The function never runs jobs or speech synthesis, so the worker and native AI libraries stay out.
+    external: [
+      '@electric-sql/pglite', '@electric-sql/pglite-pgvector', 'pg-native',
+      '@thinkmade/worker', 'kokoro-js', '@huggingface/transformers', 'onnxruntime-node', 'onnxruntime-web', 'sharp', 'ffmpeg-static',
+    ],
     define: { __THINKMADE_MIGRATIONS_REL__: '"./migrations"' },
     banner: {
       js: "import { createRequire as __tmCreateRequire } from 'node:module'; const require = __tmCreateRequire(import.meta.url);",

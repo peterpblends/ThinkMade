@@ -1,0 +1,133 @@
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { Hono } from 'hono';
+import { schema } from '@thinkmade/db';
+import { createGenerationSchema, labelForStage, READY_LABEL, STAGE_LABELS } from '@thinkmade/shared';
+import type { AppContext } from '../create-context';
+import { LimitError, resolveOptions } from '../generation/options';
+import { requireVerified, type AppVariables } from '../middleware/session';
+
+type StepState = 'pending' | 'active' | 'done' | 'failed';
+
+/** Builds the four user-facing steps from the real stage records. */
+function steps(status: string, current: string | null, doneStages: Set<string>): Array<{ label: string; state: StepState }> {
+  return STAGE_LABELS.map((s) => {
+    const all = (s.stages as readonly string[]).every((x) => doneStages.has(x));
+    const active = (s.stages as readonly string[]).includes(current ?? '');
+    let state: StepState = 'pending';
+    if (status === 'succeeded' || all) state = 'done';
+    else if (active && status === 'running') state = 'active';
+    else if (active && (status === 'failed' || status === 'partial')) state = 'failed';
+    return { label: s.label, state };
+  });
+}
+
+export function generationRoutes(ctx: AppContext) {
+  const r = new Hono<{ Variables: AppVariables }>();
+
+  r.post('/generations', requireVerified(), async (c) => {
+    const user = c.var.session!.user;
+    const parsed = createGenerationSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
+    const { settings } = await ctx.settings.getActive();
+
+    const since = new Date(ctx.now().getTime() - 24 * 3600 * 1000);
+    const [recent] = await ctx.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.generationJob)
+      .where(and(eq(schema.generationJob.userId, user.id), gte(schema.generationJob.createdAt, since)));
+    if ((recent?.n ?? 0) >= settings.limits.perUserDailyJobs) {
+      return c.json({ error: 'daily_limit', message: `You can create ${settings.limits.perUserDailyJobs} series a day. Please try again tomorrow.` }, 429);
+    }
+
+    let options;
+    try {
+      options = resolveOptions(settings, parsed.data);
+    } catch (err) {
+      if (err instanceof LimitError) return c.json({ error: 'exceeds_limits', message: err.message }, 400);
+      throw err;
+    }
+
+    // Only the owner's own uploads may be attached.
+    const uploads = parsed.data.mediaUploadIds;
+    if (uploads.length) {
+      const owned = await ctx.db
+        .select({ id: schema.mediaUpload.id })
+        .from(schema.mediaUpload)
+        .where(and(eq(schema.mediaUpload.userId, user.id), inArray(schema.mediaUpload.id, uploads)));
+      if (owned.length !== uploads.length) return c.json({ error: 'invalid_media' }, 400);
+    }
+
+    const [req] = await ctx.db
+      .insert(schema.learningRequest)
+      .values({
+        userId: user.id,
+        inputText: parsed.data.topic,
+        mediaUploadIds: uploads,
+        learningMode: options.learningMode,
+        customization: parsed.data.customization ?? {},
+        parentRequestId: null,
+        coachingSessionId: parsed.data.coachingSessionId ?? null,
+      })
+      .returning({ id: schema.learningRequest.id });
+    const [job] = await ctx.db
+      .insert(schema.generationJob)
+      .values({ userId: user.id, learningRequestId: req!.id, options: options as unknown as Record<string, unknown> })
+      .returning({ id: schema.generationJob.id });
+    ctx.pokeWorker();
+    return c.json({ id: job!.id, status: 'queued' }, 202);
+  });
+
+  r.get('/generations', requireVerified(), async (c) => {
+    const rows = await ctx.db
+      .select({ id: schema.generationJob.id, status: schema.generationJob.status, currentStage: schema.generationJob.currentStage, seriesId: schema.generationJob.seriesId, createdAt: schema.generationJob.createdAt, topic: schema.learningRequest.inputText })
+      .from(schema.generationJob)
+      .innerJoin(schema.learningRequest, eq(schema.learningRequest.id, schema.generationJob.learningRequestId))
+      .where(eq(schema.generationJob.userId, c.var.session!.user.id))
+      .orderBy(desc(schema.generationJob.createdAt))
+      .limit(20);
+    return c.json({
+      generations: rows.map((g) => ({ ...g, label: g.status === 'succeeded' ? READY_LABEL : labelForStage(g.currentStage) })),
+    });
+  });
+
+  r.get('/generations/:id', requireVerified(), async (c) => {
+    const [job] = await ctx.db
+      .select()
+      .from(schema.generationJob)
+      .where(and(eq(schema.generationJob.id, c.req.param('id')), eq(schema.generationJob.userId, c.var.session!.user.id)));
+    if (!job) return c.json({ error: 'not_found' }, 404);
+    const stageRows = await ctx.db.select().from(schema.generationStage).where(eq(schema.generationStage.jobId, job.id));
+    const doneStages = new Set(stageRows.filter((s) => s.status === 'done').map((s) => s.stage));
+    // A stage with per-episode rows is only done when no row for it is still open.
+    for (const s of stageRows) if (s.status !== 'done') doneStages.delete(s.stage);
+    const episodes = job.seriesId
+      ? await ctx.db
+          .select({ id: schema.episode.id, number: schema.episode.number, title: schema.episode.title, status: schema.episode.status })
+          .from(schema.episode)
+          .where(eq(schema.episode.seriesId, job.seriesId))
+          .orderBy(schema.episode.number)
+      : [];
+    return c.json({
+      id: job.id,
+      status: job.status,
+      label: job.status === 'succeeded' ? READY_LABEL : labelForStage(job.currentStage),
+      steps: steps(job.status, job.currentStage, doneStages),
+      error: ['failed', 'partial', 'cancelled'].includes(job.status) ? job.error : null,
+      retrying: job.status === 'queued' && job.attempts > 0,
+      seriesId: job.seriesId,
+      episodes,
+    });
+  });
+
+  r.post('/generations/:id/cancel', requireVerified(), async (c) => {
+    const updated = await ctx.db
+      .update(schema.generationJob)
+      .set({ cancelRequested: 1 })
+      .where(and(eq(schema.generationJob.id, c.req.param('id')), eq(schema.generationJob.userId, c.var.session!.user.id), inArray(schema.generationJob.status, ['queued', 'running'])))
+      .returning({ id: schema.generationJob.id });
+    if (!updated.length) return c.json({ error: 'not_found' }, 404);
+    return c.json({ ok: true });
+  });
+
+  return r;
+}

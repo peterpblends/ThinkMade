@@ -29,6 +29,10 @@ export default defineConfig({
         APP_URL: WEB,
         API_URL: WEB,
         AUTH_RATE_LIMIT: '1000',
+        // Test providers: scripted language model, tone voice, local storage, in-process worker.
+        EMBEDDED_WORKER: 'true',
+        STORAGE_DIR: '../../.data/e2e-storage',
+        WORK_DIR: '../../.data/e2e-work',
       },
     },
     {

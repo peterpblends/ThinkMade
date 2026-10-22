@@ -6,8 +6,8 @@ import { CreateScreen } from './screens/create';
 import { DiscoverScreen, LibraryScreen, NotFoundScreen } from './screens/pages';
 
 /** Screens a first-time visitor doesn't need are loaded on demand to keep the Create screen fast on phones. */
-function lazyNamed<M extends Record<string, ComponentType>>(load: () => Promise<M>, name: keyof M) {
-  return lazy(async () => ({ default: (await load())[name] as ComponentType }));
+function lazyNamed<M, K extends keyof M>(load: () => Promise<M>, name: K) {
+  return lazy(async () => ({ default: (await load())[name] as unknown as ComponentType }));
 }
 
 const auth = () => import('./screens/auth');
@@ -22,6 +22,8 @@ const HelpScreen = lazyNamed(pages, 'HelpScreen');
 const ReportBugScreen = lazyNamed(pages, 'ReportBugScreen');
 const SettingsScreen = lazyNamed(() => import('./screens/settings'), 'SettingsScreen');
 const AdminSettingsScreen = lazyNamed(() => import('./screens/admin/settings'), 'AdminSettingsScreen');
+const GenerationProgressScreen = lazyNamed(() => import('./screens/generation-progress'), 'GenerationProgressScreen');
+const SeriesScreen = lazyNamed(() => import('./screens/series'), 'SeriesScreen');
 
 const page = (node: ReactNode) => (
   <Suspense fallback={<p role="status" className="text-muted">Loading…</p>}>{node}</Suspense>
@@ -44,6 +46,8 @@ const router = createBrowserRouter([
       { path: '/reset-password', element: page(<ResetPasswordScreen />) },
       { path: '/help', element: page(<HelpScreen />) },
       { path: '/report-bug', element: page(<ReportBugScreen />) },
+      { path: '/generations/:id', element: <RequireAuth>{page(<GenerationProgressScreen />)}</RequireAuth> },
+      { path: '/series/:id', element: page(<SeriesScreen />) },
       { path: '/settings', element: <RequireAuth>{page(<SettingsScreen />)}</RequireAuth> },
       { path: '/admin/settings', element: <RequireAuth>{page(<AdminSettingsScreen />)}</RequireAuth> },
       { path: '*', element: <NotFoundScreen /> },

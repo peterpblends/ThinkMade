@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { lastEmailLink, signUp, uniqueEmail } from './helpers';
 
-test('sign up, verify by email link, land signed in, and see the honest generation notice', async ({ page }) => {
+test('sign up, verify by email link, and land signed in', async ({ page }) => {
   const email = uniqueEmail('flow');
   await signUp(page, email);
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
@@ -10,9 +10,15 @@ test('sign up, verify by email link, land signed in, and see the honest generati
   await page.getByRole('button', { name: /account menu/i }).click();
   await expect(page.getByText(email)).toBeVisible();
   await page.keyboard.press('Escape');
+});
+
+test('signed-out Create keeps the question and asks the visitor to sign up', async ({ page }) => {
+  await page.goto('/');
   await page.getByRole('textbox', { name: /your topic/i }).fill('How can I become a better leader?');
   await page.getByRole('button', { name: 'Create My Podcasts' }).click();
-  await expect(page.getByRole('status')).toContainText(/podcast generation arrives in the next release/i);
+  await expect(page).toHaveURL(/\/sign-up/);
+  await page.goto('/');
+  await expect(page.getByRole('textbox', { name: /your topic/i })).toHaveValue('How can I become a better leader?');
 });
 
 test('unverified user sees a verification notice with resend on sign-in', async ({ page }) => {

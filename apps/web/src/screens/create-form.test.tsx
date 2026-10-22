@@ -60,12 +60,31 @@ describe('CreateForm', () => {
     });
   });
 
-  it('shows voice, photo and video as not yet available rather than pretending they work', () => {
+  it('shows photo and video as not yet available rather than pretending they work', () => {
     render(<CreateForm defaults={defaults} onCreate={vi.fn()} />);
-    for (const name of [/speak/i, /photo/i, /video/i]) {
+    for (const name of [/photo/i, /video/i]) {
       const button = screen.getByRole('button', { name });
       expect(button).toBeDisabled();
       expect(button).toHaveAccessibleDescription(/coming soon/i);
     }
+  });
+
+  it('explains when this browser cannot record voice', () => {
+    render(<CreateForm defaults={defaults} onCreate={vi.fn()} />);
+    const mic = screen.getByRole('button', { name: /speak/i });
+    expect(mic).toBeDisabled();
+    expect(mic).toHaveAccessibleDescription(/not supported in this browser/i);
+  });
+
+  it('puts a voice transcript into the editable topic box', async () => {
+    render(<CreateForm defaults={defaults} onCreate={vi.fn()} voice={{ supported: true, state: 'idle', start: vi.fn(), stop: vi.fn(), cancel: vi.fn(), error: null, transcript: 'Help me understand bottlenecks' }} />);
+    expect(screen.getByRole('textbox', { name: /your topic/i })).toHaveValue('Help me understand bottlenecks');
+  });
+
+  it('shows that recording is active and offers stop and cancel', () => {
+    render(<CreateForm defaults={defaults} onCreate={vi.fn()} voice={{ supported: true, state: 'recording', start: vi.fn(), stop: vi.fn(), cancel: vi.fn(), error: null, transcript: null }} />);
+    expect(screen.getByRole('status')).toHaveTextContent(/recording/i);
+    expect(screen.getByRole('button', { name: /stop recording/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /cancel recording/i })).toBeEnabled();
   });
 });

@@ -51,7 +51,10 @@ import { base32 } from '@better-auth/utils/base32';
 export async function createTestContext() {
   const env = loadEnv({ NODE_ENV: 'test', AUTH_SECRET: 'test-secret-test-secret-test-secret-00' });
   const email = memoryEmailSender();
-  const ctx = await createContext({ env, email, pgliteDir: ':memory:' });
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const ctx = await createContext({ env, email, pgliteDir: ':memory:', storageDir: mkdtempSync(join(tmpdir(), 'tm-api-store-')), embeddedWorker: false });
   return { ...ctx, email };
 }
 

@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { BRAND } from '@thinkmade/shared';
-import { api, type PublicSettings } from '../lib/api';
+import { api, ApiError, type PublicSettings } from '../lib/api';
 import { useSession } from '../lib/auth-client';
 import { InstallCard } from '../components/install';
 import { Notice } from '../components/ui';
@@ -30,16 +30,34 @@ export function CreateScreen() {
   const { user, isPending } = useSession();
   const navigate = useNavigate();
   const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const settings = useQuery({ queryKey: ['settings', 'public'], queryFn: () => api<PublicSettings>('/api/settings/public') });
 
-  const onCreate = (req: CreateRequest) => {
+  const onCreate = async (req: CreateRequest) => {
     saveDraft(req.topic);
     if (!user) {
       navigate('/sign-up?next=/');
       return;
     }
-    // Phase 1 is honest: generation is not built yet. Nothing is submitted and nothing pretends to be.
-    setNotice("Podcast generation arrives in the next release. We've kept your question here so nothing is lost.");
+    if (!user.emailVerified) {
+      navigate(`/verify-email?email=${encodeURIComponent(user.email)}`);
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    try {
+      const { id } = await api<{ id: string }>('/api/generations', {
+        method: 'POST',
+        body: JSON.stringify({ topic: req.topic, customization: req.customization }),
+      });
+      saveDraft('');
+      navigate(`/generations/${id}`);
+    } catch (err) {
+      const body = err instanceof ApiError ? (err.body as { message?: string } | null) : null;
+      setNotice(body?.message ?? (err instanceof ApiError ? 'We could not start your podcasts. Please try again.' : 'You seem to be offline. Please try again when connected.'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -54,7 +72,7 @@ export function CreateScreen() {
       )}
 
       {settings.data ? (
-        <CreateForm defaults={settings.data.podcast} onCreate={onCreate} initialTopic={readDraft()} />
+        <CreateForm defaults={settings.data.podcast} onCreate={(r) => void onCreate(r)} initialTopic={readDraft()} busy={busy} />
       ) : settings.isError ? (
         <Notice tone="error" role="alert">
           ThinkMade can't reach its server right now. Check your connection and try again.
@@ -65,7 +83,11 @@ export function CreateScreen() {
         </p>
       )}
 
-      {notice && <Notice>{notice}</Notice>}
+      {notice && (
+        <Notice tone="error" role="alert">
+          {notice}
+        </Notice>
+      )}
 
       {!isPending && !user && (
         <section aria-labelledby="how" className="mt-2 flex flex-col gap-4 rounded-[var(--radius-card)] bg-surface-2 p-5">
