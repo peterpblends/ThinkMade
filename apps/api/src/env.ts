@@ -35,6 +35,9 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
   if (isProd && parsed.ADMIN_SKIP_2FA === 'true') {
     throw new Error('ADMIN_SKIP_2FA must not be set in production.');
   }
+  if (isProd && !parsed.DATABASE_URL) {
+    throw new Error('DATABASE_URL is required in production. The embedded database is for local development only.');
+  }
   let secret = parsed.AUTH_SECRET;
   if (!secret) {
     secret = randomBytes(32).toString('base64');

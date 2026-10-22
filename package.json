@@ -2,10 +2,15 @@
   "name": "thinkmade",
   "private": true,
   "version": "0.1.0",
-  "description": "ThinkMade — Better Thinking. Made Personal.",
+  "description": "ThinkMade \u2014 Better Thinking. Made Personal.",
   "type": "module",
-  "engines": { "node": ">=22" },
-  "workspaces": ["packages/*", "apps/*"],
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "dev": "tsx scripts/dev.ts",
     "build": "npm run build --workspaces --if-present",
@@ -13,11 +18,14 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "db:migrate": "npm run db:migrate -w packages/db",
+    "build:vercel": "npm run build -w apps/web && tsx apps/api/scripts/build-vercel.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
     "concurrently": "^10.0.6",
+    "esbuild": "^0.28.2",
     "eslint": "^10.13.0",
     "prettier": "^3.9.10",
     "tsx": "^4.23.15",

@@ -28,3 +28,9 @@ describe('loadEnv', () => {
     ).toThrow(/ADMIN_SKIP_2FA/);
   });
 });
+
+describe('loadEnv production database', () => {
+  it('requires DATABASE_URL in production', () => {
+    expect(() => loadEnv({ NODE_ENV: 'production', AUTH_SECRET: 'x'.repeat(40) })).toThrow(/DATABASE_URL/);
+  });
+});

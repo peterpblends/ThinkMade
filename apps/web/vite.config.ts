@@ -34,7 +34,8 @@ export default defineConfig({
         icons: manifestIcons,
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // Precache Latin font subsets only; other scripts' subsets still load on demand via unicode-range.
+        globPatterns: ['**/*.{js,css,html,svg,png}', '**/*-latin-*.woff2'],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,

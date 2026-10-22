@@ -2,7 +2,10 @@ import { sql } from 'drizzle-orm';
 import { fileURLToPath } from 'node:url';
 import type { DbHandle } from './client';
 
-const migrationsFolder = fileURLToPath(new URL('../migrations', import.meta.url));
+// Bundlers (scripts/build-vercel.ts) define this so the folder resolves next to the bundle instead.
+declare const __THINKMADE_MIGRATIONS_REL__: string | undefined;
+const migrationsRel = typeof __THINKMADE_MIGRATIONS_REL__ === 'string' ? __THINKMADE_MIGRATIONS_REL__ : '../migrations';
+const migrationsFolder = fileURLToPath(new URL(migrationsRel, import.meta.url));
 
 /** Enables pgvector, then applies every pending migration from packages/db/migrations. */
 export async function runMigrations(handle: DbHandle): Promise<void> {
