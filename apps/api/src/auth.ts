@@ -3,8 +3,9 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { admin } from 'better-auth/plugins/admin';
 import { twoFactor } from 'better-auth/plugins/two-factor';
 import { passkey } from '@better-auth/passkey';
+import { eq, inArray } from 'drizzle-orm';
 import { schema, type Db } from '@thinkmade/db';
-import type { EmailSender } from '@thinkmade/ai';
+import type { EmailSender, ObjectStorage } from '@thinkmade/ai';
 import { BRAND } from '@thinkmade/shared';
 import type { Env } from './env';
 
@@ -12,6 +13,18 @@ export interface AuthDeps {
   db: Db;
   env: Env;
   email: EmailSender;
+  /** When given, account deletion also removes the user's stored audio and uploads. */
+  storage?: ObjectStorage;
+}
+
+/** Keys of every stored object that belongs to this user. */
+async function userObjectKeys(db: Db, userId: string): Promise<string[]> {
+  const uploads = await db.select({ key: schema.mediaUpload.objectKey }).from(schema.mediaUpload).where(eq(schema.mediaUpload.userId, userId));
+  const series = await db.select({ id: schema.podcastSeries.id }).from(schema.podcastSeries).where(eq(schema.podcastSeries.userId, userId));
+  const audio = series.length
+    ? await db.select({ key: schema.episode.audioKey }).from(schema.episode).where(inArray(schema.episode.seriesId, series.map((s) => s.id)))
+    : [];
+  return [...uploads.map((u) => u.key), ...audio.map((a) => a.key).filter((k): k is string => !!k)];
 }
 
 async function deliver(email: EmailSender, to: string, subject: string, text: string) {
@@ -22,7 +35,7 @@ async function deliver(email: EmailSender, to: string, subject: string, text: st
   }
 }
 
-export function createAuth({ db, env, email }: AuthDeps) {
+export function createAuth({ db, env, email, storage }: AuthDeps) {
   return betterAuth({
     appName: BRAND.name,
     // The API is always served under the app origin (Vercel rewrite in production, Vite proxy locally),
@@ -69,7 +82,14 @@ export function createAuth({ db, env, email }: AuthDeps) {
       },
     },
     user: {
-      deleteUser: { enabled: true },
+      deleteUser: {
+        enabled: true,
+        // Rows cascade in the database; stored files must be removed explicitly.
+        beforeDelete: async (user) => {
+          if (!storage) return;
+          for (const key of await userObjectKeys(db, user.id)) await storage.delete(key).catch(() => {});
+        },
+      },
     },
     session: {
       cookieCache: { enabled: true, maxAge: 5 * 60 },

@@ -15,6 +15,7 @@ import { HOST_NAMES, type GenerationOptions, type GenerationStage } from '@think
 import { JobCancelledError, PermanentJobError, type WorkerDeps } from './deps';
 import { input, PLAN_TASK, RESEARCH_TASK, SCRIPT_TASK, SELECT_MODELS_TASK, stageSystem, UNDERSTAND_TASK } from './prompts';
 import type { ClaimedJob } from './queue';
+import { analyseUploads, type MediaAnalysis } from './media';
 import { aggregateJudgements, CRITERIA_LABELS, failingCriteria, judgementSchema, judgeWindows, scriptChecks, VALIDATE_TASK, type Judgement } from './quality';
 import { extendLease, requeueJob } from './queue';
 import {
@@ -52,6 +53,7 @@ interface ScriptState {
 }
 
 export interface JobState {
+  media?: { analyses: MediaAnalysis[]; notes: string[] };
   understanding?: Understanding;
   models?: ModelSelection['models'];
   research?: ResearchState;
@@ -195,17 +197,33 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     const [request] = await db.select().from(schema.learningRequest).where(eq(schema.learningRequest.id, job.learning_request_id));
     if (!request) throw new PermanentJobError('The learning request no longer exists.');
 
+    // 0. Photos and videos
+    if (!state.media && request.mediaUploadIds.length) {
+      state.media = await runner.run('analyze_media', () =>
+        analyseUploads(deps, request.mediaUploadIds, request.inputText ?? '', (n) => {
+          state.tokens! += n;
+        }),
+      );
+      await saveState(db, job.id, state);
+    }
+    const mediaAnalysis = state.media?.analyses.length
+      ? state.media.analyses.map((a) => ({ kind: a.kind, summary: a.summary, visibleEvidence: a.visibleEvidence, assumptions: a.assumptions, visibleText: a.visibleText, ...(a.transcript ? { spokenInVideo: a.transcript } : {}) }))
+      : null;
+
     // 1. Understand
     if (!state.understanding) {
       state.understanding = await runner.run('understand', () =>
         chat<Understanding>('understand', UNDERSTAND_TASK, {
-          question: request.inputText ?? '',
+          question: request.inputText || (mediaAnalysis ? 'Help me think about what I am showing you.' : ''),
           spokenTranscript: request.inputTranscript ?? '',
-          mediaAnalysis: request.understanding ?? null,
+          mediaAnalysis,
           learningMode: options.learningMode,
         }, understandingSchema),
       );
-      await db.update(schema.learningRequest).set({ objective: state.understanding.objective }).where(eq(schema.learningRequest.id, request.id));
+      await db
+        .update(schema.learningRequest)
+        .set({ objective: state.understanding.objective, understanding: { ...state.understanding, media: mediaAnalysis } as unknown as Record<string, unknown> })
+        .where(eq(schema.learningRequest.id, request.id));
       await saveState(db, job.id, state);
     }
     const u = state.understanding;

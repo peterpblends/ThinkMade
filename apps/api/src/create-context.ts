@@ -51,11 +51,11 @@ export async function createContext(
   });
   if (options.migrate ?? true) await runMigrations(handle);
   const email = options.email ?? (env.NODE_ENV === 'test' ? memoryEmailSender() : consoleEmailSender());
-  const auth = createAuth({ db: handle.db, env, email });
-  const settings = createSettingsService(handle.db);
-  await settings.seedDefaults();
   const rawEnv = { ...process.env, NODE_ENV: env.NODE_ENV };
   const storage = options.storageDir ? createLocalStorage(options.storageDir) : createStorage(rawEnv);
+  const auth = createAuth({ db: handle.db, env, email, storage });
+  const settings = createSettingsService(handle.db);
+  await settings.seedDefaults();
   const stt = createStt(rawEnv);
 
   // Without DATABASE_URL the database is embedded and single-process, so jobs must run here.

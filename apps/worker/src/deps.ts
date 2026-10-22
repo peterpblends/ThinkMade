@@ -1,4 +1,4 @@
-import type { BookClaim, BookVerification, LlmClient, ObjectStorage, TtsEngine } from '@thinkmade/ai';
+import type { BookClaim, BookVerification, LlmClient, ObjectStorage, SttEngine, TtsEngine } from '@thinkmade/ai';
 import type { Db, ModelStage } from '@thinkmade/db';
 
 export interface WorkerDeps {
@@ -6,6 +6,8 @@ export interface WorkerDeps {
   /** Language model for a pipeline stage, chosen by the admin model configuration. */
   llm: (stage: ModelStage) => Promise<LlmClient>;
   tts: TtsEngine;
+  /** Speech-to-text for video soundtracks; null when no service is configured. */
+  stt?: SttEngine | null;
   storage: ObjectStorage;
   verifyBook: (claim: BookClaim) => Promise<BookVerification>;
   workDir: string;

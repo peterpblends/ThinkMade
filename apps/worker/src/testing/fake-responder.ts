@@ -17,7 +17,8 @@ const POOL = [
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture reads arbitrary stage input
 function inputOf(messages: ChatMessage[]): Record<string, any> {
-  const text = textOf(messages.find((m) => m.role === 'user')?.content ?? '');
+  const content = messages.find((m) => m.role === 'user')?.content ?? '';
+  const text = typeof content === 'string' ? content : (content.find((p) => p.type === 'text') as { text: string } | undefined)?.text ?? '';
   const i = text.indexOf('INPUT:');
   return i >= 0 ? JSON.parse(text.slice(i + 6)) : {};
 }
@@ -118,6 +119,13 @@ export function fakeResponder(messages: ChatMessage[]): string {
     }
     case 'validate':
       return JSON.stringify(fakeValidation(inp));
+    case 'vision':
+      return JSON.stringify({
+        summary: 'A workstation with materials stacked beside it.',
+        visibleEvidence: ['Boxes are queued at one station', 'Two people are working'],
+        assumptions: ['The queue may mean this station is the bottleneck'],
+        visibleText: '',
+      });
     case 'coach':
       return JSON.stringify({ reply: 'Start by naming the alternative you are giving up, then estimate its value.' });
     default:

@@ -68,5 +68,15 @@ export function createS3Storage(cfg: S3Config): ObjectStorage {
       const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
       return getSignedUrl(await clientPromise, new GetObjectCommand({ Bucket: cfg.bucket, Key: key }), { expiresIn: seconds });
     },
+    async presignPut(key, contentType, size, seconds) {
+      assertSafeKey(key);
+      const { PutObjectCommand } = await import('@aws-sdk/client-s3');
+      const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+      return getSignedUrl(
+        await clientPromise,
+        new PutObjectCommand({ Bucket: cfg.bucket, Key: key, ContentType: contentType, ContentLength: size }),
+        { expiresIn: seconds, signableHeaders: new Set(['content-type', 'content-length']) },
+      );
+    },
   };
 }

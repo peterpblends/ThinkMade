@@ -4,6 +4,7 @@ import {
   createKokoroTts,
   createLlm,
   createStorage,
+  createStt,
   createToneTts,
   setFakeResponder,
   verifyBook,
@@ -13,9 +14,11 @@ import { getActiveAppSettings, getStageModel, seedModelConfig, type Db } from '@
 import type { WorkerDeps } from './deps';
 import { runJob } from './pipeline';
 import { claimNextJob } from './queue';
+import { cleanupExpiredUploads } from './media';
 import { fakeResponder, fakeVerifyBook } from './testing/fake-responder';
 
 export { runJob } from './pipeline';
+export { cleanupExpiredUploads } from './media';
 export { claimNextJob } from './queue';
 export type { WorkerDeps } from './deps';
 export { fakeResponder, fakeVerifyBook, setFakeValidation } from './testing/fake-responder';
@@ -50,6 +53,7 @@ export async function createWorkerDeps(db: Db, env: Env = process.env, overrides
       return createLlm(cfg, env);
     },
     tts: createTts(env),
+    stt: createStt(env),
     storage: createStorage(env),
     verifyBook: env.BOOK_VERIFIER === 'fake' || (fake && env.BOOK_VERIFIER !== 'live') ? fakeVerifyBook : (claim) => verifyBook(claim),
     workDir: env.WORK_DIR ?? join('.data', 'work'),
@@ -73,8 +77,13 @@ export async function runNextJob(deps: WorkerDeps): Promise<boolean> {
 export function startWorker(deps: WorkerDeps, opts: { pollMs?: number } = {}) {
   let stopped = false;
   let wake: (() => void) | null = null;
+  let lastCleanup = 0;
   const loop = (async () => {
     while (!stopped) {
+      if (Date.now() - lastCleanup > 30 * 60_000) {
+        lastCleanup = Date.now();
+        await cleanupExpiredUploads(deps).catch((err) => deps.log?.('cleanup failed', { message: String(err) }));
+      }
       let worked = false;
       try {
         worked = await runNextJob(deps);

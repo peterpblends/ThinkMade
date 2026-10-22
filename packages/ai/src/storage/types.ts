@@ -22,6 +22,8 @@ export interface ObjectStorage {
   delete(key: string): Promise<void>;
   /** Short-lived direct download URL, when the backend supports it. */
   presignGet?(key: string, seconds: number): Promise<string>;
+  /** Short-lived URL a browser can PUT a file to directly (bypasses the API's request size limit). */
+  presignPut?(key: string, contentType: string, size: number, seconds: number): Promise<string>;
 }
 
 export function assertSafeKey(key: string) {

@@ -51,17 +51,21 @@ export function generationRoutes(ctx: AppContext) {
     const uploads = parsed.data.mediaUploadIds;
     if (uploads.length) {
       const owned = await ctx.db
-        .select({ id: schema.mediaUpload.id })
+        .select({ id: schema.mediaUpload.id, kind: schema.mediaUpload.kind })
         .from(schema.mediaUpload)
-        .where(and(eq(schema.mediaUpload.userId, user.id), inArray(schema.mediaUpload.id, uploads)));
-      if (owned.length !== uploads.length) return c.json({ error: 'invalid_media' }, 400);
+        .where(and(eq(schema.mediaUpload.userId, user.id), inArray(schema.mediaUpload.id, uploads), inArray(schema.mediaUpload.status, ['uploaded', 'validated'])));
+      if (owned.length !== new Set(uploads).size) return c.json({ error: 'invalid_media' }, 400);
+      if (owned.filter((o) => o.kind === 'image').length > settings.media.maxImages) {
+        return c.json({ error: 'too_many_images', message: `You can add up to ${settings.media.maxImages} photos.` }, 400);
+      }
+      if (owned.filter((o) => o.kind === 'video').length > 2) return c.json({ error: 'too_many_videos', message: 'You can add up to 2 videos.' }, 400);
     }
 
     const [req] = await ctx.db
       .insert(schema.learningRequest)
       .values({
         userId: user.id,
-        inputText: parsed.data.topic,
+        inputText: parsed.data.topic || null,
         mediaUploadIds: uploads,
         learningMode: options.learningMode,
         customization: parsed.data.customization ?? {},

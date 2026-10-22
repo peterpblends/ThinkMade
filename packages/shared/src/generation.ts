@@ -2,12 +2,12 @@ import { z } from 'zod';
 import { learningModeSchema, speakerFormatSchema, visibilitySchema } from './settings.ts';
 
 /** Internal pipeline stages, in order. */
-export const GENERATION_STAGES = ['understand', 'select_models', 'research', 'plan', 'script', 'validate', 'synthesize', 'publish'] as const;
+export const GENERATION_STAGES = ['analyze_media', 'understand', 'select_models', 'research', 'plan', 'script', 'validate', 'synthesize', 'publish'] as const;
 export type GenerationStage = (typeof GENERATION_STAGES)[number];
 
 /** What the user sees. Each label maps to real stages; nothing is shown that has not happened. */
 export const STAGE_LABELS = [
-  { label: 'Understanding your topic', stages: ['understand'] },
+  { label: 'Understanding your topic', stages: ['analyze_media', 'understand'] },
   { label: 'Connecting relevant thinking', stages: ['select_models', 'research'] },
   { label: 'Building your podcasts', stages: ['plan', 'script', 'validate'] },
   { label: 'Preparing the audio', stages: ['synthesize', 'publish'] },
@@ -20,7 +20,7 @@ export function labelForStage(stage: string | null | undefined): string {
 }
 
 export const createGenerationSchema = z.strictObject({
-  topic: z.string().trim().min(3, 'Tell us a little more about what you want to think through.').max(2000),
+  topic: z.string().trim().max(2000).default(''),
   customization: z
     .strictObject({
       lengthMinutes: z.number().int().min(1).max(60),
@@ -34,6 +34,9 @@ export const createGenerationSchema = z.strictObject({
   mediaUploadIds: z.array(z.string().uuid()).max(10).default([]),
   parentSeriesId: z.string().uuid().optional(),
   coachingSessionId: z.string().uuid().optional(),
+}).refine((v) => v.topic.length >= 3 || v.mediaUploadIds.length > 0, {
+  path: ['topic'],
+  message: 'Tell us a little more about what you want to think through, or add a photo or video.',
 });
 export type CreateGenerationInput = z.input<typeof createGenerationSchema>;
 

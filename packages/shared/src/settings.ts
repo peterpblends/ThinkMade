@@ -38,6 +38,8 @@ const mediaSchema = z.strictObject({
   maxImageBytes: z.number().int().min(0),
   maxVideoSeconds: z.number().int().min(0).max(600),
   maxVideoBytes: z.number().int().min(0),
+  /** Days before uploaded photos and videos are deleted automatically. */
+  retentionDays: z.number().int().min(1).max(3650).default(30),
 });
 
 const limitsSchema = z.strictObject({
@@ -139,6 +141,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     maxImageBytes: 10_485_760,
     maxVideoSeconds: 120,
     maxVideoBytes: 104_857_600,
+    retentionDays: 30,
   },
   limits: {
     generationConcurrency: 2,

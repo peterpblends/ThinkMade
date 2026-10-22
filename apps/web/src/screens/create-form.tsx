@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Camera, Mic, Square, SlidersHorizontal, Video, X } from 'lucide-react';
 import { useVoiceInput, type VoiceInput } from '../lib/voice';
-import type { PublicPodcastSettings } from '../lib/api';
+import type { PublicPodcastSettings, PublicSettings } from '../lib/api';
 import { Button } from '../components/ui';
 
 export interface Customization {
@@ -11,10 +11,32 @@ export interface Customization {
   learningMode: 'explore' | 'deepen' | 'reinforce';
 }
 
+export interface Attachment {
+  id: string;
+  file: File;
+  kind: 'image' | 'video';
+  previewUrl: string | null;
+}
+
 export interface CreateRequest {
   topic: string;
   /** null when the user kept the administrator defaults. */
   customization: Customization | null;
+  attachments: Attachment[];
+}
+
+const FALLBACK_MEDIA: PublicSettings['media'] = { maxImages: 4, maxImageBytes: 10_485_760, maxVideoSeconds: 120, maxVideoBytes: 104_857_600 };
+
+function preview(file: File): string | null {
+  try {
+    return URL.createObjectURL(file);
+  } catch {
+    return null;
+  }
+}
+
+function mb(bytes: number) {
+  return `${Math.round(bytes / 1048576)} MB`;
 }
 
 const SPEAKERS = [
@@ -73,7 +95,26 @@ function ChoiceGroup<T extends string | number>({
   );
 }
 
-function VoiceControls({ voice, soonId }: { voice: VoiceInput; soonId: string }) {
+function FilePicker({ label, accept, icon, onFiles }: { label: string; accept: string; icon: ReactNode; onFiles: (files: File[]) => void }) {
+  return (
+    <label className="relative flex h-11 w-11 cursor-pointer items-center justify-center rounded-full text-ink hover:bg-surface-2 focus-within:outline focus-within:outline-3 focus-within:outline-offset-2 focus-within:outline-[var(--tm-focus)]">
+      {icon}
+      <span className="sr-only">{label}</span>
+      <input
+        type="file"
+        accept={accept}
+        multiple
+        className="sr-only"
+        onChange={(e) => {
+          onFiles(Array.from(e.target.files ?? []));
+          e.target.value = '';
+        }}
+      />
+    </label>
+  );
+}
+
+function VoiceControls({ voice, onFiles }: { voice: VoiceInput; onFiles: (files: File[], kind: 'image' | 'video') => void }) {
   const unsupportedId = useId();
   if (voice.state === 'recording') {
     return (
@@ -110,26 +151,10 @@ function VoiceControls({ voice, soonId }: { voice: VoiceInput; soonId: string })
           Voice input is not supported in this browser.
         </span>
       )}
-      <MediaButton label="Add a photo" icon={<Camera aria-hidden size={22} />} describedBy={soonId} />
-      <MediaButton label="Add a video" icon={<Video aria-hidden size={22} />} describedBy={soonId} />
-      <span id={soonId} className="ml-1 text-xs text-muted">
-        Photo and video input are coming soon.
-      </span>
+      <FilePicker label="Add a photo" accept="image/*" icon={<Camera aria-hidden size={22} />} onFiles={(f) => onFiles(f, 'image')} />
+      <FilePicker label="Add a video" accept="video/*" icon={<Video aria-hidden size={22} />} onFiles={(f) => onFiles(f, 'video')} />
+      <span className="ml-1 text-xs text-muted">Type, speak, or show us.</span>
     </>
-  );
-}
-
-function MediaButton({ label, icon, describedBy }: { label: string; icon: ReactNode; describedBy: string }) {
-  return (
-    <button
-      type="button"
-      disabled
-      aria-label={label}
-      aria-describedby={describedBy}
-      className="flex h-11 w-11 items-center justify-center rounded-full text-muted disabled:cursor-not-allowed disabled:opacity-60"
-    >
-      {icon}
-    </button>
   );
 }
 
@@ -140,8 +165,13 @@ export function CreateForm({
   initialTopic = '',
   busy = false,
   voice: voiceProp,
+  media = FALLBACK_MEDIA,
+  status,
 }: {
   defaults: PublicPodcastSettings;
+  media?: PublicSettings['media'];
+  /** Progress text while attachments upload. */
+  status?: string | null;
   onCreate: (request: CreateRequest) => void;
   initialTopic?: string;
   busy?: boolean;
@@ -151,6 +181,43 @@ export function CreateForm({
   const ownVoice = useVoiceInput();
   const voice = voiceProp ?? ownVoice;
   const [topic, setTopic] = useState(initialTopic);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+
+  const addFiles = (files: File[], kind: 'image' | 'video') => {
+    setMediaError(null);
+    const accepted: Attachment[] = [];
+    let images = attachments.filter((a) => a.kind === 'image').length;
+    let videos = attachments.filter((a) => a.kind === 'video').length;
+    for (const file of files) {
+      const isVideo = kind === 'video' || file.type.startsWith('video/');
+      if (isVideo) {
+        if (file.size > media.maxVideoBytes) return setMediaError(`That video is larger than the ${mb(media.maxVideoBytes)} limit.`);
+        if (videos >= 2) return setMediaError('You can add up to 2 videos.');
+        videos++;
+      } else {
+        if (file.size > media.maxImageBytes) return setMediaError(`That photo is larger than the ${mb(media.maxImageBytes)} limit.`);
+        if (images >= media.maxImages) return setMediaError(`You can add up to ${media.maxImages} photos.`);
+        images++;
+      }
+      accepted.push({ id: crypto.randomUUID(), file, kind: isVideo ? 'video' : 'image', previewUrl: preview(file) });
+    }
+    setAttachments((a) => [...a, ...accepted]);
+    // Check video length from its metadata where the browser can read it.
+    for (const att of accepted.filter((x) => x.kind === 'video' && x.previewUrl)) {
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.onloadedmetadata = () => {
+        if (v.duration > media.maxVideoSeconds + 1) {
+          setAttachments((a) => a.filter((x) => x.id !== att.id));
+          setMediaError(`Videos can be up to ${media.maxVideoSeconds} seconds long.`);
+        }
+      };
+      v.src = att.previewUrl!;
+    }
+  };
+  const removeAttachment = (id: string) => setAttachments((a) => a.filter((x) => x.id !== id));
+
   useEffect(() => {
     if (voice.transcript) setTopic((t) => (t.trim() ? `${t.trim()} ${voice.transcript}` : voice.transcript!));
   }, [voice.transcript]);
@@ -163,7 +230,7 @@ export function CreateForm({
     speakerFormat: defaults.speakerFormat,
     learningMode: defaults.learningMode,
   });
-  const ids = { topic: useId(), soon: useId(), error: useId(), panel: useId() };
+  const ids = { topic: useId(), error: useId(), panel: useId() };
 
   const update = <K extends keyof Customization>(key: K, value: Customization[K]) => {
     setTouchedCustom(true);
@@ -173,12 +240,12 @@ export function CreateForm({
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const trimmed = topic.trim();
-    if (!trimmed) {
+    if (!trimmed && attachments.length === 0) {
       setError("Tell us what you'd like to think through first.");
       return;
     }
     setError(null);
-    onCreate({ topic: trimmed, customization: touchedCustom || customOpen ? custom : null });
+    onCreate({ topic: trimmed, customization: touchedCustom || customOpen ? custom : null, attachments });
   };
 
   return (
@@ -201,9 +268,43 @@ export function CreateForm({
           className="block w-full resize-none rounded-t-[var(--radius-card)] bg-transparent px-4 pb-2 pt-4 text-[1.05rem] leading-relaxed text-ink [overflow-wrap:anywhere] placeholder:text-muted focus:outline-none"
         />
         <div className="flex min-h-12 flex-wrap items-center gap-1 border-t border-line/70 px-2 py-1">
-          <VoiceControls voice={voice} soonId={ids.soon} />
+          <VoiceControls voice={voice} onFiles={addFiles} />
         </div>
+        {attachments.length > 0 && (
+          <ul className="flex flex-wrap gap-2 border-t border-line/70 p-3" aria-label="Attached photos and videos">
+            {attachments.map((a) => (
+              <li key={a.id} className="relative">
+                {a.kind === 'image' && a.previewUrl ? (
+                  <img src={a.previewUrl} alt={`Photo ${a.file.name}`} className="h-20 w-20 rounded-xl object-cover" />
+                ) : (
+                  <span role="img" aria-label={`${a.kind === 'video' ? 'Video' : 'Photo'} ${a.file.name}`} className="flex h-20 w-20 items-center justify-center rounded-xl bg-surface-2 text-muted">
+                    {a.kind === 'video' ? <Video aria-hidden size={26} /> : <Camera aria-hidden size={26} />}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(a.id)}
+                  aria-label={`Remove ${a.file.name}`}
+                  className="absolute -right-2 -top-2 flex h-8 w-8 items-center justify-center rounded-full border border-line bg-surface text-ink shadow-card"
+                >
+                  <X aria-hidden size={16} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
+      {mediaError && (
+        <p role="alert" className="text-sm text-danger">
+          {mediaError}
+        </p>
+      )}
+      {attachments.length > 0 && <p className="text-xs text-muted">Photos and videos stay private and are deleted automatically after a while.</p>}
+      {status && (
+        <p role="status" className="text-sm text-muted">
+          {status}
+        </p>
+      )}
       {voice.error && (
         <p role="alert" className="text-sm text-danger">
           {voice.error}

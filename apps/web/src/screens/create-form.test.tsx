@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { CreateForm } from './create-form';
 
+const media = { maxImages: 2, maxImageBytes: 10_000_000, maxVideoSeconds: 120, maxVideoBytes: 100_000_000 };
 const defaults = {
   defaultLengthMinutes: 15,
   defaultEpisodes: 3,
@@ -39,6 +40,7 @@ describe('CreateForm', () => {
     expect(onCreate).toHaveBeenCalledWith({
       topic: 'How can I become a better leader?',
       customization: null,
+      attachments: [],
     });
   });
 
@@ -57,16 +59,35 @@ describe('CreateForm', () => {
     expect(onCreate).toHaveBeenCalledWith({
       topic: 'Why do people resist change?',
       customization: { lengthMinutes: 30, episodes: 3, speakerFormat: 'two_hosts', learningMode: 'explore' },
+      attachments: [],
     });
   });
 
-  it('shows photo and video as not yet available rather than pretending they work', () => {
-    render(<CreateForm defaults={defaults} onCreate={vi.fn()} />);
-    for (const name of [/photo/i, /video/i]) {
-      const button = screen.getByRole('button', { name });
-      expect(button).toBeDisabled();
-      expect(button).toHaveAccessibleDescription(/coming soon/i);
-    }
+  it('accepts a photo, shows it, and lets the photo stand in for typed text', async () => {
+    const onCreate = vi.fn();
+    render(<CreateForm defaults={defaults} media={media} onCreate={onCreate} />);
+    const photo = new File([new Uint8Array(100)], 'line.jpg', { type: 'image/jpeg' });
+    await userEvent.upload(screen.getByLabelText('Add a photo'), photo);
+    expect(screen.getByRole('img', { name: /line\.jpg/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Create My Podcasts' }));
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ topic: '', attachments: [expect.objectContaining({ kind: 'image', file: photo })] }));
+  });
+
+  it('removes an attachment', async () => {
+    render(<CreateForm defaults={defaults} media={media} onCreate={vi.fn()} />);
+    await userEvent.upload(screen.getByLabelText('Add a photo'), new File([new Uint8Array(10)], 'a.png', { type: 'image/png' }));
+    await userEvent.click(screen.getByRole('button', { name: /remove a\.png/i }));
+    expect(screen.queryByRole('img', { name: /a\.png/ })).toBeNull();
+  });
+
+  it('enforces the photo limit and size limit before uploading', async () => {
+    render(<CreateForm defaults={defaults} media={{ ...media, maxImageBytes: 50 }} onCreate={vi.fn()} />);
+    await userEvent.upload(screen.getByLabelText('Add a photo'), new File([new Uint8Array(100)], 'big.png', { type: 'image/png' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/larger than/i);
+    render(<CreateForm defaults={defaults} media={media} onCreate={vi.fn()} />);
+    const inputs = screen.getAllByLabelText('Add a photo');
+    await userEvent.upload(inputs[1]!, [1, 2, 3].map((i) => new File([new Uint8Array(10)], `p${i}.png`, { type: 'image/png' })));
+    expect(screen.getAllByRole('alert').at(-1)).toHaveTextContent(/up to 2 photos/i);
   });
 
   it('explains when this browser cannot record voice', () => {

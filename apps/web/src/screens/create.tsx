@@ -6,7 +6,29 @@ import { api, ApiError, type PublicSettings } from '../lib/api';
 import { useSession } from '../lib/auth-client';
 import { InstallCard } from '../components/install';
 import { Notice } from '../components/ui';
-import { CreateForm, type CreateRequest } from './create-form';
+import { CreateForm, type Attachment, type CreateRequest } from './create-form';
+
+/** Uploads one attachment: straight to storage when the server offers a presigned URL, else through the API. */
+async function uploadAttachment(a: Attachment): Promise<string> {
+  try {
+    const presigned = await api<{ id: string; url: string; headers: Record<string, string> }>('/api/uploads/presign', {
+      method: 'POST',
+      body: JSON.stringify({ kind: a.kind, contentType: a.file.type, size: a.file.size }),
+    });
+    const put = await fetch(presigned.url, { method: 'PUT', headers: presigned.headers, body: a.file });
+    if (!put.ok) throw new Error('Upload failed');
+    await api(`/api/uploads/${presigned.id}/complete`, { method: 'POST', body: '{}' });
+    return presigned.id;
+  } catch (err) {
+    if (!(err instanceof ApiError && err.code === 'use_direct_upload')) throw err;
+  }
+  const form = new FormData();
+  form.set('file', a.file);
+  const res = await fetch('/api/uploads', { method: 'POST', body: form, credentials: 'same-origin' });
+  const body = (await res.json().catch(() => ({}))) as { id?: string; message?: string; error?: string };
+  if (!res.ok || !body.id) throw new ApiError(res.status, body.error ?? 'upload_failed', body);
+  return body.id;
+}
 
 const DRAFT_KEY = 'tm-draft-topic';
 
@@ -31,6 +53,7 @@ export function CreateScreen() {
   const navigate = useNavigate();
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
   const settings = useQuery({ queryKey: ['settings', 'public'], queryFn: () => api<PublicSettings>('/api/settings/public') });
 
   const onCreate = async (req: CreateRequest) => {
@@ -46,17 +69,31 @@ export function CreateScreen() {
     setBusy(true);
     setNotice(null);
     try {
+      const mediaUploadIds: string[] = [];
+      for (let i = 0; i < req.attachments.length; i++) {
+        setStatus(`Uploading ${req.attachments[i]!.kind === 'video' ? 'video' : 'photo'} ${i + 1} of ${req.attachments.length}…`);
+        mediaUploadIds.push(await uploadAttachment(req.attachments[i]!));
+      }
+      setStatus(null);
       const { id } = await api<{ id: string }>('/api/generations', {
         method: 'POST',
-        body: JSON.stringify({ topic: req.topic, customization: req.customization }),
+        body: JSON.stringify({ topic: req.topic, customization: req.customization, mediaUploadIds }),
       });
       saveDraft('');
       navigate(`/generations/${id}`);
     } catch (err) {
       const body = err instanceof ApiError ? (err.body as { message?: string } | null) : null;
-      setNotice(body?.message ?? (err instanceof ApiError ? 'We could not start your podcasts. Please try again.' : 'You seem to be offline. Please try again when connected.'));
+      setNotice(
+        body?.message ??
+          (err instanceof ApiError
+            ? err.status === 415
+              ? 'That file is not a photo or video we can read. Please choose a JPEG, PNG, HEIC, MP4 or MOV file.'
+              : 'We could not start your podcasts. Please try again.'
+            : 'You seem to be offline. Please try again when connected.'),
+      );
     } finally {
       setBusy(false);
+      setStatus(null);
     }
   };
 
@@ -72,7 +109,7 @@ export function CreateScreen() {
       )}
 
       {settings.data ? (
-        <CreateForm defaults={settings.data.podcast} onCreate={(r) => void onCreate(r)} initialTopic={readDraft()} busy={busy} />
+        <CreateForm defaults={settings.data.podcast} media={settings.data.media} onCreate={(r) => void onCreate(r)} initialTopic={readDraft()} busy={busy} status={status} />
       ) : settings.isError ? (
         <Notice tone="error" role="alert">
           ThinkMade can't reach its server right now. Check your connection and try again.

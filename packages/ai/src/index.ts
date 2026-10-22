@@ -19,3 +19,4 @@ export * from './books/verify';
 export * from './audio/assemble';
 export * from './audio/ffmpeg';
 export * from './text/split';
+export * from './media/media';
