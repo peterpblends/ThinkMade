@@ -48,3 +48,9 @@ test('security headers reach the browser from the API', async ({ page }) => {
   const res = await page.request.get('/api/health');
   expect(res.headers()['x-content-type-options']).toBe('nosniff');
 });
+
+test('viewport asks Android to resize content for the keyboard so the tab bar stays reachable', async ({ page }) => {
+  await page.goto('/');
+  const content = await page.locator('meta[name="viewport"]').getAttribute('content');
+  expect(content).toContain('interactive-widget=resizes-content');
+});

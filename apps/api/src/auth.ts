@@ -30,7 +30,7 @@ export function createAuth({ db, env, email }: AuthDeps) {
     baseURL: env.APP_URL,
     basePath: '/api/auth',
     secret: env.AUTH_SECRET,
-    trustedOrigins: [env.APP_URL, env.API_URL],
+    trustedOrigins: env.TRUSTED_ORIGINS,
     database: drizzleAdapter(db, {
       provider: 'pg',
       schema: {

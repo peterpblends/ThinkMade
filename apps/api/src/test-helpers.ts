@@ -86,7 +86,7 @@ export async function signUpVerified(
   });
   if (signIn.status !== 200) throw new Error(`sign-in failed: ${signIn.status}`);
   const cookie = cookieFrom(signIn);
-  if (opts.twoFactorEnabled) await enrollTotp(app, ctx, cookie, password);
+  if (opts.twoFactorEnabled) return enrollTotp(app, ctx, cookie, password);
   return cookie;
 }
 
@@ -97,7 +97,7 @@ export async function enrollTotp(
   ctx: Awaited<ReturnType<typeof createTestContext>>,
   cookie: string,
   password: string,
-): Promise<void> {
+): Promise<string> {
   const headers = { 'content-type': 'application/json', origin: ctx.env.APP_URL, cookie };
   const enable = await app.request('/api/auth/two-factor/enable', {
     method: 'POST',
@@ -115,4 +115,11 @@ export async function enrollTotp(
     body: JSON.stringify({ code }),
   });
   if (verify.status !== 200) throw new Error(`2fa verify failed: ${verify.status} ${await verify.text()}`);
+  // Confirming TOTP replaces the session; return the cookies for the new one.
+  const jar = new Map(cookie.split('; ').map((c) => [c.split('=')[0], c] as const));
+  for (const c of verify.headers.getSetCookie()) {
+    const pair = c.split(';')[0]!;
+    jar.set(pair.split('=')[0], pair);
+  }
+  return [...jar.values()].join('; ');
 }

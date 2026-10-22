@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { KeyRound } from 'lucide-react';
 import { authClient, safeNext, supportsPasskeys } from '../lib/auth-client';
+import { classifySignInError } from '../lib/auth-errors';
 import { Button, Field, Notice, PageHeader } from '../components/ui';
 
 function useNext() {
@@ -143,11 +144,10 @@ export function SignInScreen() {
     const { error } = await authClient.signIn.email({ email, password: String(form.get('password') ?? '') });
     setBusy(false);
     if (error) {
-      if (error.status === 403) {
-        setUnverifiedEmail(email);
-        return;
-      }
-      return setError(error.status === 401 ? 'That email and password don’t match an account.' : messageFor(error));
+      const kind = classifySignInError(error);
+      if (kind === 'unverified') return setUnverifiedEmail(email);
+      if (kind === 'banned') return setError('This account has been suspended. Contact support if you think this is a mistake.');
+      return setError(kind === 'invalid' ? 'That email and password don’t match an account.' : messageFor(error));
     }
     navigate(next, { replace: true });
   };

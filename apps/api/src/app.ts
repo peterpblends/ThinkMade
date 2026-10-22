@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { AppContext } from './create-context';
 import { clientIp, rateLimit } from './middleware/rate-limit';
 import { securityHeaders } from './middleware/security-headers';
-import { loadSession, type AppVariables } from './middleware/session';
+import { loadSession, requireAdmin, type AppVariables } from './middleware/session';
 import { adminRoutes } from './routes/admin';
 import { healthRoutes } from './routes/health';
 import { meRoutes } from './routes/me';
@@ -25,6 +25,9 @@ export function createApp(ctx: AppContext) {
     now: ctx.now,
   });
   app.on('POST', '/api/auth/*', authLimiter);
+  // Better Auth's admin plugin authorises on role alone. Require a verified admin with two-step
+  // verification, read from the database, exactly as for /api/admin.
+  app.on(['GET', 'POST'], '/api/auth/admin/*', loadSession(ctx.auth), requireAdmin(ctx.db, ctx.env));
   app.on(['GET', 'POST'], '/api/auth/*', (c) => ctx.auth.handler(c.req.raw));
 
   const api = new Hono<{ Variables: AppVariables }>();

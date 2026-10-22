@@ -11,7 +11,7 @@ Date: 2026-10-22. Branch: `main`. Plan: `docs/superpowers/plans/2026-10-22-phase
 - **Mobile app shell.** The bottom bar has exactly three tabs: Create, Discover and My Library. Profile, Settings, Help, Report a Bug, Install and Admin sit in the account menu. The shell handles safe areas and supports light, dark and system appearance.
 - **Create screen.** It asks "What would you like to think through today?" and offers one main button. Customize is optional and covers length, episodes, hosts and learning mode, prefilled from admin defaults. Voice, photo and video show as "coming soon". Pressing Create says plainly that generation arrives in the next release.
 - **Accounts.** Sign-up with required email verification, sign-in, and password reset all work. So do passkeys (Face ID, Touch ID or device PIN through WebAuthn), TOTP two-step verification with backup codes, profile name, data export as JSON, and account deletion.
-- **Admin.** Settings are stored as numbered versions, and rollback creates a new version. Every change is audit-logged. Admin routes require the admin role and two-step verification, checked against the database on every request. A `seed:admin` command creates the first administrator.
+- **Admin.** Settings are stored as numbered versions, and rollback creates a new version. Every change is audit-logged. Every admin endpoint requires the admin role and two-step verification, checked against the database on each request. That covers ThinkMade's `/api/admin/*` and Better Auth's built-in `/api/auth/admin/*`. A `seed:admin` command creates the first administrator.
 - **API security.** Security headers and a content security policy go on every response. Rate limits are stored in Postgres: 20 credential attempts per IP per 15 minutes, and 300 API calls per user per 15 minutes. All request bodies are validated.
 - **PWA.** The manifest, service worker and offline app shell are in place. A new version waits for the user's tap, so it never interrupts playback. Install works through the browser prompt on Chromium and through instructions on iOS.
 - **Vercel.** The build writes `.vercel/output`, containing the static app and one bundled API function. `docs/deployment.md` lists the exact domain and DNS steps for `thinkmade.zicaworld.com`.
@@ -20,8 +20,8 @@ Date: 2026-10-22. Branch: `main`. Plan: `docs/superpowers/plans/2026-10-22-phase
 
 | Suite | Result |
 |---|---|
-| Unit and integration (Vitest, 6 packages) | 76 passed |
-| End-to-end (Playwright, iPhone 14, Pixel 7 and desktop Chrome profiles, against a production build) | 32 passed, 1 skipped (the WebKit service-worker test, by design) |
+| Unit and integration (Vitest, 6 packages) | 87 passed |
+| End-to-end (Playwright, iPhone 14, Pixel 7 and desktop Chrome profiles, against a production build) | 35 passed, 1 skipped (the WebKit service-worker test, by design) |
 | Lint and typecheck | Clean |
 | `npm audit --audit-level=high` | Passes. 4 moderate findings, all in development-only drizzle-kit tooling. |
 | Manual | Logo reviewed at 16–512 px. App reviewed at 375×812 in light and dark. CSP checked in a browser against the built output. A fresh-clone `npm run dev` went through sign-up, console email link, verification and admin promotion. |
@@ -42,6 +42,7 @@ Contrast ratios for every text and background pair were calculated and all meet 
 
 ## Not yet completed
 
+- **Production API path.** The bundled function has only run on the embedded database. Its Postgres driver path and Vercel's routing of `/api/*` to it have not run on Vercel yet. The first preview deploy must confirm that `/api/health` reports `"db":"pg"`.
 - **Deployment.** Nothing is deployed. It needs a Vercel project, a Neon database, environment variables, and a CNAME record for `thinkmade` at the `zicaworld.com` DNS host. `vercel build` has not been run, because it needs a linked Vercel project.
 - **Email delivery.** Emails print to the server log. **A production deploy cannot verify new accounts until Resend or Brevo is connected.** That work is scheduled for Phase 9 and should move earlier, before any public deploy.
 - **Real-device testing** on iPhone and Android. Only emulated so far.
@@ -51,11 +52,30 @@ Contrast ratios for every text and background pair were calculated and all meet 
 - **Discover and Library** are honest placeholders until Phases 5 and 8.
 - **Lighthouse audit** has not been run.
 
+## Independent review
+
+A fresh reviewer read the whole phase and found one critical issue. Better Auth's built-in admin endpoints authorised by role alone, which skipped the two-step verification requirement. That is now fixed and tested. Four important findings were also fixed with tests:
+
+- Production now refuses localhost defaults.
+- Preview deployments derive their own address.
+- Banned accounts are no longer told to verify their email.
+- Restoring a settings version now reports failures, and Android resizes the page for the keyboard.
+
+The minor findings are listed under known issues or deferred.
+
 ## Known issues
 
 - The main JavaScript bundle is 158 KB gzipped, most of it React, the router and the auth client. Splitting more of the auth client out is a later optimisation.
 - Passkeys work only on the production domain. Preview deployments have changing hostnames, so they use email and password.
 - The in-app browser used for manual checks blocks service workers. Playwright's Chromium confirms they work.
+- On iPhone the software keyboard can cover the tab bar while typing. Dismissing the keyboard brings it back. Android now resizes the page instead.
+- Sessions are cached in a signed cookie for up to 5 minutes. A banned or signed-out session can keep working on non-admin pages for that long. Admin access is always checked against the database.
+- These minor review items are deferred:
+  - Resend and reset screens don't surface rate limiting.
+  - The account menu lacks arrow-key navigation.
+  - Rate-limit rows are never pruned.
+  - The IP used for rate limiting trusts Vercel's `x-forwarded-for`.
+  - Third-party licence comments are stripped from the API bundle.
 
 ## Security considerations
 

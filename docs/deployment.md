@@ -48,11 +48,9 @@ Run it again after any deploy whose commit adds files under `packages/db/migrati
 | `NODE_ENV` | `production` |
 | `DATABASE_URL` | Neon pooled connection string |
 | `AUTH_SECRET` | Output of `openssl rand -base64 32`. Keep it secret and never reuse it. |
-| `APP_URL` | `https://thinkmade.zicaworld.com` in Production, or the preview URL in Preview |
-| `API_URL` | The same value as `APP_URL` |
-| `PASSKEY_RP_ID` | `thinkmade.zicaworld.com` in Production |
+| `APP_URL` | `https://thinkmade.zicaworld.com`, Production only |
 
-Preview deployments get a different hostname each time. Passkeys are bound to `PASSKEY_RP_ID`, so they only work on the production domain. Email and password sign-in works everywhere.
+Leave `APP_URL` unset for Preview. Each preview deployment derives its own address from Vercel's `VERCEL_URL`, so sign-in works on every preview. `API_URL` defaults to `APP_URL`. `PASSKEY_RP_ID` defaults to the host name of `APP_URL`. In production, the API refuses to start without `APP_URL`, so it can never fall back to localhost.
 
 4. Deploy. Then check that `https://<deployment>/api/health` returns `{"ok":true,…,"db":"pg"}`.
 

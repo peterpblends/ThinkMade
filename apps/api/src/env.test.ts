@@ -52,3 +52,28 @@ describe('local start-up without configuration', () => {
     }
   });
 });
+
+describe('production origins', () => {
+  const base = { NODE_ENV: 'production', AUTH_SECRET: 'x'.repeat(40), DATABASE_URL: 'postgres://u:p@h/db' };
+
+  it('requires APP_URL in production instead of defaulting to localhost', () => {
+    expect(() => loadEnv(base)).toThrow(/APP_URL/);
+  });
+
+  it('derives the passkey relying party from APP_URL', () => {
+    const env = loadEnv({ ...base, APP_URL: 'https://thinkmade.zicaworld.com' });
+    expect(env.PASSKEY_RP_ID).toBe('thinkmade.zicaworld.com');
+    expect(env.API_URL).toBe('https://thinkmade.zicaworld.com');
+  });
+
+  it('uses the per-deployment Vercel URL for preview deployments', () => {
+    const env = loadEnv({ ...base, VERCEL_ENV: 'preview', VERCEL_URL: 'thinkmade-abc123.vercel.app' });
+    expect(env.APP_URL).toBe('https://thinkmade-abc123.vercel.app');
+    expect(env.PASSKEY_RP_ID).toBe('thinkmade-abc123.vercel.app');
+  });
+
+  it('only trusts the app origin in production', () => {
+    const env = loadEnv({ ...base, APP_URL: 'https://thinkmade.zicaworld.com' });
+    expect(env.TRUSTED_ORIGINS).toEqual(['https://thinkmade.zicaworld.com']);
+  });
+});

@@ -1,8 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import type { ApiError } from '../../lib/api';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import { Button, Card, Field, Notice, PageHeader } from '../../components/ui';
 
 interface AdminSettings {
@@ -187,9 +186,18 @@ export function AdminSettingsScreen() {
                   className="min-h-11 px-4 text-sm"
                   onClick={async () => {
                     if (!window.confirm(`Restore version ${v.version}? This creates a new version.`)) return;
-                    const res = await api<AdminSettings>('/api/admin/settings/rollback', { method: 'POST', body: JSON.stringify({ version: v.version }) });
-                    setMessage({ tone: 'info', text: `Restored version ${v.version} as version ${res.version}.` });
-                    await qc.invalidateQueries({ queryKey: ['admin'] });
+                    try {
+                      const res = await api<AdminSettings>('/api/admin/settings/rollback', {
+                        method: 'POST',
+                        body: JSON.stringify({ version: v.version }),
+                      });
+                      setMessage({ tone: 'info', text: `Restored version ${v.version} as version ${res.version}.` });
+                    } catch (err) {
+                      const code = err instanceof ApiError ? err.code : 'network_error';
+                      setMessage({ tone: 'error', text: `Could not restore version ${v.version} (${code}).` });
+                    } finally {
+                      await qc.invalidateQueries({ queryKey: ['admin'] });
+                    }
                   }}
                 >
                   Restore

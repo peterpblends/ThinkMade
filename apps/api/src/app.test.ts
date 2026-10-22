@@ -79,3 +79,33 @@ describe('app', () => {
     expect(last).toBe(429);
   });
 });
+
+describe("Better Auth's built-in admin endpoints", () => {
+  it('forbid an admin without two-factor (no MFA bypass through /api/auth/admin)', async () => {
+    ctx = await createTestContext();
+    const app = createApp(ctx);
+    const cookie = await signUpVerified(app, ctx, { email: 'nomfa@example.com', role: 'admin' });
+    const list = await app.request('/api/auth/admin/list-users', { headers: { cookie, origin: ctx.env.APP_URL } });
+    expect(list.status).toBe(403);
+    const setRole = await app.request('/api/auth/admin/set-role', {
+      method: 'POST',
+      headers: { cookie, origin: ctx.env.APP_URL, 'content-type': 'application/json' },
+      body: JSON.stringify({ userId: 'x', role: 'admin' }),
+    });
+    expect(setRole.status).toBe(403);
+  });
+
+  it('forbid a normal user', async () => {
+    ctx = await createTestContext();
+    const app = createApp(ctx);
+    const cookie = await signUpVerified(app, ctx, { email: 'plain@example.com' });
+    expect((await app.request('/api/auth/admin/list-users', { headers: { cookie } })).status).toBe(403);
+  });
+
+  it('allow an admin with two-factor', async () => {
+    ctx = await createTestContext();
+    const app = createApp(ctx);
+    const cookie = await signUpVerified(app, ctx, { email: 'mfa@example.com', role: 'admin', twoFactorEnabled: true });
+    expect((await app.request('/api/auth/admin/list-users', { headers: { cookie, origin: ctx.env.APP_URL } })).status).toBe(200);
+  });
+});
