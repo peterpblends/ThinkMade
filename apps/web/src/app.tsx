@@ -30,6 +30,7 @@ const AdminSettingsScreen = lazyNamed(() => import('./screens/admin/settings'), 
 const GenerationProgressScreen = lazyNamed(() => import('./screens/generation-progress'), 'GenerationProgressScreen');
 const SeriesScreen = lazyNamed(() => import('./screens/series'), 'SeriesScreen');
 const PlayerScreen = lazyNamed(() => import('./player/player-screen'), 'PlayerScreen');
+const CoachScreen = lazyNamed(() => import('./screens/coach'), 'CoachScreen');
 
 const page = (node: ReactNode) => (
   <Suspense fallback={<p role="status" className="text-muted">Loading…</p>}>{node}</Suspense>
@@ -67,6 +68,7 @@ const router = createBrowserRouter([
       { path: '/generations/:id', element: <RequireAuth>{page(<GenerationProgressScreen />)}</RequireAuth> },
       { path: '/series/:id', element: page(<SeriesScreen />) },
       { path: '/player', element: page(<PlayerScreen />) },
+      { path: '/coach/:episodeId', element: <RequireAuth>{page(<CoachScreen />)}</RequireAuth> },
       { path: '/settings', element: <RequireAuth>{page(<SettingsScreen />)}</RequireAuth> },
       { path: '/admin/settings', element: <RequireAuth>{page(<AdminSettingsScreen />)}</RequireAuth> },
       { path: '*', element: <NotFoundScreen /> },

@@ -34,7 +34,7 @@ export const createGenerationSchema = z.strictObject({
   mediaUploadIds: z.array(z.string().uuid()).max(10).default([]),
   parentSeriesId: z.string().uuid().optional(),
   coachingSessionId: z.string().uuid().optional(),
-}).refine((v) => v.topic.length >= 3 || v.mediaUploadIds.length > 0, {
+}).refine((v) => v.topic.length >= 3 || v.mediaUploadIds.length > 0 || !!v.coachingSessionId, {
   path: ['topic'],
   message: 'Tell us a little more about what you want to think through, or add a photo or video.',
 });

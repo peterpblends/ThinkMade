@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import { useLocation, useParams } from 'react-router';
-import { BookOpen, Lightbulb, Pause, Play } from 'lucide-react';
+import { Link, useLocation, useParams } from 'react-router';
+import { BookOpen, Lightbulb, MessageCircleQuestion, Pause, Play } from 'lucide-react';
 import { usePlayer, type PlayableEpisode } from '../player/player-context';
 import { DownloadButton } from '../offline/download-button';
 import { startPositionFor } from '../offline/player-adapters';
@@ -63,6 +63,9 @@ function EpisodeCard({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTit
       {ep.status === 'ready' && ep.audioUrl ? (
         <div className="flex flex-wrap items-center gap-2">
           <PlayButton ep={ep} seriesTitle={seriesTitle} queue={queue} />
+          <Link to={`/coach/${ep.id}`} className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line px-4 text-sm font-semibold">
+            <MessageCircleQuestion aria-hidden size={18} /> Coach Me
+          </Link>
           <span className="mt-4">
             <DownloadButton ep={toPlayable(ep, seriesTitle)} compact loadDetail={() => fetch(`/api/episodes/${ep.id}`, { credentials: 'same-origin' }).then((r) => r.json())} />
           </span>

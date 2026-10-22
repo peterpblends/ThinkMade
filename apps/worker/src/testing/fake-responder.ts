@@ -127,7 +127,7 @@ export function fakeResponder(messages: ChatMessage[]): string {
         visibleText: '',
       });
     case 'coach':
-      return JSON.stringify({ reply: 'Start by naming the alternative you are giving up, then estimate its value.' });
+      return 'Start by naming the alternative you are giving up, then estimate its value. What would you be giving up here?';
     default:
       return '{}';
   }

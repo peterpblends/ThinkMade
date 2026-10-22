@@ -44,9 +44,44 @@ function titlesMatch(claimed: string, found: string): boolean {
   return strip(a) === strip(b);
 }
 
+/** "A and B", "A & B", "A, B" -> ["A", "B"]. */
+export function splitAuthors(claimed: string): string[] {
+  return claimed
+    .split(/\s*(?:,|&|\band\b|;|\bwith\b)\s*/i)
+    .map((a) => a.trim())
+    .filter((a) => a.length > 1);
+}
+
+/** True when any claimed author's surname matches any catalogue author's surname. */
 function authorMatches(claimed: string, found: string[]): boolean {
-  const s = surname(claimed);
-  return s.length > 1 && found.some((f) => surname(f) === s);
+  const claimedSurnames = splitAuthors(claimed).map(surname).filter((s) => s.length > 1);
+  const foundSurnames = found.map(surname);
+  return claimedSurnames.some((s) => foundSurnames.includes(s));
+}
+
+/** The part of a title before any subtitle. */
+function mainTitle(title: string): string {
+  return title.split(/[:—–]|\s-\s/)[0]!.trim() || title.trim();
+}
+
+/** Catalogue authors that match the claim, or the first catalogue author when none match by name. */
+function displayAuthors(claimed: string, found: string[]): string[] {
+  const wanted = splitAuthors(claimed).map(surname);
+  const matched = [...new Set(found.filter((f) => wanted.includes(surname(f))))];
+  return matched.length ? matched : found.slice(0, 1);
+}
+
+/** Keeps the catalogue's wording and punctuation, borrowing the claim's capitalisation word by word. */
+function displayTitle(claimed: string, found: string): string {
+  const casing = new Map(mainTitle(claimed).split(/\s+/).map((w) => [w.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase(), w.replace(/[^\p{L}\p{N}]/gu, '')]));
+  return mainTitle(found)
+    .split(/(\s+)/)
+    .map((tok) => {
+      const bare = tok.replace(/[^\p{L}\p{N}]/gu, '');
+      const better = casing.get(bare.toLowerCase());
+      return better && bare ? tok.replace(bare, better) : tok;
+    })
+    .join('');
 }
 
 async function getJson(fetchFn: typeof fetch, url: string): Promise<unknown> {
@@ -63,7 +98,8 @@ export async function verifyBook(claim: BookClaim, opts: { fetch?: typeof fetch 
   const fetchFn = opts.fetch ?? fetch;
   let lookupsFailed = 0;
   try {
-    const q = new URLSearchParams({ title: claim.title, author: claim.author, limit: '5', fields: 'key,title,author_name,first_publish_year,isbn' });
+    // Search by main title and first author: catalogues often lack the subtitle, and models add co-authors.
+    const q = new URLSearchParams({ title: mainTitle(claim.title), author: splitAuthors(claim.author)[0] ?? claim.author, limit: '10', fields: 'key,title,author_name,first_publish_year,isbn' });
     const data = (await getJson(fetchFn, `https://openlibrary.org/search.json?${q}`)) as {
       docs?: Array<{ key: string; title: string; author_name?: string[]; first_publish_year?: number; isbn?: string[] }>;
     };
@@ -73,8 +109,8 @@ export async function verifyBook(claim: BookClaim, opts: { fetch?: typeof fetch 
       return {
         verified: true,
         via: 'openlibrary',
-        title: hit.title,
-        authors: hit.author_name ?? [],
+        title: displayTitle(claim.title, hit.title),
+        authors: displayAuthors(claim.author, hit.author_name ?? []),
         openLibraryId: hit.key,
         ...(hit.first_publish_year ? { year: hit.first_publish_year } : {}),
         ...(isbn13 ? { isbn13 } : {}),
@@ -84,7 +120,7 @@ export async function verifyBook(claim: BookClaim, opts: { fetch?: typeof fetch 
     lookupsFailed++;
   }
   try {
-    const q = encodeURIComponent(`intitle:${claim.title} inauthor:${claim.author}`);
+    const q = encodeURIComponent(`intitle:${mainTitle(claim.title)} inauthor:${surname(splitAuthors(claim.author)[0] ?? claim.author)}`);
     const data = (await getJson(fetchFn, `https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=5`)) as {
       items?: Array<{ id: string; volumeInfo: { title: string; authors?: string[]; publishedDate?: string; industryIdentifiers?: Array<{ type: string; identifier: string }> } }>;
     };
@@ -95,8 +131,8 @@ export async function verifyBook(claim: BookClaim, opts: { fetch?: typeof fetch 
       return {
         verified: true,
         via: 'googlebooks',
-        title: hit.volumeInfo.title,
-        authors: hit.volumeInfo.authors ?? [],
+        title: displayTitle(claim.title, hit.volumeInfo.title),
+        authors: displayAuthors(claim.author, hit.volumeInfo.authors ?? []),
         googleBooksId: hit.id,
         ...(year ? { year } : {}),
         ...(isbn13 ? { isbn13 } : {}),

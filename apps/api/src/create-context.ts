@@ -1,5 +1,5 @@
-import { createDb, runMigrations, type Db } from '@thinkmade/db';
-import { consoleEmailSender, createStorage, createLocalStorage, createStt, memoryEmailSender, type EmailSender, type ObjectStorage, type SttEngine } from '@thinkmade/ai';
+import { createDb, getStageModel, runMigrations, type Db, type ModelStage } from '@thinkmade/db';
+import { consoleEmailSender, createLlm, createStorage, createLocalStorage, createStt, memoryEmailSender, type EmailSender, type LlmClient, type ObjectStorage, type SttEngine } from '@thinkmade/ai';
 import { createAuth, type Auth } from './auth';
 import { loadEnv, type Env } from './env';
 import { createSettingsService, type SettingsService } from './settings/settings-service';
@@ -18,6 +18,8 @@ export interface AppContext {
   settings: SettingsService;
   storage: ObjectStorage;
   stt: SttEngine | null;
+  /** Language model for a stage, as configured by administrators. */
+  llm: (stage: ModelStage) => Promise<LlmClient>;
   worker: InProcessWorker | null;
   /** Wakes the in-process worker loop after a job is created. */
   pokeWorker: () => void;
@@ -77,6 +79,10 @@ export async function createContext(
     settings,
     storage,
     stt,
+    llm: async (stage) => {
+      const cfg = (await getStageModel(handle.db, stage)) ?? { provider: process.env.DEFAULT_LLM_PROVIDER ?? 'groq', model: process.env.DEFAULT_LLM_MODEL ?? 'llama-3.3-70b-versatile' };
+      return createLlm(cfg, rawEnv);
+    },
     worker,
     pokeWorker: () => loop?.poke(),
     now: () => new Date(),

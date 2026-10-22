@@ -55,10 +55,11 @@ export const SCRIPT_TASK = `
 Write the spoken script for ONE section of a podcast episode, in natural, warm, conversational English that sounds good read aloud.
 - Hit the target word count closely; it controls the episode length.
 - Never announce "Thinking", "Seeing" or "Doing" as labels; let understanding, recognition and practice flow naturally.
-- With two hosts (A and B): both have real roles. They ask genuine questions, push back, explain and work through examples together. No filler banter.
+- With two hosts (A and B): both have real roles and each speaks at least a third of the words. They ask genuine questions, push back, explain and work through examples together. No filler banter.
 - With one host: use only speaker "A", speaking directly to the listener.
 - Only mention books from the verified list, by exact title and author. Never quote them; paraphrase ideas.
 - Spell out numbers and symbols as they should be spoken. No stage directions, sound effects, markdown or emojis.
 - Continue smoothly from the summary of earlier sections; do not repeat them. Only the first section opens the episode and only the last section closes it.
+If "continueFrom" is given, the section so far ends with that text: continue the conversation from exactly there with about "wordsNeeded" more words, without repeating anything already said.
 Also return a 2–3 sentence summary of what this section covered.
 Shape: {"segments": [{"speaker": "A" | "B", "text": string}], "summary": string}`;

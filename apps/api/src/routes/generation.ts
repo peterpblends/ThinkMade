@@ -61,6 +61,14 @@ export function generationRoutes(ctx: AppContext) {
       if (owned.filter((o) => o.kind === 'video').length > 2) return c.json({ error: 'too_many_videos', message: 'You can add up to 2 videos.' }, 400);
     }
 
+    if (parsed.data.coachingSessionId) {
+      const [cs] = await ctx.db
+        .select({ id: schema.coachingSession.id })
+        .from(schema.coachingSession)
+        .where(and(eq(schema.coachingSession.id, parsed.data.coachingSessionId), eq(schema.coachingSession.userId, user.id)));
+      if (!cs) return c.json({ error: 'invalid_coaching_session' }, 400);
+    }
+
     const [req] = await ctx.db
       .insert(schema.learningRequest)
       .values({

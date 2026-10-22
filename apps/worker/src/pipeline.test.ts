@@ -222,3 +222,26 @@ describe('research matching', () => {
     expect(sources.length).toBeGreaterThan(0);
   });
 });
+
+describe('short sections from small models', () => {
+  it('asks the model to continue a section that comes back too short', async () => {
+    const continuations: string[] = [];
+    world = await makeWorld((messages: ChatMessage[]) => {
+      const sys = String(messages[0]!.content);
+      if (sys.startsWith('STAGE: script')) {
+        const input = String(messages[1]!.content);
+        const data = JSON.parse(input.slice(input.indexOf('INPUT:') + 6)) as { targetWords: number; continueFrom?: string };
+        if (data.continueFrom) continuations.push(data.continueFrom);
+        // First answer is a third of the target; continuations deliver the rest.
+        const reply = JSON.parse(fakeResponder(messages)) as { segments: Array<{ speaker: string; text: string }> };
+        if (!data.continueFrom) reply.segments = reply.segments.slice(0, Math.max(1, Math.floor(reply.segments.length / 3)));
+        return JSON.stringify(reply);
+      }
+      return fakeResponder(messages);
+    });
+    const job = await world.enqueue('Too short at first', { episodes: 1, speakerFormat: 'single' });
+    await runNextJob(world.deps);
+    expect((await jobRow(job.id)).status).toBe('succeeded');
+    expect(continuations.length).toBeGreaterThan(0);
+  });
+});

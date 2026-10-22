@@ -206,6 +206,19 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       );
       await saveState(db, job.id, state);
     }
+    // A podcast created from a coaching conversation builds on that conversation and its episode.
+    let coaching: { episodeTitle: string; episodeModel: string | null; conversation: Array<{ role: string; content: string }> } | null = null;
+    let coachingModelSlug: string | null = null;
+    if (request.coachingSessionId) {
+      const [cs] = await db.select().from(schema.coachingSession).where(eq(schema.coachingSession.id, request.coachingSessionId));
+      if (cs) {
+        const [e] = await db.select().from(schema.episode).where(eq(schema.episode.id, cs.episodeId));
+        const [m] = e?.primaryMentalModelId ? await db.select().from(schema.mentalModel).where(eq(schema.mentalModel.id, e.primaryMentalModelId)) : [];
+        coachingModelSlug = m?.slug ?? null;
+        const msgs = await db.select().from(schema.coachingMessage).where(eq(schema.coachingMessage.sessionId, cs.id)).orderBy(schema.coachingMessage.createdAt);
+        coaching = { episodeTitle: e?.title ?? '', episodeModel: m?.name ?? null, conversation: msgs.slice(-12).map((x) => ({ role: x.role, content: x.content.slice(0, 1500) })) };
+      }
+    }
     const mediaAnalysis = state.media?.analyses.length
       ? state.media.analyses.map((a) => ({ kind: a.kind, summary: a.summary, visibleEvidence: a.visibleEvidence, assumptions: a.assumptions, visibleText: a.visibleText, ...(a.transcript ? { spokenInVideo: a.transcript } : {}) }))
       : null;
@@ -214,7 +227,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     if (!state.understanding) {
       state.understanding = await runner.run('understand', () =>
         chat<Understanding>('understand', UNDERSTAND_TASK, {
-          question: request.inputText || (mediaAnalysis ? 'Help me think about what I am showing you.' : ''),
+          question: request.inputText || (mediaAnalysis ? 'Help me think about what I am showing you.' : coaching ? `Build on my coaching conversation about "${coaching.episodeTitle}".` : ''),
+          coachingConversation: coaching,
           spokenTranscript: request.inputTranscript ?? '',
           mediaAnalysis,
           learningMode: options.learningMode,
@@ -240,6 +254,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
 
     // 2. Select mental models
     const covered = await coveredModelSlugs(db, job.user_id, seriesId);
+    if (coachingModelSlug && !covered.includes(coachingModelSlug)) covered.push(coachingModelSlug);
     if (!state.models) {
       const want = options.episodes + 2;
       const sel = await runner.run('select_models', () =>
@@ -430,6 +445,27 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           `section ${i + 1} of ${ep.sections.length}${revision ? ' (revision)' : ''}`,
         );
         if (format === 'single') section.segments = section.segments.map((s) => ({ ...s, speaker: 'A' as const }));
+        // Smaller models often stop short; ask them to continue rather than accept a short episode.
+        for (let topUp = 0; topUp < 2; topUp++) {
+          const words = section.segments.reduce((n, x) => n + countWords(x.text), 0);
+          if (words >= perSection * 0.8) break;
+          const tail = section.segments.slice(-3).map((x) => `${x.speaker}: ${x.text}`).join('\n').slice(-1500);
+          const more = await runner.run('script', () =>
+            chat('script', SCRIPT_TASK, {
+              episode: { number: ep.number, title: ep.title, outcomes: ep.outcomes },
+              hosts: hosts.map((h) => ({ speaker: h.id, name: h.name })),
+              format,
+              section: { index: i + 1, of: ep.sections.length, heading: ep.sections[i]!.heading, goal: ep.sections[i]!.goal },
+              isLastSection: i === ep.sections.length - 1,
+              continueFrom: tail,
+              wordsNeeded: perSection - words,
+              targetWords: perSection - words,
+            }, scriptSectionSchema, 6000),
+            ep.number,
+            `section ${i + 1} continued`,
+          );
+          section.segments.push(...(format === 'single' ? more.segments.map((x) => ({ ...x, speaker: 'A' as const })) : more.segments));
+        }
         done[i] = { segments: section.segments, summary: section.summary };
         await saveState(db, job.id, state);
       };
