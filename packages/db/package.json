@@ -1,0 +1,24 @@
+{
+  "name": "@thinkmade/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json",
+    "db:generate": "drizzle-kit generate",
+    "db:check": "drizzle-kit check"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.11",
+    "@electric-sql/pglite-pgvector": "^0.0.12",
+    "@thinkmade/shared": "*",
+    "drizzle-orm": "^0.45.4",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.0",
+    "drizzle-kit": "^0.31.11"
+  }
+}
