@@ -10,6 +10,8 @@ export interface WorkerDeps {
   stt?: SttEngine | null;
   /** For search vectors of public series. */
   embedder?: Embedder;
+  /** Emails administrators; resolves true only if a message was actually sent. */
+  notifyAdmins?: (subject: string, text: string) => Promise<boolean>;
   storage: ObjectStorage;
   verifyBook: (claim: BookClaim) => Promise<BookVerification>;
   workDir: string;
@@ -30,5 +32,13 @@ export class JobCancelledError extends Error {
   constructor() {
     super('Cancelled by the user');
     this.name = 'JobCancelledError';
+  }
+}
+
+/** This worker's lease was taken over by another worker; it must stop without writing. */
+export class LostLeaseError extends Error {
+  constructor() {
+    super('Lease lost to another worker');
+    this.name = 'LostLeaseError';
   }
 }

@@ -93,11 +93,11 @@ export function withPreviewTags(html: string, meta: { title: string; description
   const d = escapeHtml(meta.description.slice(0, 280));
   const u = escapeHtml(meta.url);
   let out = html
-    .replace(/<title>[^<]*<\/title>/, `<title>${t}</title>`)
-    .replace(/<meta name="description" content="[^"]*"\s*\/?>/, `<meta name="description" content="${d}" />`)
-    .replace(/<meta property="og:title" content="[^"]*"\s*\/?>/, `<meta property="og:title" content="${t}" />`)
-    .replace(/<meta property="og:description" content="[^"]*"\s*\/?>/, `<meta property="og:description" content="${d}" />`)
-    .replace(/<meta property="og:url" content="[^"]*"\s*\/?>/, `<meta property="og:url" content="${u}" />`);
+    .replace(/<title>[^<]*<\/title>/, () => `<title>${t}</title>`)
+    .replace(/<meta name="description" content="[^"]*"\s*\/?>/, () => `<meta name="description" content="${d}" />`)
+    .replace(/<meta property="og:title" content="[^"]*"\s*\/?>/, () => `<meta property="og:title" content="${t}" />`)
+    .replace(/<meta property="og:description" content="[^"]*"\s*\/?>/, () => `<meta property="og:description" content="${d}" />`)
+    .replace(/<meta property="og:url" content="[^"]*"\s*\/?>/, () => `<meta property="og:url" content="${u}" />`);
   if (meta.noindex) out = out.replace('</head>', '<meta name="robots" content="noindex" />\n</head>');
   return out;
 }

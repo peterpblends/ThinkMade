@@ -15,8 +15,8 @@ test('playback position is saved and resumed; the mini player follows across scr
   await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible({ timeout: 15_000 });
   await page.getByRole('button', { name: 'Forward 15 seconds' }).click();
   await page.getByRole('button', { name: 'Forward 15 seconds' }).click();
-  await page.getByRole('button', { name: /Playback speed 1x/ }).click();
-  await expect(page.getByRole('button', { name: /Playback speed 1.25x/ })).toBeVisible();
+  await page.getByRole('button', { name: /1× playback speed/ }).click();
+  await expect(page.getByRole('button', { name: /1.25× playback speed/ })).toBeVisible();
   await page.getByRole('button', { name: 'Pause' }).click();
   const slider = page.getByRole('slider', { name: 'Position' });
   const saved = Number(await slider.inputValue());

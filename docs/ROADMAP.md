@@ -52,9 +52,13 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done and verified · `[!
 - [x] Admin dashboard: usage and alerts, AI models with tests, versioned prompts with test runs, quality queue, bug reports, people, moderation, audit log
 - [x] Bug reporting with safe diagnostics, screenshots and logged email notifications. See `reports/phase-9.md`.
 
-## Phase 10 — Final Validation
-- [ ] Acceptance tests 1–42 from the spec, each with evidence
-- [ ] Security testing and independent assessment
-- [ ] Mobile performance, offline and accessibility testing
-- [ ] Deployment verification on the production domain
-- [ ] Documentation complete
+## Phase 10: Final Validation
+- [x] Acceptance tests 1–42 with evidence (`acceptance.md`: 33 verified, 9 partly verified)
+- [x] Security testing: authorisation matrix, cross-site request checks, upload attacks, audit, secrets scan; internal assessment (`security-assessment.md`)
+- [x] Final independent code review; all Important findings fixed with tests
+- [x] Automated accessibility (axe, WCAG 2.2 AA) on main screens; offline and mobile-profile testing
+- [x] Documentation complete
+- [ ] Independent security review and penetration test (needs an outside party)
+- [ ] Deployment verification on thinkmade.zicaworld.com (needs the owner's accounts)
+- [ ] Real-device mobile testing
+See `reports/phase-10.md`.

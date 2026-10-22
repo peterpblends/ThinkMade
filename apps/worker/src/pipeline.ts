@@ -12,7 +12,7 @@ import {
 } from '@thinkmade/ai';
 import { getActivePrompts, queryRows, schema, seriesSearchText, vectorLiteral, type Db, type ModelStage } from '@thinkmade/db';
 import { HOST_NAMES, type GenerationOptions, type GenerationStage } from '@thinkmade/shared';
-import { JobCancelledError, PermanentJobError, type WorkerDeps } from './deps';
+import { JobCancelledError, LostLeaseError, PermanentJobError, type WorkerDeps } from './deps';
 import { input, PLAN_TASK, RESEARCH_TASK, SCRIPT_TASK, SELECT_MODELS_TASK, stageSystem, UNDERSTAND_TASK } from './prompts';
 import type { ClaimedJob } from './queue';
 import { analyseUploads, type MediaAnalysis } from './media';
@@ -60,7 +60,10 @@ export interface JobState {
   plan?: Plan;
   scripts?: ScriptState;
   tokens?: number;
+  rateLimitRetries?: number;
 }
+
+const MAX_RATE_LIMIT_RETRIES = 8;
 
 /** Speaker format per episode: mixed alternates, starting with a two-host conversation. */
 export function formatForEpisode(format: GenerationOptions['speakerFormat'], n: number): 'single' | 'two_hosts' {
@@ -76,9 +79,17 @@ class StageRunner {
   constructor(
     private db: Db,
     private jobId: string,
+    private workerId: string,
   ) {}
 
+  /** Throws if another worker has taken this job over (our lease expired). */
+  async checkOwnership() {
+    const [j] = await this.db.select({ by: schema.generationJob.lockedBy }).from(schema.generationJob).where(eq(schema.generationJob.id, this.jobId));
+    if (j?.by !== this.workerId) throw new LostLeaseError();
+  }
+
   async run<T>(stage: GenerationStage, fn: () => Promise<T>, episodeNumber?: number, note?: string): Promise<T> {
+    await this.checkOwnership();
     await this.checkCancelled();
     await this.db.update(schema.generationJob).set({ currentStage: stage }).where(eq(schema.generationJob.id, this.jobId));
     const [row] = await this.db
@@ -168,11 +179,11 @@ async function sourceForBook(db: Db, bookId: string, b: VerifiedBook): Promise<s
 }
 
 /** Runs one claimed job to completion (or a clean, recorded failure). */
-export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succeeded' | 'partial' | 'failed' | 'cancelled' | 'requeued'> {
+export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succeeded' | 'partial' | 'failed' | 'cancelled' | 'requeued' | 'lost_lease'> {
   const { db } = deps;
   const log = deps.log ?? (() => {});
   const lease = deps.leaseSeconds ?? 600;
-  const runner = new StageRunner(db, job.id);
+  const runner = new StageRunner(db, job.id, deps.workerId);
   const options = job.options as unknown as GenerationOptions;
   const state = (job.state ?? {}) as JobState;
   state.tokens ??= 0;
@@ -203,6 +214,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       state.media = await runner.run('analyze_media', () =>
         analyseUploads(deps, request.mediaUploadIds, request.inputText ?? '', (n) => {
           state.tokens! += n;
+          void extendLease(db, job.id, deps.workerId, lease);
         }),
       );
       await saveState(db, job.id, state);
@@ -333,6 +345,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           let rejected = 0;
           for (const claim of (found?.books ?? []).slice(0, 4)) {
             const v: BookVerification = await deps.verifyBook({ title: claim.title, author: claim.author });
+            await extendLease(db, job.id, deps.workerId, lease);
             if (v.verified) {
               if (!verified.some((b) => b.title === v.title)) {
                 verified.push({
@@ -435,9 +448,22 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     const episodes = await db.select().from(schema.episode).where(eq(schema.episode.seriesId, seriesId));
     let audioSeconds = 0;
     let held = 0;
+    let rejected = 0;
+    const humanRejected = new Set(
+      (
+        await db
+          .select({ id: schema.episodeQualityCheck.episodeId })
+          .from(schema.episodeQualityCheck)
+          .where(and(eq(schema.episodeQualityCheck.checkedBy, 'human'), eq(schema.episodeQualityCheck.passed, 0)))
+      ).map((r) => r.id),
+    );
     for (const planned of state.plan.episodes) {
       const row = episodes.find((e) => e.number === planned.number)!;
       if (row.status === 'ready') continue;
+      if (row.status === 'failed' && humanRejected.has(row.id)) {
+        rejected++;
+        continue;
+      }
       if (row.status === 'needs_review') {
         held++;
         continue;
@@ -445,11 +471,20 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       const result = await writeAndVoiceEpisode(planned, row.id, row.speakerFormat as 'single' | 'two_hosts', row.hosts ?? []);
       if (result === 'needs_review') held++;
     }
-    if (held > 0) {
-      const message =
-        held === state.plan.episodes.length
-          ? 'Your podcasts did not pass our quality review, so we did not record them. Our team has been notified. Please try rephrasing your question.'
-          : `${held} episode${held > 1 ? 's' : ''} did not pass our quality review and ${held > 1 ? 'were' : 'was'} not recorded. The rest are ready.`;
+    if (held > 0 || rejected > 0) {
+      let notified = false;
+      if (held > 0 && deps.notifyAdmins) {
+        notified = await deps
+          .notifyAdmins(
+            `ThinkMade: ${held} episode${held > 1 ? 's' : ''} held for quality review`,
+            `"${state.understanding?.seriesTitle ?? 'A series'}" has ${held} episode${held > 1 ? 's' : ''} that did not pass automatic review. Review them in Admin → Quality.`,
+          )
+          .catch(() => false);
+      }
+      const all = held + rejected === state.plan.episodes.length;
+      const message = all
+        ? `Your podcasts did not pass our quality review, so we did not record them.${notified ? ' Our team has been notified.' : ''} Please try rephrasing your question.`
+        : `${held + rejected} episode${held + rejected > 1 ? 's' : ''} did not pass our quality review and ${held + rejected > 1 ? 'were' : 'was'} not recorded.${notified ? ' Our team has been notified.' : ''} The rest are ready.`;
       await db.insert(schema.usageMetric).values({ metric: 'llm_tokens', value: state.tokens ?? 0, userId: job.user_id, jobId: job.id });
       return await finalise('failed', message);
     }
@@ -600,31 +635,47 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     }
 
     // 8. Publish
+    await runner.checkOwnership();
     await runner.run('publish', async () => {
       await db.update(schema.podcastSeries).set({ status: 'ready' }).where(eq(schema.podcastSeries.id, seriesId!));
       if (options.visibility === 'public' && deps.embedder) {
-        const [v] = await deps.embedder.embed([await seriesSearchText(db, seriesId!)]);
-        if (v) await db.execute(sql`update podcast_series set embedding = ${vectorLiteral(v)}::vector where id = ${seriesId}`);
+        // Search indexing is best-effort: a finished series must not be reported as failed because of it.
+        try {
+          const [v] = await deps.embedder.embed([await seriesSearchText(db, seriesId!)]);
+          if (v) await db.execute(sql`update podcast_series set embedding = ${vectorLiteral(v)}::vector where id = ${seriesId}`);
+        } catch (err) {
+          log('search indexing failed', { jobId: job.id, message: err instanceof Error ? err.message : String(err) });
+        }
       }
     });
     await db.insert(schema.usageMetric).values({ metric: 'llm_tokens', value: state.tokens ?? 0, userId: job.user_id, jobId: job.id });
     await db
       .update(schema.generationJob)
       .set({ status: 'succeeded', currentStage: 'publish', finishedAt: new Date(), lockedBy: null, lockedUntil: null, error: null, state: state as Record<string, unknown> })
-      .where(eq(schema.generationJob.id, job.id));
+      .where(and(eq(schema.generationJob.id, job.id), eq(schema.generationJob.lockedBy, deps.workerId)));
     return 'succeeded';
   } catch (err) {
+    if (err instanceof LostLeaseError) {
+      log('lost lease; another worker owns this job', { jobId: job.id });
+      return 'lost_lease';
+    }
+    const rateLimitedNow = err instanceof LlmError && err.status === 429;
+    if (rateLimitedNow) state.rateLimitRetries = (state.rateLimitRetries ?? 0) + 1;
     await saveState(db, job.id, state).catch(() => {});
     const message = err instanceof Error ? err.message : String(err);
     if (err instanceof JobCancelledError) {
       await finalise('cancelled', 'Cancelled.');
       return 'cancelled';
     }
-    const rateLimited = err instanceof LlmError && err.status === 429;
+    const rateLimited = rateLimitedNow && (state.rateLimitRetries ?? 0) <= MAX_RATE_LIMIT_RETRIES;
+    if (rateLimitedNow && !rateLimited) {
+      const outcome = await finalise('failed', 'The AI service is busy right now (its usage limit was reached). Please try again later.');
+      return outcome;
+    }
     const permanent = err instanceof PermanentJobError || err instanceof ProviderNotConfiguredError;
     if (!permanent && (rateLimited || job.attempts < job.max_attempts)) {
-      const delay = rateLimited ? 60 : 15 * 2 ** (job.attempts - 1);
-      await requeueJob(db, job.id, delay, message, !rateLimited);
+      const delay = rateLimited ? Math.min(1800, 60 * 2 ** ((state.rateLimitRetries ?? 1) - 1)) : 15 * 2 ** (job.attempts - 1);
+      await requeueJob(db, job.id, delay, message, !rateLimited, deps.workerId);
       log('job requeued', { jobId: job.id, attempt: job.attempts, delay, message });
       return 'requeued';
     }
@@ -650,7 +701,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     await db
       .update(schema.generationJob)
       .set({ status: final, error, finishedAt: new Date(), lockedBy: null, lockedUntil: null })
-      .where(eq(schema.generationJob.id, job.id));
+      .where(and(eq(schema.generationJob.id, job.id), eq(schema.generationJob.lockedBy, deps.workerId)));
     return final;
   }
 }

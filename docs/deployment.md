@@ -80,7 +80,10 @@ Set `RESEND_API_KEY` or `BREVO_API_KEY`, and `EMAIL_FROM`.
 
 In production with no provider configured, every email is recorded as failed in the admin Overview, and sign-ups cannot be verified. The app never pretends an email was sent.
 
-## 6a. Cloudflare R2 CORS
+## 6a. Cloudflare R2 CORS and the content security policy
+
+Set `S3_ENDPOINT` as a Vercel environment variable for both build and runtime. The build adds that origin to the content security policy's `connect-src`, which is what lets browsers upload to R2 and download from it.
+
 
 Downloads for offline listening fetch audio from the browser through a presigned R2 URL, so the bucket needs a CORS rule. In the R2 bucket's **Settings**, open **CORS policy** and allow `GET` and `HEAD` from `https://thinkmade.zicaworld.com`. Large photo and video uploads go straight to R2 too, so also allow `PUT` with the `content-type` header.
 

@@ -177,7 +177,7 @@ export function PlayerScreen() {
         <button
           type="button"
           onClick={() => p.setRate(RATES[(RATES.indexOf(p.rate as (typeof RATES)[number]) + 1) % RATES.length]!)}
-          aria-label={`Playback speed ${p.rate}x. Change speed`}
+          aria-label={`${p.rate}× playback speed`}
           className="min-h-11 rounded-full border border-line px-4 text-sm font-semibold tabular-nums"
         >
           {p.rate}×

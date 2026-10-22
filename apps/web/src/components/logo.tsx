@@ -22,7 +22,7 @@ export function Logo({ size = 28 }: { size?: number }) {
     <span className="inline-flex items-center gap-2 text-ink" role="img" aria-label={BRAND.name}>
       <LogoSymbol size={size} decorative />
       <span aria-hidden className="font-serif text-[1.35rem] font-semibold leading-none tracking-[-0.01em]">
-        Think<span className="text-accent">Made</span>
+        Think<span className="text-accent-ink">Made</span>
       </span>
     </span>
   );

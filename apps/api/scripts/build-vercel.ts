@@ -35,7 +35,8 @@ export function inlineScriptHashes(html: string): string[] {
   return hashes;
 }
 
-export function buildRoutes(indexHtml: string): Route[] {
+/** connectOrigins: object-store origins the browser talks to directly (presigned uploads and downloads). */
+export function buildRoutes(indexHtml: string, opts: { connectOrigins?: string[] } = {}): Route[] {
   const csp = [
     "default-src 'self'",
     `script-src 'self' ${inlineScriptHashes(indexHtml).join(' ')}`.trim(),
@@ -43,7 +44,7 @@ export function buildRoutes(indexHtml: string): Route[] {
     "img-src 'self' data: blob:",
     "media-src 'self' blob: https:",
     "font-src 'self'",
-    "connect-src 'self'",
+    ["connect-src 'self'", ...(opts.connectOrigins ?? [])].join(' '),
     "worker-src 'self'",
     "manifest-src 'self'",
     "frame-ancestors 'none'",
@@ -119,7 +120,10 @@ export async function assemble(opts: { webDist: string; outDir: string }): Promi
   mkdirSync(funcDir, { recursive: true });
   const indexHtml = readFileSync(indexPath, 'utf8');
   await bundleApi(funcDir, indexHtml);
-  const routes = buildRoutes(indexHtml);
+  // The browser PUTs uploads and fetches downloads directly from R2, so CSP must allow its origin.
+  // Presigned URLs are path-style (forcePathStyle), so their origin is the endpoint's origin.
+  // S3_ENDPOINT must be set as a Vercel environment variable so it is present at build time.
+  const routes = buildRoutes(indexHtml, { connectOrigins: process.env.S3_ENDPOINT ? [new URL(process.env.S3_ENDPOINT).origin] : [] });
   writeFileSync(join(opts.outDir, 'config.json'), JSON.stringify({ version: 3, routes }, null, 2) + '\n');
 }
 

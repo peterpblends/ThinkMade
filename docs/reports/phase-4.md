@@ -4,7 +4,7 @@
 
 ## Completed
 
-- **Uploads.** Files are checked by their actual bytes (JPEG, PNG, WebP, HEIC, MP4, MOV, WebM), never by the declared type. Admin limits apply to count and size. Files are stored privately under `uploads/<user>/` with a retention date (default 30 days). Large files go straight to R2 through presigned PUT URLs, because Vercel caps request bodies at 4.5 MB.
+- **Uploads.** Files are checked by their actual bytes (JPEG, PNG, WebP, HEIC, MP4, MOV, WebM), never by the declared type. Admin limits apply to count and size. Files are stored privately under `uploads/<user>/` with a retention date (default 30 days). Large files go straight to R2 through presigned PUT URLs, because Vercel caps request bodies at 4.5 MB. The final review found the content security policy would have blocked these direct uploads; the Vercel build now adds the R2 endpoint to `connect-src`. This is unverified until deployment, and the bucket also needs the CORS rule in `deployment.md`.
 - **Worker processing.** The worker checks content again before reading anything:
   - **Photos** are re-encoded and downscaled, which also strips GPS and other metadata, then described by the vision model.
   - **Videos** are probed for length, their soundtrack is transcribed, and up to 6 key frames are chosen by scene change (or spaced evenly), all sent in one vision request.

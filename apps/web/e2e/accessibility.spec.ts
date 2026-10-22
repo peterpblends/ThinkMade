@@ -22,6 +22,7 @@ test('signed-in screens have no serious accessibility problems', async ({ page }
   await audit(page, 'create (signed in)');
   await page.getByRole('button', { name: 'Customize' }).click();
   await audit(page, 'customize');
+  await page.goto('/');
   await createSeries(page);
   await audit(page, 'series');
   await page.getByRole('button', { name: /^Play episode 1/ }).click();

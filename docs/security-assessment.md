@@ -46,7 +46,7 @@ Date: 2026-10-22. Scope: the whole repository at the end of Phase 10, before any
 | End-to-end on iPhone, Pixel and desktop profiles, against the production build, including content security policy | Passing |
 | Dependency audit (`npm audit --audit-level=high`) | No High or Critical. 8 Moderate remain, in development tooling (drizzle-kit's bundled esbuild) and transitive libraries. |
 | Secrets scan (patterns for Groq, OpenAI, AWS, Resend and Brevo keys, and private keys) | None found. CI also runs gitleaks once the workflow is pushed. |
-| Accessibility (axe, WCAG 2.2 AA) | See `docs/reports/phase-10.md` |
+| Accessibility (axe, WCAG 2.2 AA) on 15 screens | Passing after one contrast fix (see the Phase 10 report) |
 
 Not performed: dynamic scanning against a deployed instance (for example OWASP ZAP), container scanning (Docker isn't available on the development machine), and penetration testing by an independent party.
 
@@ -59,7 +59,11 @@ Not performed: dynamic scanning against a deployed instance (for example OWASP Z
 | Banned users were told to verify their email | Important | Fixed |
 | A catch-all session middleware would have put later public routes behind sign-in | Important | Fixed: middleware applied per route, with a test |
 | `sharp` (transitive through Transformers.js) had High advisories in bundled libvips, libheif and librsvg | High | Fixed: overridden to 0.35.5. ThinkMade never passes user images to it. |
-| Findings of the final independent code review | various | See `docs/reports/phase-10.md` |
+| Content security policy would block direct R2 uploads and downloads | Important | Fixed: R2 origin added to `connect-src` at build time |
+| A worker that lost its lease could still write results | Important | Fixed: lease checked before each stage and before final writes |
+| Rate-limited jobs retried forever | Important | Fixed: capped with backoff |
+| "Team notified" claimed without a notification | Important | Fixed: admins are emailed and delivery logged; the claim appears only if sent |
+| `$` patterns in titles corrupted the share page (not XSS) | Minor | Fixed |
 
 ## Outstanding risks
 

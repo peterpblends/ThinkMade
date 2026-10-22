@@ -59,6 +59,11 @@ export function flushOutbox(): Promise<{ sent: number; remaining: number }> {
           await db.outbox.delete(item.id!);
           sent++;
         } else if (res.status === 401 || res.status === 403 || res.status === 429 || res.status >= 500) {
+          // Keep it for later, but drop an item the server has failed many times so it cannot block the queue.
+          if (res.status >= 500 && item.attempts + 1 >= 8) {
+            await db.outbox.delete(item.id!);
+            continue;
+          }
           await db.outbox.update(item.id!, { attempts: item.attempts + 1 });
           break;
         } else {

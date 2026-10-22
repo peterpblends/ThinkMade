@@ -226,7 +226,8 @@ export function libraryRoutes(ctx: AppContext) {
       .set({ visibility: body.data.visibility, publicSlug })
       .where(eq(schema.podcastSeries.id, s.id))
       .returning({ id: schema.podcastSeries.id, visibility: schema.podcastSeries.visibility, publicSlug: schema.podcastSeries.publicSlug });
-    if (body.data.visibility === 'public') await indexSeries(ctx, s.id);
+    // Indexing for search is best-effort; the visibility change itself has already succeeded.
+    if (body.data.visibility === 'public') await indexSeries(ctx, s.id).catch((err) => console.error('[discover] indexing failed', err instanceof Error ? err.message : err));
     await ctx.db.insert(schema.auditLog).values({ actorId: c.var.session!.user.id, action: 'series.visibility', targetType: 'podcast_series', targetId: s.id, before: { visibility: s.visibility }, after: { visibility: body.data.visibility } });
     return c.json(updated);
   });

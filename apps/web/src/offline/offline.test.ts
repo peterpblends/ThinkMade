@@ -83,3 +83,14 @@ describe('offline progress and sync', () => {
     expect((await db.outbox.toArray())[0]!.path).toContain('later');
   });
 });
+
+describe('outbox resilience', () => {
+  it('gives up on an item the server keeps failing, so it cannot block everything behind it', async () => {
+    await queueFavorite('broken', true);
+    await queueFavorite('fine', true);
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response('{}', { status: url.includes('broken') ? 500 : 200 })));
+    let r = { sent: 0, remaining: 2 };
+    for (let i = 0; i < 10 && r.remaining > 0; i++) r = await flushOutbox();
+    expect(r.remaining).toBe(0);
+  });
+});

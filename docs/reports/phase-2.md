@@ -10,7 +10,7 @@
   - Whisper speech-to-text through Groq
   - local disk or S3/R2 storage, with presigned URLs
   - ffmpeg assembly with loudness normalisation and duration measured from the finished file
-- **Durable job queue** on the `generation_job` table. It uses row locks, leases, retries with backoff and resumable state. A crashed worker's job is reclaimed when its lease expires.
+- **Durable job queue** on the `generation_job` table. It uses row locks, leases, retries with backoff and resumable state. A crashed or stalled worker's job is reclaimed when its lease expires. Since the final review, the old worker is fenced: it checks it still holds the lease before each stage and before writing results, so it can never overwrite the new owner's work. Retries after rate limits are capped, then the job fails with a clear message.
 - **The pipeline:** understand, select models, research and verify books, plan, write the script section by section, check, synthesise and publish. Mixed format alternates two hosts and one host. Explore excludes models the user has already covered.
 - **API.** Creating a job applies admin defaults, customisation within admin limits and a daily quota. It also covers progress from real stages, cancellation, series and episode details, and audio with HTTP Range support. Every one of these checks ownership.
 - **Voice input.** The browser records with MediaRecorder and the server transcribes, with an editable result. Browsers with the Web Speech API fall back to it.

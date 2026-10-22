@@ -68,7 +68,7 @@ export function serialiseEpisode(
 function parseRange(header: string | undefined, size: number): { start: number; end: number } | null | 'invalid' {
   if (!header) return null;
   const m = header.match(/^bytes=(\d*)-(\d*)$/);
-  if (!m) return 'invalid';
+  if (!m || (!m[1] && !m[2])) return 'invalid';
   let start = m[1] ? Number(m[1]) : NaN;
   let end = m[2] ? Number(m[2]) : size - 1;
   if (Number.isNaN(start)) {
@@ -105,7 +105,9 @@ export function seriesRoutes(ctx: AppContext) {
   r.get('/series/:id', async (c) => {
     const s = await readableSeries(ctx.db, c.req.param('id'), c.var.session?.user.id ?? null);
     if (!s) return c.json({ error: 'not_found' }, 404);
-    const eps = await ctx.db.select().from(schema.episode).where(eq(schema.episode.seriesId, s.id)).orderBy(schema.episode.number);
+    const isOwner = s.userId === c.var.session?.user.id;
+    // Other people only see finished episodes of a public series.
+    const eps = (await ctx.db.select().from(schema.episode).where(eq(schema.episode.seriesId, s.id)).orderBy(schema.episode.number)).filter((e) => isOwner || e.status === 'ready');
     const details = await episodeDetails(ctx.db, eps.map((e) => e.id));
     return c.json({
       id: s.id,

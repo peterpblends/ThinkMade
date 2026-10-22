@@ -26,7 +26,7 @@ export function DownloadButton({ ep, loadDetail, compact = false }: { ep: Downlo
   }
   return (
     <span className="inline-flex flex-col gap-1">
-      <button type="button" onClick={() => void d.download()} className={cls} aria-label={`Download ${ep.title} for offline listening`}>
+      <button type="button" onClick={() => void d.download()} className={cls} aria-label={`${compact ? 'Download' : 'Download for offline'}: ${ep.title}`}>
         <Download aria-hidden size={18} /> {compact ? 'Download' : 'Download for offline'}
       </button>
       {d.state === 'error' && <span role="alert" className="text-sm text-danger">{d.message}</span>}

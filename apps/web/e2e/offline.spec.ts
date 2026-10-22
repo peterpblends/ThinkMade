@@ -15,7 +15,7 @@ test('a downloaded episode plays offline and progress syncs when back online', a
   });
   expect(swState).toBe('activated');
 
-  await page.getByRole('button', { name: /Download .* for offline listening/ }).click();
+  await page.getByRole('button', { name: /^Download/ }).click();
   await expect(page.getByText('Downloaded', { exact: true })).toBeVisible({ timeout: 30_000 });
   const episodeId = page.url().split('/series/')[1]!.split('#')[0];
   const ep = await page.request.get(`/api/series/${episodeId}`).then((r) => r.json() as Promise<{ episodes: Array<{ id: string }> }>);

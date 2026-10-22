@@ -54,12 +54,12 @@ export async function extendLease(db: Db, jobId: string, workerId: string, lease
 }
 
 /** Puts a job back in the queue after a temporary failure. */
-export async function requeueJob(db: Db, jobId: string, delaySeconds: number, error: string, countAttempt = true) {
+export async function requeueJob(db: Db, jobId: string, delaySeconds: number, error: string, countAttempt = true, workerId?: string) {
   await db.execute(
     sql`update generation_job set status = 'queued', locked_by = null, locked_until = null,
           run_after = now() + make_interval(secs => ${delaySeconds}),
           attempts = attempts - ${countAttempt ? 0 : 1},
           error = ${error}, updated_at = now()
-        where id = ${jobId}`,
+        where id = ${jobId} ${workerId ? sql`and locked_by = ${workerId}` : sql``}`,
   );
 }

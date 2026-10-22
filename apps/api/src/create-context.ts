@@ -101,7 +101,13 @@ export async function createContext(
   let loop: { poke: () => void; stop: () => Promise<void> } | null = null;
   if (options.inProcessWorker ?? !env.DATABASE_URL) {
     const { createWorkerDeps, startWorker } = await import('@thinkmade/worker');
-    worker = await createWorkerDeps(handle.db, rawEnv, { storage });
+    worker = await createWorkerDeps(handle.db, rawEnv, {
+      storage,
+      notifyAdmins: async (subject, text) => {
+        const to = (await settings.getActive()).settings.bugReports.email;
+        return to ? (await sendEmail({ to, subject, text }, 'quality_hold')).ok : false;
+      },
+    });
     const embedded = options.embeddedWorker ?? (env.NODE_ENV !== 'test' || process.env.EMBEDDED_WORKER === 'true');
     if (embedded) loop = startWorker(worker);
   }

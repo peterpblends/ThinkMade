@@ -4,6 +4,7 @@ import {
   createKokoroTts,
   createLlm,
   createStorage,
+  createEmailSender,
   createEmbedder,
   createStt,
   createToneTts,
@@ -11,7 +12,7 @@ import {
   verifyBook,
   type TtsEngine,
 } from '@thinkmade/ai';
-import { getActiveAppSettings, getStageModel, seedModelConfig, type Db } from '@thinkmade/db';
+import { getActiveAppSettings, getStageModel, schema, seedModelConfig, type Db } from '@thinkmade/db';
 import type { WorkerDeps } from './deps';
 import { runJob } from './pipeline';
 import { claimNextJob } from './queue';
@@ -56,6 +57,17 @@ export async function createWorkerDeps(db: Db, env: Env = process.env, overrides
     tts: createTts(env),
     stt: createStt(env),
     embedder: createEmbedder(await getStageModel(db, 'embed'), env),
+    notifyAdmins: async (subject, text) => {
+      const to = (await getActiveAppSettings(db)).bugReports.email;
+      if (!to || env.NODE_ENV === 'test') return false;
+      const sender = createEmailSender(env);
+      const r = await sender.send({ to, subject, text });
+      await db
+        .insert(schema.emailDelivery)
+        .values({ to, subject, kind: 'quality_hold', provider: sender.provider, status: r.ok ? 'sent' : 'failed', providerId: r.ok ? r.id : null, error: r.ok ? null : r.error })
+        .catch(() => {});
+      return r.ok;
+    },
     storage: createStorage(env),
     verifyBook: env.BOOK_VERIFIER === 'fake' || (fake && env.BOOK_VERIFIER !== 'live') ? fakeVerifyBook : (claim) => verifyBook(claim),
     workDir: env.WORK_DIR ?? join('.data', 'work'),

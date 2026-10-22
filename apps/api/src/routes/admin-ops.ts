@@ -354,6 +354,7 @@ export function adminOpsRoutes(ctx: AppContext) {
     const action = c.req.query('action');
     const limit = Math.min(500, Math.max(1, Number(c.req.query('limit') ?? 100)));
     const since = c.req.query('since');
+    if (since && Number.isNaN(Date.parse(since))) return c.json({ error: 'invalid_request', message: 'since must be a date' }, 400);
     const rows = await ctx.db
       .select({ id: schema.auditLog.id, action: schema.auditLog.action, targetType: schema.auditLog.targetType, targetId: schema.auditLog.targetId, before: schema.auditLog.before, after: schema.auditLog.after, ip: schema.auditLog.ip, createdAt: schema.auditLog.createdAt, actor: schema.user.email })
       .from(schema.auditLog)
