@@ -1,7 +1,7 @@
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', '**/.data/**', '**/migrations/**', '.superpowers/**', '**/playwright-report/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', '**/.data/**', '**/migrations/**', '.superpowers/**', '.vercel/**', '**/test-results/**', '**/playwright-report/**'] },
   ...tseslint.configs.recommended,
   {
     rules: {
