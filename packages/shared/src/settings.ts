@@ -56,6 +56,11 @@ const qualitySchema = z.strictObject({
   maxRevisions: z.number().int().min(0).max(5),
 });
 
+const playerSchema = z.strictObject({
+  /** Fraction of an episode after which it counts as completed. */
+  completionThreshold: z.number().min(0.5).max(1),
+});
+
 const bugReportsSchema = z.strictObject({
   email: z.union([z.literal(''), z.email()]),
 });
@@ -66,6 +71,7 @@ const settingsShape = {
   media: mediaSchema,
   limits: limitsSchema,
   quality: qualitySchema.default({ minScore: 4, maxRevisions: 2 }),
+  player: playerSchema.default({ completionThreshold: 0.95 }),
   bugReports: bugReportsSchema,
 };
 
@@ -95,6 +101,7 @@ export const appSettingsPatchSchema = z.strictObject({
   media: mediaSchema.partial().optional(),
   limits: limitsSchema.partial().optional(),
   quality: qualitySchema.partial().optional(),
+  player: playerSchema.partial().optional(),
   bugReports: bugReportsSchema.partial().optional(),
 });
 
@@ -153,6 +160,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     minScore: 4,
     maxRevisions: 2,
   },
+  player: {
+    completionThreshold: 0.95,
+  },
   bugReports: {
     email: '',
   },
@@ -166,6 +176,7 @@ export function applySettingsPatch(current: AppSettings, patch: AppSettingsPatch
     media: { ...current.media, ...patch.media },
     limits: { ...current.limits, ...patch.limits },
     quality: { ...current.quality, ...patch.quality },
+    player: { ...current.player, ...patch.player },
     bugReports: { ...current.bugReports, ...patch.bugReports },
   };
   return appSettingsSchema.parse(merged);

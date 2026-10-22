@@ -14,6 +14,7 @@ import { generationRoutes } from './routes/generation';
 import { seriesRoutes } from './routes/series';
 import { transcribeRoutes } from './routes/transcribe';
 import { uploadRoutes } from './routes/uploads';
+import { libraryRoutes } from './routes/library';
 
 export function createApp(ctx: AppContext) {
   const app = new Hono<{ Variables: AppVariables }>();
@@ -56,6 +57,7 @@ export function createApp(ctx: AppContext) {
   api.route('/', seriesRoutes(ctx));
   api.route('/', transcribeRoutes(ctx));
   api.route('/', uploadRoutes(ctx));
+  api.route('/', libraryRoutes(ctx));
   if (ctx.env.NODE_ENV === 'test') api.route('/_test', testOnlyRoutes(ctx));
   api.route('/admin', adminRoutes(ctx));
   api.notFound((c) => c.json({ error: 'not_found' }, 404));

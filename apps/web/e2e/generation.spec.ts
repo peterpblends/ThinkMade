@@ -18,23 +18,17 @@ test('topic in, real playable podcast out', async ({ page }) => {
 
   await page.getByRole('link', { name: 'Open your series' }).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Thinking It Through');
-  const audio = page.locator('audio').first();
-  await expect(audio).toHaveAttribute('src', /\/api\/episodes\/.+\/audio/);
-  const duration = await audio.evaluate(async (el: HTMLAudioElement) => {
-    if (!Number.isFinite(el.duration) || el.duration === 0) {
-      await new Promise((r) => {
-        el.addEventListener('loadedmetadata', r, { once: true });
-        el.load();
-      });
-    }
-    return el.duration;
-  });
+  await page.getByRole('button', { name: /^Play episode 1/ }).click();
+  await page.getByRole('link', { name: /Open player:/ }).click();
   // 5 minutes of script at the test voice's pace, measured by the browser from the real MP3.
-  expect(duration).toBeGreaterThan(200);
+  await expect.poll(async () => Number(await page.getByRole('slider', { name: 'Position' }).getAttribute('max')), { timeout: 15_000 }).toBeGreaterThan(200);
+  await page.getByRole('button', { name: 'Pause' }).click();
+  await page.goBack();
   await page.getByText("What you'll learn").first().click();
   await expect(page.getByText('Thinking', { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/verified via Open Library/).first()).toBeVisible();
 
   await page.getByRole('link', { name: 'My Library' }).click();
+  await page.getByRole('tab', { name: 'My Podcasts' }).click();
   await expect(page.getByRole('link', { name: /Thinking It Through/ })).toBeVisible();
 });

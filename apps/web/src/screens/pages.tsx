@@ -1,10 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router';
-import { useSession } from '../lib/auth-client';
-import { formatDuration } from '../lib/format';
-import type { SeriesListItem } from '../lib/types';
-import { Compass, Library as LibraryIcon } from 'lucide-react';
+import { Compass } from 'lucide-react';
 import { BRAND } from '@thinkmade/shared';
 import { api, ApiError } from '../lib/api';
 import { Button, Card, Notice, PageHeader } from '../components/ui';
@@ -26,104 +21,6 @@ export function DiscoverScreen() {
       <div className="mt-10 flex flex-col items-center gap-3 text-center">
         <Compass aria-hidden size={40} className="text-sage" />
         <p className="max-w-sm text-muted">Public podcasts and search arrive in a later release. Nothing has been shared yet.</p>
-      </div>
-    </div>
-  );
-}
-
-const LIBRARY_TABS = ['Continue Listening', 'My Podcasts', 'Downloads', 'Completed', 'Favorites'] as const;
-
-interface GenerationListItem {
-  id: string;
-  status: string;
-  label: string;
-  topic: string | null;
-  seriesId: string | null;
-}
-
-function SeriesRow({ s }: { s: SeriesListItem }) {
-  return (
-    <li>
-      <Link to={`/series/${s.id}`} className="flex flex-col gap-1 rounded-2xl border border-line bg-surface p-4 shadow-card hover:bg-surface-2">
-        <span className="font-serif text-lg font-semibold">{s.title}</span>
-        <span className="text-sm text-muted">
-          {s.readyCount} of {s.episodeCount} episodes ready{s.totalSeconds ? ` · ${formatDuration(s.totalSeconds)}` : ''}
-          {s.visibility === 'public' ? ' · Public' : ''}
-        </span>
-      </Link>
-    </li>
-  );
-}
-
-export function LibraryScreen() {
-  const { user } = useSession();
-  const [tab, setTab] = useState<(typeof LIBRARY_TABS)[number]>('My Podcasts');
-  const series = useQuery({ queryKey: ['series', 'mine'], queryFn: () => api<{ series: SeriesListItem[] }>('/api/series'), enabled: !!user });
-  const gens = useQuery({
-    queryKey: ['generations'],
-    queryFn: () => api<{ generations: GenerationListItem[] }>('/api/generations'),
-    enabled: !!user?.emailVerified,
-    refetchInterval: 5000,
-  });
-  const active = (gens.data?.generations ?? []).filter((g) => g.status === 'queued' || g.status === 'running');
-  if (!user) {
-    return (
-      <div>
-        <PageHeader title="My Library" />
-        <p className="text-muted">
-          <Link className="font-semibold text-accent-ink underline" to="/sign-in?next=/library">Sign in</Link> to see your podcasts.
-        </p>
-      </div>
-    );
-  }
-  return (
-    <div>
-      <PageHeader title="My Library" />
-      <div role="tablist" aria-label="Library sections" className="-mx-4 mb-6 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
-        {LIBRARY_TABS.map((t) => (
-          <button
-            key={t}
-            role="tab"
-            aria-selected={tab === t}
-            onClick={() => setTab(t)}
-            className="min-h-11 shrink-0 rounded-full border border-line px-4 text-[0.95rem] aria-selected:border-accent-strong aria-selected:bg-accent-strong aria-selected:text-on-accent"
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-      <div role="tabpanel" aria-label={tab}>
-        {active.length > 0 && (
-          <section aria-labelledby="in-progress" className="mb-6">
-            <h2 id="in-progress" className="mb-2 text-lg">In progress</h2>
-            <ul className="flex flex-col gap-2">
-              {active.map((g) => (
-                <li key={g.id}>
-                  <Link to={`/generations/${g.id}`} className="flex flex-col rounded-2xl border border-line bg-surface p-4 hover:bg-surface-2">
-                    <span className="font-semibold">{g.topic}</span>
-                    <span className="text-sm text-muted">{g.label}…</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-        {tab === 'My Podcasts' ? (
-          series.data?.series.length ? (
-            <ul className="flex flex-col gap-3">{series.data.series.map((s) => <SeriesRow key={s.id} s={s} />)}</ul>
-          ) : (
-            <div className="mt-10 flex flex-col items-center gap-3 text-center">
-              <LibraryIcon aria-hidden size={40} className="text-sage" />
-              <p className="max-w-sm text-muted">Nothing here yet. Your podcasts appear here as soon as you create them.</p>
-              <Link to="/" className="font-semibold text-accent-ink underline">Create your first series</Link>
-            </div>
-          )
-        ) : (
-          <div className="mt-10 flex flex-col items-center gap-3 text-center">
-            <LibraryIcon aria-hidden size={40} className="text-sage" />
-            <p className="max-w-sm text-muted">{tab} arrives with the full player in the next release.</p>
-          </div>
-        )}
       </div>
     </div>
   );

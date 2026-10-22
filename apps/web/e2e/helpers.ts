@@ -31,3 +31,15 @@ export async function signUpAndVerify(page: Page, prefix: string) {
   await page.getByRole('heading', { name: 'What would you like to think through today?' }).waitFor();
   return email;
 }
+
+/** Creates a 5-minute, one-episode series through the UI and opens it. */
+export async function createSeries(page: Page, topic = 'Why do projects run late?') {
+  await page.getByRole('textbox', { name: /your topic/i }).fill(topic);
+  await page.getByRole('button', { name: 'Customize' }).click();
+  await page.getByText('5 min', { exact: true }).click();
+  await page.getByText('1 episode', { exact: true }).click();
+  await page.getByRole('button', { name: 'Create My Podcasts' }).click();
+  await page.getByRole('link', { name: 'Open your series' }).waitFor({ timeout: 90_000 });
+  await page.getByRole('link', { name: 'Open your series' }).click();
+  await page.getByRole('button', { name: /^Play episode 1/ }).waitFor();
+}

@@ -1,13 +1,47 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useLocation, useParams } from 'react-router';
-import { BookOpen, Lightbulb } from 'lucide-react';
+import { BookOpen, Lightbulb, Pause, Play } from 'lucide-react';
+import { usePlayer, type PlayableEpisode } from '../player/player-context';
 import { api } from '../lib/api';
 import { formatDuration } from '../lib/format';
 import type { EpisodeSummary, SeriesDetail } from '../lib/types';
 import { Notice, PageHeader } from '../components/ui';
 
-function EpisodeCard({ ep }: { ep: EpisodeSummary }) {
+export function toPlayable(ep: EpisodeSummary, seriesTitle: string): PlayableEpisode {
+  return {
+    id: ep.id,
+    title: ep.title,
+    seriesId: ep.seriesId,
+    seriesTitle,
+    number: ep.number,
+    primaryModelName: ep.primaryModel?.name ?? null,
+    audioUrl: ep.audioUrl ?? `/api/episodes/${ep.id}/audio`,
+    durationSeconds: ep.durationSeconds,
+  };
+}
+
+function PlayButton({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTitle: string; queue: PlayableEpisode[] }) {
+  const player = usePlayer();
+  const isCurrent = player.current?.id === ep.id;
+  const playing = isCurrent && player.playing;
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        if (isCurrent) return player.toggle();
+        const saved = await fetch(`/api/playback/${ep.id}`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)).catch(() => null) as { positionMs: number; status: string } | null;
+        player.play(toPlayable(ep, seriesTitle), { queue, startAtMs: saved && saved.status !== 'completed' ? saved.positionMs : 0 });
+      }}
+      aria-label={`${playing ? 'Pause' : 'Play'} episode ${ep.number}: ${ep.title}`}
+      className="mt-4 inline-flex min-h-12 items-center gap-2 rounded-full bg-accent-strong px-5 font-semibold text-on-accent shadow-card"
+    >
+      {playing ? <Pause aria-hidden size={20} /> : <Play aria-hidden size={20} />} {playing ? 'Pause' : isCurrent ? 'Resume' : 'Play'}
+    </button>
+  );
+}
+
+function EpisodeCard({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTitle: string; queue: PlayableEpisode[] }) {
   return (
     <article id={ep.id} aria-labelledby={`${ep.id}-title`} className="scroll-mt-20 rounded-[var(--radius-card)] border border-line bg-surface p-5 shadow-card">
       <p className="text-sm font-semibold text-muted">
@@ -26,7 +60,7 @@ function EpisodeCard({ ep }: { ep: EpisodeSummary }) {
       <p className="mt-3 text-[0.98rem]">{ep.description}</p>
 
       {ep.status === 'ready' && ep.audioUrl ? (
-        <audio className="mt-4 w-full" controls preload="metadata" src={ep.audioUrl} aria-label={`Play episode ${ep.number}: ${ep.title}`} />
+        <PlayButton ep={ep} seriesTitle={seriesTitle} queue={queue} />
       ) : ep.status === 'failed' ? (
         <p className="mt-4 text-sm text-danger">This episode could not be finished.</p>
       ) : ep.status === 'needs_review' ? (
@@ -109,7 +143,9 @@ export function SeriesScreen() {
     <div>
       <PageHeader title={s.title} subtitle={s.description} />
       <div className="flex flex-col gap-5">
-        {s.episodes.map((ep) => <EpisodeCard key={ep.id} ep={ep} />)}
+        {s.episodes.map((ep) => (
+          <EpisodeCard key={ep.id} ep={ep} seriesTitle={s.title} queue={s.episodes.filter((e) => e.status === 'ready').map((e) => toPlayable(e, s.title))} />
+        ))}
       </div>
     </div>
   );
