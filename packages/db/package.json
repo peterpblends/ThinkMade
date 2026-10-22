@@ -11,7 +11,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "db:generate": "drizzle-kit generate",
     "db:check": "drizzle-kit check",
-    "db:migrate": "tsx src/cli-migrate.ts"
+    "db:migrate": "tsx --env-file-if-exists=../../.env src/cli-migrate.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.11",
