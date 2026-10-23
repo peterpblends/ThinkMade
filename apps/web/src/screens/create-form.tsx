@@ -132,7 +132,7 @@ function VoiceControls({ voice, onFiles }: { voice: VoiceInput; onFiles: (files:
     );
   }
   if (voice.state === 'transcribing') {
-    return <span role="status" className="px-2 text-sm text-muted">Turning your words into text…</span>;
+    return <span role="status" className="px-2 text-sm text-muted">{voice.onDevice ? 'Turning your words into text on this device…' : 'Turning your words into text…'}</span>;
   }
   return (
     <>

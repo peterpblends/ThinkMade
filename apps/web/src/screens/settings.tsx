@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { authClient, supportsPasskeys, useSession } from '../lib/auth-client';
 import { getTheme, setTheme, type ThemeChoice } from '../lib/theme';
 import { Button, Card, Field, Notice, PageHeader } from '../components/ui';
+import { canRecogniseOnDevice, onDeviceSpeech, onDeviceSpeechEnabled, setOnDeviceSpeechEnabled, type OnDeviceStatus } from '../lib/on-device-speech';
 import { StorageSection } from './storage-section';
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -63,6 +64,57 @@ function AppearanceSection() {
           </label>
         ))}
       </fieldset>
+    </Section>
+  );
+}
+
+/** Optional on-device transcription (Moonshine): a one-time download, then speech stays on the device. */
+function VoiceSection() {
+  const capable = canRecogniseOnDevice();
+  const [on, setOn] = useState(onDeviceSpeechEnabled());
+  const [status, setStatus] = useState<OnDeviceStatus>({ phase: 'idle', fraction: 0 });
+  useEffect(() => {
+    if (!capable || !on) return;
+    const speech = onDeviceSpeech();
+    setStatus(speech.status);
+    const off = speech.subscribe(setStatus);
+    speech.prepare();
+    return off;
+  }, [capable, on]);
+  return (
+    <Section title="Voice input">
+      {capable ? (
+        <>
+          <label className="flex min-h-11 cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              className="mt-1 h-5 w-5 accent-[var(--color-accent-strong)]"
+              checked={on}
+              onChange={(e) => {
+                setOn(e.target.checked);
+                setOnDeviceSpeechEnabled(e.target.checked);
+              }}
+            />
+            <span className="flex flex-col gap-1">
+              <span className="font-semibold">Turn speech into text on this device</span>
+              <span className="text-sm text-muted">
+                A one-time download of about 90 MB. After that, what you say never leaves this device. When this is off, or until the download finishes, recordings are sent to our transcription service to be turned into text. ThinkMade doesn't store them.
+              </span>
+            </span>
+          </label>
+          {on && (
+            <p role="status" className="text-sm text-muted">
+              {status.phase === 'ready'
+                ? 'Ready. Voice input now works on this device.'
+                : status.phase === 'failed'
+                  ? 'The download did not finish. It will try again next time you use voice input.'
+                  : `Downloading… ${Math.round(status.fraction * 100)}%`}
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="text-[0.95rem]">This browser can't run speech recognition on the device, so recordings are sent to our transcription service to be turned into text. ThinkMade doesn't store them.</p>
+      )}
     </Section>
   );
 }
@@ -271,6 +323,7 @@ export function SettingsScreen() {
       <AppearanceSection />
       <PasskeySection />
       <TwoFactorSection />
+      <VoiceSection />
       <StorageSection />
       <DataSection />
     </div>

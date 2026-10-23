@@ -39,7 +39,8 @@ export function inlineScriptHashes(html: string): string[] {
 export function buildRoutes(indexHtml: string, opts: { connectOrigins?: string[] } = {}): Route[] {
   const csp = [
     "default-src 'self'",
-    `script-src 'self' ${inlineScriptHashes(indexHtml).join(' ')}`.trim(),
+    // 'wasm-unsafe-eval' lets on-device speech recognition compile WebAssembly; it does not allow eval().
+    `script-src 'self' 'wasm-unsafe-eval' ${inlineScriptHashes(indexHtml).join(' ')}`.trim(),
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "media-src 'self' blob: https:",
@@ -67,6 +68,8 @@ export function buildRoutes(indexHtml: string, opts: { connectOrigins?: string[]
     },
     { src: '^/assets/(.*)$', headers: { 'Cache-Control': 'public, max-age=31536000, immutable' }, continue: true },
     { src: '^/sw\\.js$', headers: { 'Cache-Control': 'no-cache' }, continue: true },
+    // On-device speech model files: pinned versions, also kept by the browser's Cache API.
+    { src: '^/speech/(.*)$', headers: { 'Cache-Control': 'public, max-age=604800' }, continue: true },
     { src: '^/manifest\\.webmanifest$', headers: { 'Cache-Control': 'no-cache' }, continue: true },
     { src: '^/api(?:/.*)?$', dest: '/api' },
     // Shared links are rendered by the API so link previews show the series title and description.

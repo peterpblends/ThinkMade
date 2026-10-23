@@ -12,3 +12,4 @@ playwright-report/
 test-results/
 *.log
 .DS_Store
+apps/web/public/speech/

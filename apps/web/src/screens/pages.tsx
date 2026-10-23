@@ -23,6 +23,13 @@ export function HelpScreen() {
         </p>
       </Card>
       <Card className="flex flex-col gap-2">
+        <h2 className="text-xl">How episodes are made</h2>
+        <p>
+          AI writes each script and synthetic voices read it aloud. Book recommendations are checked against public book catalogs, and every
+          episode passes a quality review before you hear it. You can turn speech into text on your own device in Settings.
+        </p>
+      </Card>
+      <Card className="flex flex-col gap-2">
         <h2 className="text-xl">Installing ThinkMade</h2>
         <p>
           <strong>iPhone and iPad:</strong> open ThinkMade in Safari, tap Share, then Add to Home Screen.

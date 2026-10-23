@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { canRecogniseOnDevice, decodeForSpeech, onDeviceSpeech, onDeviceSpeechEnabled } from './on-device-speech';
 
 export type VoiceState = 'idle' | 'recording' | 'transcribing' | 'error';
 
@@ -8,6 +9,8 @@ export interface VoiceInput {
   error: string | null;
   /** Latest finished transcript, for the caller to place in an editable field. */
   transcript: string | null;
+  /** The current transcription is happening on this device, not on the server. */
+  onDevice: boolean;
   start: () => void;
   stop: () => void;
   cancel: () => void;
@@ -40,8 +43,9 @@ function pickMime(): string | undefined {
 }
 
 /**
- * Records the microphone only after the user taps and grants permission, then transcribes on the server.
- * Falls back to the browser's own speech recognition when the server has no transcription service.
+ * Records the microphone only after the user taps and grants permission, then transcribes on this
+ * device (Moonshine, when the listener has turned it on in Settings and it has loaded) or on the
+ * server. Falls back to the browser's own speech recognition when the server has no transcription service.
  */
 export function useVoiceInput(): VoiceInput {
   const hasRecorder = typeof window !== 'undefined' && typeof MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
@@ -50,6 +54,7 @@ export function useVoiceInput(): VoiceInput {
   const [state, setState] = useState<VoiceState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<string | null>(null);
+  const [onDevice, setOnDevice] = useState(false);
   const recorder = useRef<MediaRecorder | null>(null);
   const recognition = useRef<SpeechRecognitionLike | null>(null);
   const cancelled = useRef(false);
@@ -103,6 +108,8 @@ export function useVoiceInput(): VoiceInput {
       if (!startBrowserRecognition()) setError('Voice input is not supported in this browser.');
       return;
     }
+    const local = onDeviceSpeechEnabled() && canRecogniseOnDevice() ? onDeviceSpeech() : null;
+    local?.prepare(); // loads while the listener speaks; if it isn't ready in time, the server transcribes this one
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -121,8 +128,25 @@ export function useVoiceInput(): VoiceInput {
         setState('idle');
         return;
       }
-      setState('transcribing');
       const type = (rec.mimeType || mimeType || 'audio/webm').split(';')[0]!;
+      if (local?.ready) {
+        setOnDevice(true);
+        setState('transcribing');
+        try {
+          const text = await local.transcribe(await decodeForSpeech(new Blob(chunks, { type })));
+          if (cancelled.current) return;
+          if (text) {
+            setTranscript(text);
+            setState('idle');
+            return;
+          }
+        } catch {
+          // Fall through to the server.
+        } finally {
+          setOnDevice(false);
+        }
+      }
+      setState('transcribing');
       const form = new FormData();
       form.set('audio', new File(chunks, `voice.${type.includes('mp4') ? 'm4a' : type.split('/')[1]}`, { type }));
       try {
@@ -161,5 +185,5 @@ export function useVoiceInput(): VoiceInput {
     setState('idle');
   }, []);
 
-  return { supported, state, error, transcript, start: () => void start(), stop, cancel };
+  return { supported, state, error, transcript, onDevice, start: () => void start(), stop, cancel };
 }

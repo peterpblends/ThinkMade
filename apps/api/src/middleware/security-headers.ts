@@ -6,7 +6,7 @@ export const CONTENT_SECURITY_POLICY = [
   "media-src 'self' blob: https:",
   "connect-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "script-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

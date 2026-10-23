@@ -98,12 +98,12 @@ describe('CreateForm', () => {
   });
 
   it('puts a voice transcript into the editable topic box', async () => {
-    render(<CreateForm defaults={defaults} onCreate={vi.fn()} voice={{ supported: true, state: 'idle', start: vi.fn(), stop: vi.fn(), cancel: vi.fn(), error: null, transcript: 'Help me understand bottlenecks' }} />);
+    render(<CreateForm defaults={defaults} onCreate={vi.fn()} voice={{ supported: true, state: 'idle', start: vi.fn(), stop: vi.fn(), cancel: vi.fn(), error: null, transcript: 'Help me understand bottlenecks', onDevice: false }} />);
     expect(screen.getByRole('textbox', { name: /your topic/i })).toHaveValue('Help me understand bottlenecks');
   });
 
   it('shows that recording is active and offers stop and cancel', () => {
-    render(<CreateForm defaults={defaults} onCreate={vi.fn()} voice={{ supported: true, state: 'recording', start: vi.fn(), stop: vi.fn(), cancel: vi.fn(), error: null, transcript: null }} />);
+    render(<CreateForm defaults={defaults} onCreate={vi.fn()} voice={{ supported: true, state: 'recording', start: vi.fn(), stop: vi.fn(), cancel: vi.fn(), error: null, transcript: null, onDevice: false }} />);
     expect(screen.getByRole('status')).toHaveTextContent(/recording/i);
     expect(screen.getByRole('button', { name: /stop recording/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: /cancel recording/i })).toBeEnabled();

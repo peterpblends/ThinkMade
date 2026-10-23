@@ -22,7 +22,7 @@ describe('buildRoutes', () => {
   it('allows exactly the inline scripts in index.html by hash', () => {
     const hash = createHash('sha256').update('var a=1;').digest('base64');
     const csp = routes.find((r) => r.headers?.['Content-Security-Policy'])!.headers!['Content-Security-Policy']!;
-    expect(csp).toContain(`script-src 'self' 'sha256-${hash}'`);
+    expect(csp).toContain(`script-src 'self' 'wasm-unsafe-eval' 'sha256-${hash}'`);
     expect(csp).not.toContain("'unsafe-inline' 'self'");
     expect(csp).toContain("frame-ancestors 'none'");
   });

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { CoachView } from './coach';
 
-const idle = { supported: true, state: 'idle' as const, start: vi.fn(), stop: vi.fn(), cancel: vi.fn(), error: null, transcript: null };
+const idle = { supported: true, state: 'idle' as const, start: vi.fn(), stop: vi.fn(), cancel: vi.fn(), error: null, transcript: null, onDevice: false };
 
 describe('CoachView', () => {
   it('shows the conversation and sends a question', async () => {
