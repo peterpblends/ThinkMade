@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { completeJson } from './structured';
 import { createFakeLlm } from './fake';
-import { createOpenAiCompatibleLlm } from './openai-compatible';
+import { createOpenAiCompatibleLlm, estimateTokens, retryAfterMs } from './openai-compatible';
 import { createLlm, ProviderNotConfiguredError } from './providers';
 
 describe('completeJson', () => {
@@ -74,6 +74,45 @@ describe('createOpenAiCompatibleLlm', () => {
     const llm = createOpenAiCompatibleLlm({ provider: 'groq', baseUrl: 'https://api.example/v1', apiKey: 'k', model: 'm', fetch: fetchFn, params: { reasoning_effort: 'low', model: 'evil', max_tokens: 1 } });
     await llm.chat([{ role: 'user', content: 'hi' }], { maxTokens: 50 });
     expect(body).toMatchObject({ model: 'm', reasoning_effort: 'low', max_tokens: 50 });
+  });
+
+  it('keeps prompt plus output under a provider request limit, and never sends tm_ settings', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetchFn = (async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'x' } }] }), { status: 200 });
+    }) as typeof fetch;
+    const llm = createOpenAiCompatibleLlm({ provider: 'groq', baseUrl: 'https://api.example/v1', apiKey: 'k', model: 'm', fetch: fetchFn, requestTokenLimit: 7500, params: { tm_request_token_limit: 7500 } });
+    const big = [{ role: 'user' as const, content: 'word '.repeat(4000) }];
+    await llm.chat(big, { maxTokens: 6000 });
+    expect(bodies[0]!.max_tokens).toBe(7500 - estimateTokens(big));
+    expect(bodies[0]).not.toHaveProperty('tm_request_token_limit');
+    await llm.chat([{ role: 'user', content: 'hi' }], { maxTokens: 100 });
+    expect(bodies[1]!.max_tokens).toBe(100);
+    await expect(llm.chat([{ role: 'user', content: 'word '.repeat(6000) }], { maxTokens: 100 })).rejects.toMatchObject({ status: 413 });
+  });
+
+  it('waits out a short per-minute rate limit, but hands a long one back', async () => {
+    const waits: number[] = [];
+    let n = 0;
+    const fetchFn = (async () =>
+      n++ === 0
+        ? new Response('slow down', { status: 429, headers: { 'retry-after': '7' } })
+        : new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 })) as typeof fetch;
+    const llm = createOpenAiCompatibleLlm({ provider: 'groq', baseUrl: 'https://api.example/v1', apiKey: 'k', model: 'm', fetch: fetchFn, sleep: async (ms) => void waits.push(ms) });
+    expect((await llm.chat([{ role: 'user', content: 'hi' }])).content).toBe('ok');
+    expect(waits).toEqual([7250]);
+
+    const daily = createOpenAiCompatibleLlm({ provider: 'groq', baseUrl: 'https://x/v1', apiKey: 'k', model: 'm', sleep: async () => {}, fetch: (async () => new Response('daily', { status: 429, headers: { 'x-ratelimit-reset-tokens': '2h10m' } })) as typeof fetch });
+    await expect(daily.chat([{ role: 'user', content: 'hi' }])).rejects.toMatchObject({ status: 429 });
+  });
+
+  it('reads Groq reset headers', () => {
+    expect(retryAfterMs(new Headers({ 'x-ratelimit-reset-tokens': '7.66s' }))).toBeCloseTo(7660);
+    expect(retryAfterMs(new Headers({ 'x-ratelimit-reset-tokens': '1m2.5s' }))).toBe(62_500);
+    expect(retryAfterMs(new Headers({ 'x-ratelimit-reset-requests': '250ms' }))).toBe(250);
+    expect(retryAfterMs(new Headers({ 'retry-after': '3' }))).toBe(3000);
+    expect(retryAfterMs(new Headers())).toBeNull();
   });
 
   it('surfaces provider errors with status', async () => {

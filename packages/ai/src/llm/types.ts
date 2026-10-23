@@ -23,6 +23,8 @@ export interface ChatResult {
 export interface LlmClient {
   readonly provider: string;
   readonly model: string;
+  /** Prompt plus output tokens one request may use, when the provider caps it. */
+  readonly requestTokenLimit?: number;
   chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResult>;
 }
 

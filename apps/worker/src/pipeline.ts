@@ -556,7 +556,10 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         const verdict = await runner.run('validate', async () => {
           const sections = done.map((d) => d.segments);
           const checks = scriptChecks(sections, { targetWords: totalWords, format });
-          const windows = judgeWindows(sections.map((segs) => segs.reduce((n, x) => n + countWords(x.text), 0)), 4500);
+          // Review windows must fit the review model's request limit: about 1.4 tokens a word, plus room for instructions and the verdict.
+          const limit = (await deps.llm('validate')).requestTokenLimit;
+          const windowWords = limit ? Math.max(1000, Math.floor((limit - 2000 - 1500) / 1.4)) : 4500;
+          const windows = judgeWindows(sections.map((segs) => segs.reduce((n, x) => n + countWords(x.text), 0)), windowWords);
           const judgements: Judgement[] = [];
           for (const w of windows) {
             judgements.push(

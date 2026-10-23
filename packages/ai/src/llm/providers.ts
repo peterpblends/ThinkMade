@@ -50,6 +50,7 @@ export function createLlm(cfg: ModelConfig, env: Env = process.env): LlmClient {
     apiKey,
     model: cfg.model,
     ...(cfg.params ? { params: cfg.params } : {}),
+    ...(typeof cfg.params?.tm_request_token_limit === 'number' ? { requestTokenLimit: cfg.params.tm_request_token_limit } : {}),
     ...(cfg.provider === 'openrouter'
       ? { headers: { 'HTTP-Referer': 'https://thinkmade.zicaworld.com', 'X-Title': 'ThinkMade' } }
       : {}),

@@ -23,9 +23,12 @@ export interface StageModel {
 
 type StageDefault = Omit<StageModel, 'params'> & { params?: Record<string, unknown> };
 
-const QWEN = { provider: 'groq', model: 'qwen/qwen3.8-27b', params: { reasoning_effort: 'low' } };
-const GPT_OSS_120B = { provider: 'groq', model: 'openai/gpt-oss-120b', params: { reasoning_effort: 'low' } };
-const GPT_OSS_20B = { provider: 'groq', model: 'openai/gpt-oss-20b', params: { reasoning_effort: 'low' } };
+// Groq's free tier refuses any request over 8,000 tokens (its per-minute limit), counting prompt and
+// max_tokens; tm_request_token_limit keeps requests under it with a margin.
+const GROQ_FREE = { reasoning_effort: 'low', tm_request_token_limit: 7500 };
+const QWEN = { provider: 'groq', model: 'qwen/qwen3.8-27b', params: GROQ_FREE };
+const GPT_OSS_120B = { provider: 'groq', model: 'openai/gpt-oss-120b', params: GROQ_FREE };
+const GPT_OSS_20B = { provider: 'groq', model: 'openai/gpt-oss-20b', params: GROQ_FREE };
 
 /**
  * Zero-cost defaults (checked October 2026). Each Groq model has its own daily allowance on the free
