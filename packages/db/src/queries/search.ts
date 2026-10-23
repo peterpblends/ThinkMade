@@ -21,3 +21,27 @@ export async function seriesSearchText(db: Db, seriesId: string): Promise<string
 export function vectorLiteral(v: number[]): string {
   return `[${v.map((x) => (Number.isFinite(x) ? x.toFixed(6) : '0')).join(',')}]`;
 }
+
+/** The part of an embedder these queries need (packages/ai's Embedder satisfies it). */
+export interface SearchEmbedder {
+  readonly name: string;
+  embed(texts: string[], kind?: 'query' | 'document'): Promise<number[][]>;
+}
+
+/** Embeds a series' search text and records which embedder made the vector. */
+export async function indexSeriesEmbedding(db: Db, embedder: SearchEmbedder, seriesId: string): Promise<void> {
+  const [v] = await embedder.embed([await seriesSearchText(db, seriesId)], 'document');
+  if (v) await db.execute(sql`update podcast_series set embedding = ${vectorLiteral(v)}::vector, embedding_model = ${embedder.name} where id = ${seriesId}`);
+}
+
+/** Public, finished series with no vector from `embedderName` (new, or made by a previous embedder). */
+export async function seriesNeedingIndex(db: Db, embedderName: string, limit = 20): Promise<string[]> {
+  const rows = await queryRows<{ id: string }>(
+    db,
+    sql`select id from podcast_series
+        where visibility = 'public' and status in ('ready', 'partial')
+          and (embedding is null or embedding_model is distinct from ${embedderName})
+        order by updated_at desc limit ${limit}`,
+  );
+  return rows.map((r) => r.id);
+}

@@ -1,7 +1,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { queryRows, schema, seriesSearchText, vectorLiteral } from '@thinkmade/db';
+import { indexSeriesEmbedding, queryRows, schema, vectorLiteral } from '@thinkmade/db';
 import { BRAND } from '@thinkmade/shared';
 import type { AppContext } from '../create-context';
 import { requireVerified, type AppVariables } from '../middleware/session';
@@ -21,11 +21,20 @@ type Hit = {
   avg_rating: number | null;
 };
 
-/** Updates a public series' search vector. */
+/** Updates a public series' search vector. If the embedder can't run here, the worker indexes it later. */
 export async function indexSeries(ctx: AppContext, seriesId: string) {
-  const embedder = await ctx.embedder();
-  const [v] = await embedder.embed([await seriesSearchText(ctx.db, seriesId)]);
-  if (v) await ctx.db.execute(sql`update podcast_series set embedding = ${vectorLiteral(v)}::vector where id = ${seriesId}`);
+  await indexSeriesEmbedding(ctx.db, await ctx.embedder(), seriesId);
+}
+
+/** The query's vector, or null for text-only search when the embedder is unavailable or slow. */
+async function queryVector(ctx: AppContext, q: string): Promise<{ vec: number[]; model: string } | null> {
+  try {
+    const embedder = await ctx.embedder();
+    const [vec] = await embedder.embed([q], 'query');
+    return vec ? { vec, model: embedder.name } : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -34,14 +43,14 @@ export async function indexSeries(ctx: AppContext, seriesId: string) {
  */
 async function searchPublic(ctx: AppContext, opts: { q?: string | undefined; model?: string | undefined; excludeUserId?: string; minSimilarity?: number; limit?: number }): Promise<Hit[]> {
   const q = opts.q?.trim().slice(0, 200) ?? '';
-  const vec = q ? (await (await ctx.embedder()).embed([q]))[0]! : null;
-  const vecLit = vec ? vectorLiteral(vec) : null;
+  const qv = q ? await queryVector(ctx, q) : null;
+  const vecLit = qv ? vectorLiteral(qv.vec) : null;
   const like = `%${q.replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
   const minSim = opts.minSimilarity ?? 0.3;
   return queryRows<Hit>(
     ctx.db,
     sql`with docs as (
-          select s.id, s.title, s.description, s.public_slug, s.created_at, s.embedding, s.user_id,
+          select s.id, s.title, s.description, s.public_slug, s.created_at, s.embedding, s.embedding_model, s.user_id,
             s.title || ' ' || s.description || ' ' ||
             coalesce((select string_agg(e.title || ' ' || e.description || ' ' || coalesce(e.learning_objective, ''), ' ') from episode e where e.series_id = s.id and e.status = 'ready'), '') || ' ' ||
             coalesce((select string_agg(distinct m.name, ' ') from episode e join episode_mental_model em on em.episode_id = e.id join mental_model m on m.id = em.mental_model_id where e.series_id = s.id), '') || ' ' ||
@@ -54,7 +63,7 @@ async function searchPublic(ctx: AppContext, opts: { q?: string | undefined; mod
         scored as (
           select d.*,
             ${q ? sql`ts_rank(to_tsvector('english', d.doc), websearch_to_tsquery('english', ${q}))` : sql`0`}::float as rank,
-            ${vecLit ? sql`case when d.embedding is null then 0 else 1 - (d.embedding <=> ${vecLit}::vector) end` : sql`0`}::float as similarity,
+            ${vecLit ? sql`case when d.embedding is null or d.embedding_model is distinct from ${qv!.model} then 0 else 1 - (d.embedding <=> ${vecLit}::vector) end` : sql`0`}::float as similarity,
             ${q ? sql`(to_tsvector('english', d.doc) @@ websearch_to_tsquery('english', ${q}) or d.doc ilike ${like})` : sql`true`} as text_match
           from docs d
         )

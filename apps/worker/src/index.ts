@@ -14,7 +14,7 @@ import {
   verifyBook,
   type TtsEngine,
 } from '@thinkmade/ai';
-import { defaultStageModel, getActiveAppSettings, getStageModel, schema, seedModelConfig, type Db } from '@thinkmade/db';
+import { defaultStageModel, getActiveAppSettings, getStageModel, indexSeriesEmbedding, seriesNeedingIndex, schema, seedModelConfig, type Db } from '@thinkmade/db';
 import type { WorkerDeps } from './deps';
 import { runJob } from './pipeline';
 import { claimNextJob } from './queue';
@@ -83,6 +83,17 @@ export async function createWorkerDeps(db: Db, env: Env = process.env, overrides
   };
 }
 
+/**
+ * Gives public series a search vector from the current embedder: new ones the API couldn't index,
+ * and older ones made by a previous embedder. Returns how many were indexed.
+ */
+export async function reindexPublicSeries(deps: Pick<WorkerDeps, 'db' | 'embedder'>, limit = 20): Promise<number> {
+  if (!deps.embedder) return 0;
+  const ids = await seriesNeedingIndex(deps.db, deps.embedder.name, limit);
+  for (const id of ids) await indexSeriesEmbedding(deps.db, deps.embedder, id);
+  return ids.length;
+}
+
 /** Claims and runs one job. Returns false when the queue is empty. */
 export async function runNextJob(deps: WorkerDeps): Promise<boolean> {
   const settings = await getActiveAppSettings(deps.db);
@@ -97,11 +108,16 @@ export function startWorker(deps: WorkerDeps, opts: { pollMs?: number } = {}) {
   let stopped = false;
   let wake: (() => void) | null = null;
   let lastCleanup = 0;
+  let lastIndex = 0;
   const loop = (async () => {
     while (!stopped) {
       if (Date.now() - lastCleanup > 30 * 60_000) {
         lastCleanup = Date.now();
         await cleanupExpiredUploads(deps).catch((err) => deps.log?.('cleanup failed', { message: String(err) }));
+      }
+      if (Date.now() - lastIndex > 5 * 60_000) {
+        lastIndex = Date.now();
+        await reindexPublicSeries(deps).catch((err) => deps.log?.('search indexing failed', { message: String(err) }));
       }
       let worked = false;
       try {

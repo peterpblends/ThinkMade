@@ -44,6 +44,15 @@ describe('Discover', () => {
     expect(anon.results.map((r) => r.id)).toEqual([pub]);
   });
 
+  it('still finds podcasts by text when the embedding service is down', async () => {
+    const { app, alice, h, make } = await world();
+    const pub = await make(alice, 'Why do projects run late with bottlenecks?');
+    await app.request(`/api/series/${pub}`, { method: 'PATCH', headers: h(alice), body: JSON.stringify({ visibility: 'public' }) });
+    ctx!.embedder = async () => ({ name: 'down@512', embed: async () => { throw new Error('unreachable'); } });
+    const res = (await (await app.request('/api/discover?q=thinking')).json()) as { results: Array<{ id: string }> };
+    expect(res.results.map((r) => r.id)).toEqual([pub]);
+  });
+
   it('searches by mental model name and by book author', async () => {
     const { app, alice, h, make } = await world();
     const pub = await make(alice, 'Decisions');

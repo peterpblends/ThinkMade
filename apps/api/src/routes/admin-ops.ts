@@ -9,7 +9,7 @@ import { clientIp } from '../middleware/rate-limit';
 import type { AppVariables } from '../middleware/session';
 
 const BUG_STATUSES = ['new', 'in_progress', 'resolved', 'closed'] as const;
-const EMBED_PROVIDERS = ['hash', 'gemini', 'ollama', 'openrouter'];
+const EMBED_PROVIDERS = ['local', 'hash', 'gemini', 'ollama', 'openrouter'];
 
 function fingerprint(text: string): string {
   return text.toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/).filter((w) => w.length > 2).slice(0, 6).join(' ');

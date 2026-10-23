@@ -36,7 +36,9 @@ export const mentalModel = pgTable(
     name: text('name').notNull(),
     summary: text('summary').notNull(),
     category: text('category'),
-    embedding: vector('embedding', { dimensions: 384 }),
+    embedding: vector('embedding', { dimensions: 512 }),
+    // Which embedder made `embedding`. Vectors from different models are never compared.
+    embeddingModel: text('embedding_model'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -128,7 +130,9 @@ export const podcastSeries = pgTable(
     visibility: text('visibility').notNull().default('private'),
     publicSlug: text('public_slug').unique(),
     status: text('status').notNull().default('pending'), // pending | generating | ready | partial | failed
-    embedding: vector('embedding', { dimensions: 384 }),
+    embedding: vector('embedding', { dimensions: 512 }),
+    // Which embedder made `embedding`. Vectors from different models are never compared.
+    embeddingModel: text('embedding_model'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

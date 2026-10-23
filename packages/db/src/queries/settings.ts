@@ -41,8 +41,8 @@ export const FREE_STAGE_MODELS: Record<ModelStage, StageDefault> = {
   validate: QWEN,
   coach: GPT_OSS_20B,
   vision: { provider: 'openrouter', model: 'google/gemma-4-31b-it:free' },
-  // The built-in keyword embedder works everywhere at no cost; admins can switch to a semantic model.
-  embed: { provider: 'hash', model: 'hash-384' },
+  // EmbeddingGemma 2 runs on the worker; the API reaches it through EMBED_SERVER_URL.
+  embed: { provider: 'local', model: 'embeddinggemma-2' },
 };
 
 /** Groq models that have left the free tier. Rows still pointing at them are moved to the current default. */
@@ -56,6 +56,8 @@ const RETIRED_GROQ_MODELS = new Set([
 /** The model a stage uses when nothing is stored: an override (local or test provider) or the free defaults. */
 export function defaultStageModel(stage: ModelStage, override?: { provider: string; model: string } | null): StageModel {
   if (override && stage !== 'embed') return { provider: override.provider, model: override.model, params: {} };
+  // Tests use the dependency-free keyword embedder rather than downloading a model.
+  if (override?.provider === 'fake' && stage === 'embed') return { provider: 'hash', model: 'hash', params: {} };
   const d = FREE_STAGE_MODELS[stage];
   return { provider: d.provider, model: d.model, params: d.params ?? {} };
 }
@@ -72,7 +74,8 @@ export async function seedModelConfig(db: Db, override?: { provider: string; mod
     const values = defaultStageModel(stage, override);
     if (!row) {
       await db.insert(aiModelConfig).values({ stage, ...values }).onConflictDoNothing();
-    } else if (row.provider === 'groq' && RETIRED_GROQ_MODELS.has(row.model)) {
+    } else if ((row.provider === 'groq' && RETIRED_GROQ_MODELS.has(row.model)) || (row.provider === 'hash' && row.model === 'hash-384' && values.provider !== 'hash')) {
+      // Retired Groq models, and the old keyword-embedder default, move to the current defaults.
       await db.update(aiModelConfig).set({ ...values, updatedAt: new Date() }).where(eq(aiModelConfig.stage, stage));
     }
   }

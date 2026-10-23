@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { LlmError, type ChatMessage } from '@thinkmade/ai';
 import { schema } from '@thinkmade/db';
-import { runNextJob } from './index';
+import { reindexPublicSeries, runNextJob } from './index';
 import { claimNextJob } from './queue';
 import { fakeResponder, setFakeValidation } from './testing/fake-responder';
 import { makeWorld } from './testing/fixtures';
@@ -39,6 +39,21 @@ describe('review fixes', () => {
     expect(j!.status).toBe('succeeded');
     const [s] = await world.db.select().from(schema.podcastSeries);
     expect(s!.status).toBe('ready');
+  });
+
+  it('re-indexes public series the API could not index, and those made by an older embedder', async () => {
+    world = await makeWorld();
+    world.deps.embedder = { name: 'broken', embed: async () => { throw new Error('down'); } };
+    await world.enqueue('Public one', { episodes: 1, visibility: 'public' });
+    await runNextJob(world.deps);
+    const vec = Array.from({ length: 512 }, (_, i) => (i === 0 ? 1 : 0));
+    world.deps.embedder = { name: 'new-model@512', embed: async (t) => t.map(() => vec) };
+    expect(await reindexPublicSeries(world.deps)).toBe(1);
+    const [s] = await world.db.select().from(schema.podcastSeries);
+    expect(s!.embeddingModel).toBe('new-model@512');
+    expect(await reindexPublicSeries(world.deps)).toBe(0); // up to date
+    world.deps.embedder = { name: 'newer-model@512', embed: async (t) => t.map(() => vec) };
+    expect(await reindexPublicSeries(world.deps)).toBe(1);
   });
 
   it('does not tell the listener a team was notified unless a notifier exists', async () => {

@@ -90,7 +90,7 @@ export async function bundleApi(funcDir: string, indexHtml?: string): Promise<vo
     // The function never runs jobs or speech synthesis, so the worker and native AI libraries stay out.
     external: [
       '@electric-sql/pglite', '@electric-sql/pglite-pgvector', 'pg-native',
-      '@thinkmade/worker', 'kokoro-js', '@huggingface/transformers', 'onnxruntime-node', 'onnxruntime-web', 'sharp', 'ffmpeg-static',
+      '@thinkmade/worker', 'kokoro-js', 'phonon-tts', 'phonon-tts/raw', '@huggingface/transformers', 'onnxruntime-node', 'onnxruntime-web', 'sharp', 'ffmpeg-static',
     ],
     define: { __THINKMADE_MIGRATIONS_REL__: '"./migrations"', ...(indexHtml ? { __THINKMADE_INDEX_HTML__: JSON.stringify(indexHtml) } : {}) },
     banner: {

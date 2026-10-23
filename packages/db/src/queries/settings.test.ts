@@ -21,7 +21,8 @@ describe('free model defaults', () => {
 
   it('uses an override for every stage except embedding', () => {
     expect(defaultStageModel('script', { provider: 'ollama', model: 'qwen2.5:7b' })).toEqual({ provider: 'ollama', model: 'qwen2.5:7b', params: {} });
-    expect(defaultStageModel('embed', { provider: 'ollama', model: 'qwen2.5:7b' }).provider).toBe('hash');
+    expect(defaultStageModel('embed', { provider: 'ollama', model: 'qwen2.5:7b' }).provider).toBe('local');
+    expect(defaultStageModel('embed', { provider: 'fake', model: 'fake' }).provider).toBe('hash');
     expect(defaultStageModel('vision').provider).toBe('openrouter');
   });
 

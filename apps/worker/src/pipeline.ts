@@ -10,7 +10,7 @@ import {
   type BookVerification,
   type ChatMessage,
 } from '@thinkmade/ai';
-import { getActivePrompts, queryRows, schema, seriesSearchText, vectorLiteral, type Db, type ModelStage } from '@thinkmade/db';
+import { getActivePrompts, indexSeriesEmbedding, queryRows, schema, type Db, type ModelStage } from '@thinkmade/db';
 import { HOST_NAMES, type GenerationOptions, type GenerationStage } from '@thinkmade/shared';
 import { JobCancelledError, LostLeaseError, PermanentJobError, type WorkerDeps } from './deps';
 import { input, PLAN_TASK, RESEARCH_TASK, SCRIPT_TASK, SELECT_MODELS_TASK, stageSystem, UNDERSTAND_TASK } from './prompts';
@@ -641,8 +641,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       if (options.visibility === 'public' && deps.embedder) {
         // Search indexing is best-effort: a finished series must not be reported as failed because of it.
         try {
-          const [v] = await deps.embedder.embed([await seriesSearchText(db, seriesId!)]);
-          if (v) await db.execute(sql`update podcast_series set embedding = ${vectorLiteral(v)}::vector where id = ${seriesId}`);
+          await indexSeriesEmbedding(db, deps.embedder, seriesId!);
         } catch (err) {
           log('search indexing failed', { jobId: job.id, message: err instanceof Error ? err.message : String(err) });
         }
