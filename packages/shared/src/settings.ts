@@ -126,6 +126,50 @@ export const appSettingsPatchSchema = z.strictObject({
 
 export type AppSettingsPatch = z.infer<typeof appSettingsPatchSchema>;
 
+/**
+ * Phonon-31M voices (Apache-2.0, gradium/phonon-voices). Stored as `phonon:<key>`. Phonon is the
+ * default engine; Kokoro voices stay available and are the fallback if Phonon can't load.
+ */
+export const PHONON_VOICES = [
+  { key: 'zoey', id: 'NbpkqMVS3CJeq2j8', name: 'Zoey', accent: 'US', gender: 'female' },
+  { key: 'juniper', id: 'NIWIOv5vTi5eRMj8', name: 'Juniper', accent: 'US', gender: 'female' },
+  { key: 'everly', id: 'vjFyp2BcCyTlUmYb', name: 'Everly', accent: 'US', gender: 'female' },
+  { key: 'harper', id: '4SZHfMpw-p46Ywgs', name: 'Harper', accent: 'US', gender: 'female' },
+  { key: 'hadley', id: 'bXwrkHhURL1VFJdG', name: 'Hadley', accent: 'US', gender: 'female' },
+  { key: 'delia', id: 'nGzMHMPAWGaJFHOo', name: 'Delia', accent: 'US', gender: 'female' },
+  { key: 'easton', id: 'LMDIYE0Oa377Qh6Z', name: 'Easton', accent: 'US', gender: 'male' },
+  { key: 'micah', id: '40QrMVgAxFiUnP9f', name: 'Micah', accent: 'US', gender: 'male' },
+  { key: 'trevor', id: '0zLApsZfVLLNaEGl', name: 'Trevor', accent: 'US', gender: 'male' },
+  { key: 'russell', id: '_6Aslh2DxfmnRLmP', name: 'Russell', accent: 'US', gender: 'male' },
+  { key: 'preston', id: 'qIxlZ7Ei8KvWlyQH', name: 'Preston', accent: 'US', gender: 'male' },
+  { key: 'miles', id: 'd9XCyhjo4JhkHF1d', name: 'Miles', accent: 'US', gender: 'male' },
+  { key: 'maeve', id: '6PWnV0Nq4wu7RVBT', name: 'Maeve', accent: 'UK', gender: 'female' },
+  { key: 'freya', id: 'GgfEkEJtxZR7gnpy', name: 'Freya', accent: 'UK', gender: 'female' },
+  { key: 'pippa', id: 'uem82D50GRv2Dwma', name: 'Pippa', accent: 'UK', gender: 'female' },
+  { key: 'elodie-rose', id: 'y9bQqIDnyxwqK01t', name: 'Elodie-Rose', accent: 'UK', gender: 'female' },
+  { key: 'imogen', id: 'gDT1nz7Ie36ZhL-C', name: 'Imogen', accent: 'UK', gender: 'female' },
+  { key: 'lottie', id: 'm9MxpY6IUGXtWp76', name: 'Lottie', accent: 'UK', gender: 'female' },
+  { key: 'bryony', id: 'gfP44RlHwr2kEwk7', name: 'Bryony', accent: 'UK', gender: 'female' },
+  { key: 'alfie', id: 'X6NceqF285Gr04gb', name: 'Alfie', accent: 'UK', gender: 'male' },
+  { key: 'hugh', id: 'YyKcxPG7iIgS3jsK', name: 'Hugh', accent: 'UK', gender: 'male' },
+  { key: 'edwin', id: 'zUCxzrOrugTSis03', name: 'Edwin', accent: 'UK', gender: 'male' },
+  { key: 'spencer', id: 'JOW0vchyswkQUMDS', name: 'Spencer', accent: 'UK', gender: 'male' },
+  { key: 'toby', id: 'dME3IWyZBvmh1n1q', name: 'Toby', accent: 'UK', gender: 'male' },
+  { key: 'teddy', id: 'Zn7g6NxLqXlJb7Qi', name: 'Teddy', accent: 'UK', gender: 'male' },
+] as const;
+
+export type PhononVoice = (typeof PHONON_VOICES)[number];
+
+export function phononVoice(voice: string): PhononVoice | undefined {
+  return voice.startsWith('phonon:') ? PHONON_VOICES.find((v) => v.key === voice.slice(7)) : undefined;
+}
+
+/** A readable label for a stored voice id, e.g. "Zoey (Phonon, US female)". */
+export function voiceLabel(voice: string): string {
+  const p = phononVoice(voice);
+  return p ? `${p.name} (Phonon, ${p.accent} ${p.gender})` : `${voice} (Kokoro)`;
+}
+
 /** Kokoro voice ids. af_heart is the highest-rated voice in the Kokoro model card. */
 export const KOKORO_VOICES = [
   'af_heart',
@@ -157,10 +201,10 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     audioQuality: 'balanced',
   },
   voices: {
-    single: 'af_heart',
-    hostA: 'af_heart',
-    hostB: 'am_michael',
-    available: [...KOKORO_VOICES],
+    single: 'phonon:zoey',
+    hostA: 'phonon:zoey',
+    hostB: 'phonon:easton',
+    available: [...PHONON_VOICES.map((v) => `phonon:${v.key}`), ...KOKORO_VOICES],
   },
   media: {
     maxImages: 4,

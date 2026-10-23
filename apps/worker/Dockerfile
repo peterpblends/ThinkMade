@@ -1,4 +1,4 @@
-# ThinkMade worker: research, scripts, quality review, Kokoro speech and ffmpeg assembly.
+# ThinkMade worker: research, scripts, quality review, Phonon/Kokoro speech, embeddings and ffmpeg assembly.
 # Built for the Oracle Cloud Always Free Ampere A1 VM (linux/arm64); also runs on x86-64.
 #   docker build -f apps/worker/Dockerfile -t thinkmade-worker .
 #   docker run -d --restart unless-stopped --env-file worker.env --name thinkmade-worker thinkmade-worker
@@ -6,7 +6,8 @@ FROM node:22-bookworm-slim
 
 ENV NODE_ENV=production \
     WORK_DIR=/tmp/thinkmade-work \
-    HF_HOME=/models
+    HF_HOME=/models \
+    MODEL_CACHE_DIR=/models
 
 WORKDIR /app
 COPY package.json package-lock.json ./

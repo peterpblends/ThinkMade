@@ -2,6 +2,8 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import {
   createKokoroTts,
+  createPhononTts,
+  createVoiceRouterTts,
   createLlm,
   createStorage,
   createEmailSender,
@@ -34,13 +36,16 @@ export function defaultModel(env: Env): { provider: string; model: string } | nu
   return null;
 }
 
+/** Phonon voices go to Phonon (Kokoro if it fails); Kokoro voices go to Kokoro. `tone` is for tests. */
 export function createTts(env: Env): TtsEngine {
-  const provider = env.TTS_PROVIDER ?? (env.NODE_ENV === 'test' ? 'tone' : 'kokoro');
+  const provider = env.TTS_PROVIDER ?? (env.NODE_ENV === 'test' ? 'tone' : 'phonon');
   if (provider === 'tone') {
     if (env.NODE_ENV === 'production') throw new Error('The tone test voice is not allowed in production.');
     return createToneTts();
   }
-  return createKokoroTts({ dtype: (env.KOKORO_DTYPE as 'q8' | 'fp32' | undefined) ?? 'q8' });
+  const kokoro = createKokoroTts({ dtype: (env.KOKORO_DTYPE as 'q8' | 'fp32' | undefined) ?? 'q8' });
+  if (provider === 'kokoro') return createVoiceRouterTts({ kokoro }); // Phonon voices map to the closest Kokoro ones
+  return createVoiceRouterTts({ phonon: createPhononTts(env.MODEL_CACHE_DIR ? { cacheDir: join(env.MODEL_CACHE_DIR, 'phonon') } : {}), kokoro });
 }
 
 /** Builds worker dependencies from environment variables. */

@@ -1,5 +1,5 @@
 /**
- * End-to-end check with real providers: language model, Kokoro voices, live book verification.
+ * End-to-end check with real providers: language model, Phonon voices (Kokoro fallback), live book verification.
  * Generates one episode on an in-memory database and writes the MP3, transcript and a report.
  *
  *   LIVE_PROVIDER=ollama LIVE_MODEL=qwen2.5:7b npm run live-check -w apps/worker
@@ -8,10 +8,10 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { buffer } from 'node:stream/consumers';
-import { createKokoroTts, createLlm, createLocalStorage, createStt, verifyBook } from '@thinkmade/ai';
+import { createLlm, createLocalStorage, createStt, verifyBook } from '@thinkmade/ai';
 import { createDb, runMigrations, schema, seedModelConfig } from '@thinkmade/db';
 import { DEFAULT_APP_SETTINGS } from '@thinkmade/shared';
-import { runNextJob } from '../src/index';
+import { createTts, runNextJob } from '../src/index';
 
 const provider = process.env.LIVE_PROVIDER ?? 'ollama';
 const model = process.env.LIVE_MODEL ?? 'qwen2.5:7b';
@@ -41,7 +41,7 @@ await h.db.insert(schema.generationJob).values({
 await runNextJob({
   db: h.db,
   llm: async () => createLlm({ provider, model }, process.env),
-  tts: createKokoroTts({ dtype: 'q8' }),
+  tts: createTts({ ...process.env, NODE_ENV: 'development' }),
   stt: createStt(process.env),
   storage,
   verifyBook: (c) => verifyBook(c),

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
+import { DEFAULT_APP_SETTINGS, voiceLabel } from '@thinkmade/shared';
 import { api, ApiError } from '../../lib/api';
 import { Button, Card, Field, Notice, PageHeader } from '../../components/ui';
 
@@ -141,9 +142,9 @@ export function AdminSettingsScreen() {
             <label key={k} className="flex flex-col gap-1.5 text-sm font-medium">
               {k === 'single' ? 'Single host' : k === 'hostA' ? 'First host' : 'Second host'}
               <select name={`voices.${k}`} defaultValue={s.voices[k]} className={select}>
-                {s.voices.available.map((v) => (
+                {[...new Set([...DEFAULT_APP_SETTINGS.voices.available, ...s.voices.available])].map((v) => (
                   <option key={v} value={v}>
-                    {v}
+                    {voiceLabel(v)}
                   </option>
                 ))}
               </select>

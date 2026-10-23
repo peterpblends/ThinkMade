@@ -22,3 +22,4 @@ export * from './audio/ffmpeg';
 export * from './text/split';
 export * from './media/media';
 export * from './embed/embed';
+export * from './tts/phonon';
