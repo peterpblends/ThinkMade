@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { buildRoutes, bundleApi } from './build-vercel';
+import { buildRoutes, bundleApi, staticExternalImports } from './build-vercel';
 
 const out = join(import.meta.dirname, '..', '..', '..', '.data', 'test-vercel-build');
 afterAll(() => rmSync(out, { recursive: true, force: true }));
@@ -62,4 +62,15 @@ describe('bundleApi', () => {
       await new Promise<void>((r) => server.close(() => r()));
     }
   }, 120_000);
+});
+
+describe('staticExternalImports', () => {
+  it('flags left-out packages imported at the top level, but not dynamic imports or bundled ones', () => {
+    const bundle = [
+      'import { PGlite } from "@electric-sql/pglite";',
+      'import { Pool } from "pg";',
+      'const k = await import("kokoro-js");',
+    ].join('\n');
+    expect(staticExternalImports(bundle)).toEqual(['@electric-sql/pglite']);
+  });
 });

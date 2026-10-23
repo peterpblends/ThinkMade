@@ -79,6 +79,21 @@ export function buildRoutes(indexHtml: string, opts: { connectOrigins?: string[]
   ];
 }
 
+/** Packages left out of the function. Each may only be loaded with a dynamic import() on a path production never takes. */
+export const API_EXTERNALS = [
+  '@electric-sql/pglite', '@electric-sql/pglite-pgvector', 'drizzle-orm/pglite', 'pg-native',
+  '@thinkmade/worker', 'kokoro-js', 'phonon-tts', 'phonon-tts/raw', '@huggingface/transformers', 'onnxruntime-node', 'onnxruntime-web', 'sharp', 'ffmpeg-static',
+] as const;
+
+/** Static imports of left-out packages: these would crash the function as it loads. */
+export function staticExternalImports(bundle: string): string[] {
+  const found = new Set<string>();
+  for (const m of bundle.matchAll(/^import\s[^;]*?from\s+["']([^"']+)["']/gm)) {
+    if ((API_EXTERNALS as readonly string[]).includes(m[1]!)) found.add(m[1]!);
+  }
+  return [...found];
+}
+
 /** Bundles the API into one ESM file. PGlite stays external: production always uses Postgres. */
 export async function bundleApi(funcDir: string, indexHtml?: string): Promise<void> {
   await build({
@@ -91,16 +106,15 @@ export async function bundleApi(funcDir: string, indexHtml?: string): Promise<vo
     sourcemap: 'linked',
     legalComments: 'none',
     // The function never runs jobs or speech synthesis, so the worker and native AI libraries stay out.
-    external: [
-      '@electric-sql/pglite', '@electric-sql/pglite-pgvector', 'pg-native',
-      '@thinkmade/worker', 'kokoro-js', 'phonon-tts', 'phonon-tts/raw', '@huggingface/transformers', 'onnxruntime-node', 'onnxruntime-web', 'sharp', 'ffmpeg-static',
-    ],
+    external: [...API_EXTERNALS],
     define: { __THINKMADE_MIGRATIONS_REL__: '"./migrations"', ...(indexHtml ? { __THINKMADE_INDEX_HTML__: JSON.stringify(indexHtml) } : {}) },
     banner: {
       js: "import { createRequire as __tmCreateRequire } from 'node:module'; const require = __tmCreateRequire(import.meta.url);",
     },
     logLevel: 'warning',
   });
+  const bad = staticExternalImports(readFileSync(join(funcDir, 'index.mjs'), 'utf8'));
+  if (bad.length) throw new Error(`The API bundle statically imports packages Vercel won't have: ${bad.join(', ')}. Load them with import() or add their importer to API_EXTERNALS.`);
   cpSync(join(root, 'packages', 'db', 'migrations'), join(funcDir, 'migrations'), { recursive: true });
   writeFileSync(join(funcDir, 'package.json'), JSON.stringify({ type: 'module' }) + '\n');
   writeFileSync(
