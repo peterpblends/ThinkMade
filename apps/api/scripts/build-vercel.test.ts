@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { buildRoutes, bundleApi, staticExternalImports } from './build-vercel';
+import { buildRoutes, bundleApi, migrateForProduction, staticExternalImports } from './build-vercel';
 
 const out = join(import.meta.dirname, '..', '..', '..', '.data', 'test-vercel-build');
 afterAll(() => rmSync(out, { recursive: true, force: true }));
@@ -72,5 +72,12 @@ describe('staticExternalImports', () => {
       'const k = await import("kokoro-js");',
     ].join('\n');
     expect(staticExternalImports(bundle)).toEqual(['@electric-sql/pglite']);
+  });
+});
+
+describe('migrateForProduction', () => {
+  it('only migrates production builds that have a database', async () => {
+    expect(await migrateForProduction({ VERCEL_ENV: 'preview', DATABASE_URL: 'postgres://x' })).toBe(false);
+    expect(await migrateForProduction({ VERCEL_ENV: 'production' })).toBe(false);
   });
 });

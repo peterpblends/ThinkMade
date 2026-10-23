@@ -144,7 +144,24 @@ export async function assemble(opts: { webDist: string; outDir: string }): Promi
   writeFileSync(join(opts.outDir, 'config.json'), JSON.stringify({ version: 3, routes }, null, 2) + '\n');
 }
 
+/**
+ * Production builds apply database migrations before the new code goes live (the function itself
+ * never migrates). Preview builds share the database, so they never migrate it.
+ */
+export async function migrateForProduction(env: Record<string, string | undefined> = process.env): Promise<boolean> {
+  if (env.VERCEL_ENV !== 'production' || !env.DATABASE_URL) return false;
+  const { createDb, runMigrations } = await import('@thinkmade/db');
+  const handle = await createDb({ databaseUrl: env.DATABASE_URL });
+  try {
+    await runMigrations(handle);
+  } finally {
+    await handle.close();
+  }
+  return true;
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   await assemble({ webDist: join(root, 'apps', 'web', 'dist'), outDir: join(root, '.vercel', 'output') });
   console.info('[vercel] wrote .vercel/output');
+  if (await migrateForProduction()) console.info('[vercel] database migrations applied');
 }

@@ -12,10 +12,12 @@ let appPromise: Promise<ReturnType<typeof createApp>> | null = null;
 function getApp() {
   appPromise ??= (async () => {
     const env = loadEnv();
-    // Production uses Postgres with migrations applied at deploy time; local runs use PGlite and migrate here.
+    // Production uses Postgres, migrated by the production build (scripts/build-vercel.ts); local runs use PGlite and migrate here.
     const ctx = await createContext({ env, migrate: !env.DATABASE_URL, inProcessWorker: false });
     return createApp(ctx);
   })().catch((err) => {
+    // Without this, a failed cold start is an empty 500 with nothing in the logs.
+    console.error('[api] startup failed:', err instanceof Error ? err.message : err);
     appPromise = null; // allow the next request to retry after a failed cold start
     throw err;
   });

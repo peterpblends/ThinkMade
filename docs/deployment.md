@@ -59,6 +59,8 @@ Leave `APP_URL` unset for Preview. Each preview deployment derives its own addre
 
 The build downloads the on-device speech model (Moonshine base, about 67 MB, checked by SHA-256) and serves it from `/speech`, so listeners' phones never contact a third party. Set `SKIP_SPEECH_MODEL=1` to leave it out; voice input then always uses Groq.
 
+Production builds apply database migrations to Neon before going live (preview builds never touch the database), so there's no separate migration step.
+
 4. Deploy. Then check that `https://<deployment>/api/health` returns `{"ok":true,…,"db":"pg"}`.
 
 ## 5. Custom domain: thinkmade.zicaworld.com
