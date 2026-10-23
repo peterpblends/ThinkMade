@@ -1,5 +1,7 @@
 # ThinkMade — Architecture Design
 
+> **Update 2026-10-23:** the AI stack changed after this design was approved. Groq retired Llama 3.3 70B and Llama 4 Scout from its free tier; speech moved to Phonon-31M, search to EmbeddingGemma 2 and optional voice input to on-device Moonshine. See `docs/reports/ai-stack-2026-10-23.md`. The rest of this document is unchanged.
+
 Date: 2026-10-22
 Status: Approved by the owner on 2026-10-22 (see §9 for the recorded decisions)
 Source requirements: `docs/MASTER-BUILD-SPEC.md` (the v3.0 master build instructions)

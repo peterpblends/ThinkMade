@@ -49,8 +49,15 @@ Run it again after any deploy whose commit adds files under `packages/db/migrati
 | `DATABASE_URL` | Neon pooled connection string |
 | `AUTH_SECRET` | Output of `openssl rand -base64 32`. Keep it secret and never reuse it. |
 | `APP_URL` | `https://thinkmade.zicaworld.com`, Production only |
+| `GROQ_API_KEY` | Groq key: Coach Me and voice transcription run in the API |
+| `OPENROUTER_API_KEY` | Optional here (the worker uses it for photos); lets **Admin → AI models → Test** check the vision model |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION` | The same R2 values the worker uses (section 6a) |
+| `EMBED_SERVER_URL` | `https://embed.zicaworld.com/v1`, the worker's embedding server (`worker.md`, "Search embeddings"). Without it, Discover uses text search only. |
+| `EMBED_SERVER_TOKEN` | The same token as the worker's `EMBED_SERVER_TOKEN` |
 
 Leave `APP_URL` unset for Preview. Each preview deployment derives its own address from Vercel's `VERCEL_URL`, so sign-in works on every preview. `API_URL` defaults to `APP_URL`. `PASSKEY_RP_ID` defaults to the host name of `APP_URL`. In production, the API refuses to start without `APP_URL`, so it can never fall back to localhost.
+
+The build downloads the on-device speech model (Moonshine base, about 67 MB, checked by SHA-256) and serves it from `/speech`, so listeners' phones never contact a third party. Set `SKIP_SPEECH_MODEL=1` to leave it out; voice input then always uses Groq.
 
 4. Deploy. Then check that `https://<deployment>/api/health` returns `{"ok":true,…,"db":"pg"}`.
 
