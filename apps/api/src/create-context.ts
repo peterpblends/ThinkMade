@@ -1,4 +1,4 @@
-import { createDb, getStageModel, runMigrations, schema, type Db, type ModelStage } from '@thinkmade/db';
+import { createDb, defaultStageModel, getStageModel, runMigrations, schema, type Db, type ModelStage } from '@thinkmade/db';
 import { createEmailSender, createEmbedder, createLlm, createStorage, createLocalStorage, createStt, memoryEmailSender, type EmailSender, type Embedder, type LlmClient, type ObjectStorage, type SttEngine } from '@thinkmade/ai';
 import { createAuth, type Auth } from './auth';
 import { loadEnv, type Env } from './env';
@@ -123,7 +123,9 @@ export async function createContext(
     storage,
     stt,
     llm: async (stage) => {
-      const cfg = (await getStageModel(handle.db, stage)) ?? { provider: process.env.DEFAULT_LLM_PROVIDER ?? 'groq', model: process.env.DEFAULT_LLM_MODEL ?? 'llama-3.3-70b-versatile' };
+      const { DEFAULT_LLM_PROVIDER: provider, DEFAULT_LLM_MODEL: model } = process.env;
+      const override = provider && model ? { provider, model } : null;
+      const cfg = (await getStageModel(handle.db, stage)) ?? defaultStageModel(stage, override);
       return createLlm(cfg, rawEnv);
     },
     embedder: async () => createEmbedder(await getStageModel(handle.db, 'embed'), rawEnv),

@@ -21,20 +21,60 @@ export interface StageModel {
   params: Record<string, unknown>;
 }
 
-/** Inserts a default model row for any stage without one. Existing admin choices are kept. */
-export async function seedModelConfig(db: Db, defaults: { provider: string; model: string; visionModel?: string }) {
-  const existing = new Set((await db.select({ stage: aiModelConfig.stage }).from(aiModelConfig)).map((r) => r.stage));
+type StageDefault = Omit<StageModel, 'params'> & { params?: Record<string, unknown> };
+
+const QWEN = { provider: 'groq', model: 'qwen/qwen3.8-27b', params: { reasoning_effort: 'low' } };
+const GPT_OSS_120B = { provider: 'groq', model: 'openai/gpt-oss-120b', params: { reasoning_effort: 'low' } };
+const GPT_OSS_20B = { provider: 'groq', model: 'openai/gpt-oss-20b', params: { reasoning_effort: 'low' } };
+
+/**
+ * Zero-cost defaults (checked October 2026). Each Groq model has its own daily allowance on the free
+ * tier, so stages are spread across three models. Groq's free tier has no vision model, so photos and
+ * video frames go to Gemma 4 on OpenRouter's free tier.
+ */
+export const FREE_STAGE_MODELS: Record<ModelStage, StageDefault> = {
+  understand: QWEN,
+  select_models: QWEN,
+  research: GPT_OSS_120B,
+  plan: QWEN,
+  script: GPT_OSS_120B,
+  validate: QWEN,
+  coach: GPT_OSS_20B,
+  vision: { provider: 'openrouter', model: 'google/gemma-4-31b-it:free' },
+  // The built-in keyword embedder works everywhere at no cost; admins can switch to a semantic model.
+  embed: { provider: 'hash', model: 'hash-384' },
+};
+
+/** Groq models that have left the free tier. Rows still pointing at them are moved to the current default. */
+const RETIRED_GROQ_MODELS = new Set([
+  'llama-3.3-70b-versatile',
+  'llama-3.1-8b-instant',
+  'meta-llama/llama-4-scout-17b-16e-instruct',
+  'meta-llama/llama-4-maverick-17b-128e-instruct',
+]);
+
+/** The model a stage uses when nothing is stored: an override (local or test provider) or the free defaults. */
+export function defaultStageModel(stage: ModelStage, override?: { provider: string; model: string } | null): StageModel {
+  if (override && stage !== 'embed') return { provider: override.provider, model: override.model, params: {} };
+  const d = FREE_STAGE_MODELS[stage];
+  return { provider: d.provider, model: d.model, params: d.params ?? {} };
+}
+
+/**
+ * Inserts a default model row for any stage without one. Existing admin choices are kept, except
+ * rows on Groq models that were retired from the free tier, which would otherwise fail every job.
+ */
+export async function seedModelConfig(db: Db, override?: { provider: string; model: string } | null) {
+  const rows = await db.select({ stage: aiModelConfig.stage, provider: aiModelConfig.provider, model: aiModelConfig.model }).from(aiModelConfig);
+  const existing = new Map(rows.map((r) => [r.stage, r]));
   for (const stage of MODEL_STAGES) {
-    if (existing.has(stage)) continue;
-    await db
-      .insert(aiModelConfig)
-      .values(
-        stage === 'embed'
-          ? // The built-in keyword embedder works everywhere at no cost; admins can switch to a semantic model.
-            { stage, provider: 'hash', model: 'hash-384', params: {} }
-          : { stage, provider: defaults.provider, model: stage === 'vision' && defaults.visionModel ? defaults.visionModel : defaults.model, params: {} },
-      )
-      .onConflictDoNothing();
+    const row = existing.get(stage);
+    const values = defaultStageModel(stage, override);
+    if (!row) {
+      await db.insert(aiModelConfig).values({ stage, ...values }).onConflictDoNothing();
+    } else if (row.provider === 'groq' && RETIRED_GROQ_MODELS.has(row.model)) {
+      await db.update(aiModelConfig).set({ ...values, updatedAt: new Date() }).where(eq(aiModelConfig.stage, stage));
+    }
   }
 }
 

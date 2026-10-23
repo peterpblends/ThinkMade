@@ -3,6 +3,8 @@ import type { ChatMessage, LlmClient } from './types';
 
 /** Pulls the first JSON object or array out of a reply that may include prose or code fences. */
 export function extractJson(text: string): unknown {
+  // Reasoning models may prefix their answer with <think>...</think>.
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, '');
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = (fenced?.[1] ?? text).trim();
   try {

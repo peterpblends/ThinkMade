@@ -49,6 +49,7 @@ export function createLlm(cfg: ModelConfig, env: Env = process.env): LlmClient {
     baseUrl: p.baseUrl(env),
     apiKey,
     model: cfg.model,
+    ...(cfg.params ? { params: cfg.params } : {}),
     ...(cfg.provider === 'openrouter'
       ? { headers: { 'HTTP-Referer': 'https://thinkmade.zicaworld.com', 'X-Title': 'ThinkMade' } }
       : {}),

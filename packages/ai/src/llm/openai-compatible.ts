@@ -9,7 +9,12 @@ export interface OpenAiCompatibleConfig {
   timeoutMs?: number;
   /** Extra headers some providers want (e.g. OpenRouter attribution). */
   headers?: Record<string, string>;
+  /** Extra request fields from the admin model settings, e.g. `reasoning_effort`. */
+  params?: Record<string, unknown>;
 }
+
+/** Fields ThinkMade sets itself; admin params can't override them. */
+const RESERVED = new Set(['model', 'messages', 'stream', 'n', 'response_format', 'max_tokens', 'temperature', 'tools']);
 
 /** Works with Groq, OpenRouter, Ollama, vLLM and Gemini's OpenAI-compatible endpoint. */
 export function createOpenAiCompatibleLlm(cfg: OpenAiCompatibleConfig): LlmClient {
@@ -21,6 +26,7 @@ export function createOpenAiCompatibleLlm(cfg: OpenAiCompatibleConfig): LlmClien
       const headers: Record<string, string> = { 'content-type': 'application/json', ...cfg.headers };
       if (cfg.apiKey) headers.authorization = `Bearer ${cfg.apiKey}`;
       const body: Record<string, unknown> = { model: cfg.model, messages };
+      for (const [k, v] of Object.entries(cfg.params ?? {})) if (!RESERVED.has(k)) body[k] = v;
       if (options.temperature !== undefined) body.temperature = options.temperature;
       if (options.maxTokens !== undefined) body.max_tokens = options.maxTokens;
       if (options.json) body.response_format = { type: 'json_object' };

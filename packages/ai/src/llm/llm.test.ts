@@ -32,6 +32,11 @@ describe('completeJson', () => {
     expect((await completeJson(llm, [{ role: 'user', content: 'q' }], schema)).data.answer).toBe(1);
   });
 
+  it('ignores a reasoning preamble in <think> tags', async () => {
+    const llm = createFakeLlm(() => '<think>{"answer": 0} maybe?</think>{"answer": 3}');
+    expect((await completeJson(llm, [{ role: 'user', content: 'q' }], schema)).data.answer).toBe(3);
+  });
+
   it('gives up after the retry budget with a clear error', async () => {
     const llm = createFakeLlm(() => 'not json at all');
     await expect(completeJson(llm, [{ role: 'user', content: 'q' }], schema, { retries: 1 })).rejects.toThrow(
@@ -58,6 +63,17 @@ describe('createOpenAiCompatibleLlm', () => {
     expect(new Headers(captured!.init.headers).get('authorization')).toBe('Bearer k');
     const body = JSON.parse(String(captured!.init.body));
     expect(body).toMatchObject({ model: 'm', temperature: 0.2, response_format: { type: 'json_object' } });
+  });
+
+  it('adds admin params such as reasoning effort but never lets them override core fields', async () => {
+    let body: Record<string, unknown> = {};
+    const fetchFn = (async (_url: string, init: RequestInit) => {
+      body = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'x' } }] }), { status: 200 });
+    }) as typeof fetch;
+    const llm = createOpenAiCompatibleLlm({ provider: 'groq', baseUrl: 'https://api.example/v1', apiKey: 'k', model: 'm', fetch: fetchFn, params: { reasoning_effort: 'low', model: 'evil', max_tokens: 1 } });
+    await llm.chat([{ role: 'user', content: 'hi' }], { maxTokens: 50 });
+    expect(body).toMatchObject({ model: 'm', reasoning_effort: 'low', max_tokens: 50 });
   });
 
   it('surfaces provider errors with status', async () => {

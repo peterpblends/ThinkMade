@@ -3,7 +3,7 @@
  * Generates one episode on an in-memory database and writes the MP3, transcript and a report.
  *
  *   LIVE_PROVIDER=ollama LIVE_MODEL=qwen2.5:7b npm run live-check -w apps/worker
- *   LIVE_PROVIDER=groq   LIVE_MODEL=llama-3.3-70b-versatile GROQ_API_KEY=... npm run live-check -w apps/worker
+ *   LIVE_PROVIDER=groq   LIVE_MODEL=openai/gpt-oss-120b GROQ_API_KEY=... npm run live-check -w apps/worker
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';

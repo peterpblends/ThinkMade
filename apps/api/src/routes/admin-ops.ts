@@ -92,7 +92,9 @@ export function adminOpsRoutes(ctx: AppContext) {
     const body = z.strictObject({ provider: z.string().refine((p) => allowed.includes(p), 'Unknown provider'), model: z.string().min(1).max(200), params: z.record(z.string(), z.unknown()).optional() }).safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: 'invalid_request', issues: body.error.issues }, 400);
     const [before] = await ctx.db.select().from(schema.aiModelConfig).where(eq(schema.aiModelConfig.stage, stage));
-    const values = { provider: body.data.provider, model: body.data.model, params: body.data.params ?? {}, updatedBy: c.var.session!.user.id, updatedAt: new Date() };
+    // Keep tuned params (such as reasoning effort) when only the model's other details are re-saved.
+    const sameModel = before?.provider === body.data.provider && before.model === body.data.model;
+    const values = { provider: body.data.provider, model: body.data.model, params: body.data.params ?? (sameModel ? (before.params ?? {}) : {}), updatedBy: c.var.session!.user.id, updatedAt: new Date() };
     await ctx.db.insert(schema.aiModelConfig).values({ stage, ...values }).onConflictDoUpdate({ target: schema.aiModelConfig.stage, set: values });
     const a = actor(c);
     await audit(a.id, a.ip, 'model.update', 'ai_model_config', stage, before ? { provider: before.provider, model: before.model } : null, { provider: values.provider, model: values.model });

@@ -12,7 +12,7 @@ import {
   verifyBook,
   type TtsEngine,
 } from '@thinkmade/ai';
-import { getActiveAppSettings, getStageModel, schema, seedModelConfig, type Db } from '@thinkmade/db';
+import { defaultStageModel, getActiveAppSettings, getStageModel, schema, seedModelConfig, type Db } from '@thinkmade/db';
 import type { WorkerDeps } from './deps';
 import { runJob } from './pipeline';
 import { claimNextJob } from './queue';
@@ -27,11 +27,11 @@ export { fakeResponder, fakeVerifyBook, setFakeValidation } from './testing/fake
 
 type Env = Record<string, string | undefined>;
 
-/** Default model provider: explicit env, else fake in tests, else Groq. */
-export function defaultModel(env: Env) {
-  if (env.DEFAULT_LLM_PROVIDER) return { provider: env.DEFAULT_LLM_PROVIDER, model: env.DEFAULT_LLM_MODEL ?? 'llama-3.3-70b-versatile' };
-  if (env.NODE_ENV === 'test') return { provider: 'fake', model: 'fake' };
-  return { provider: 'groq', model: 'llama-3.3-70b-versatile', visionModel: 'meta-llama/llama-4-scout-17b-16e-instruct' };
+/** One model for every stage from env (a local model, or fake in tests); null means the free per-stage defaults. */
+export function defaultModel(env: Env): { provider: string; model: string } | null {
+  if (env.DEFAULT_LLM_PROVIDER && env.DEFAULT_LLM_MODEL) return { provider: env.DEFAULT_LLM_PROVIDER, model: env.DEFAULT_LLM_MODEL };
+  if (env.DEFAULT_LLM_PROVIDER === 'fake' || (!env.DEFAULT_LLM_PROVIDER && env.NODE_ENV === 'test')) return { provider: 'fake', model: 'fake' };
+  return null;
 }
 
 export function createTts(env: Env): TtsEngine {
@@ -51,7 +51,7 @@ export async function createWorkerDeps(db: Db, env: Env = process.env, overrides
   return {
     db,
     llm: async (stage) => {
-      const cfg = (await getStageModel(db, stage)) ?? defaultModel(env);
+      const cfg = (await getStageModel(db, stage)) ?? defaultStageModel(stage, defaultModel(env));
       return createLlm(cfg, env);
     },
     tts: createTts(env),
