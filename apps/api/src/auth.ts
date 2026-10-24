@@ -7,6 +7,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { schema, type Db } from '@thinkmade/db';
 import type { EmailSender, ObjectStorage } from '@thinkmade/ai';
 import { BRAND } from '@thinkmade/shared';
+import { promoteToAdmin } from './admin/promote';
 import type { Env } from './env';
 
 export interface AuthDeps {
@@ -72,6 +73,10 @@ export function createAuth({ db, env, email, storage }: AuthDeps) {
     emailVerification: {
       sendOnSignUp: true,
       autoSignInAfterVerification: true,
+      // Bootstraps administrators listed in ADMIN_EMAILS, only once they have proved they own the address.
+      afterEmailVerification: async (user) => {
+        if (env.ADMIN_EMAILS.includes(user.email.toLowerCase())) await promoteToAdmin(db, user.email, 'ADMIN_EMAILS');
+      },
       sendVerificationEmail: async ({ user, url }) => {
         await deliver(
           email,

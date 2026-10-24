@@ -36,6 +36,22 @@ describe('auth', () => {
     expect(cookieFrom(ok)).toMatch(/session_token=/);
   });
 
+  it('makes ADMIN_EMAILS administrators only after they verify the address', async () => {
+    h = await makeAuthHarness({ ADMIN_EMAILS: 'someone@example.com, ADA@example.com' });
+    const { schema } = await import('@thinkmade/db');
+    const { eq } = await import('drizzle-orm');
+    const role = async () => (await h!.handle.db.select({ role: schema.user.role }).from(schema.user).where(eq(schema.user.email, creds.email)))[0]?.role;
+    await h.auth.handler(authRequest('/api/auth/sign-up/email', { body: creds }));
+    expect((await role()) ?? 'user').not.toContain('admin');
+    await h.auth.handler(new Request(extractUrl(h.email.sent[0]!.text), { headers: { origin: 'http://localhost:5173' } }));
+    expect(await role()).toBe('admin');
+
+    await h.auth.handler(authRequest('/api/auth/sign-up/email', { body: { ...creds, email: 'other@example.com' } }));
+    await h.auth.handler(new Request(extractUrl(h.email.sent.at(-1)!.text), { headers: { origin: 'http://localhost:5173' } }));
+    const [other] = await h.handle.db.select({ role: schema.user.role }).from(schema.user).where(eq(schema.user.email, 'other@example.com'));
+    expect(other?.role ?? 'user').not.toContain('admin');
+  });
+
   it('rejects passwords shorter than 10 characters', async () => {
     h = await makeAuthHarness();
     const res = await h.auth.handler(

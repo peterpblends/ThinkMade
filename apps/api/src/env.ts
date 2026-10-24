@@ -16,11 +16,13 @@ const envSchema = z.object({
   VERCEL_URL: z.string().optional(),
   ADMIN_SKIP_2FA: z.preprocess(emptyToUndefined, z.enum(['true', 'false']).optional()),
   VERCEL_GIT_COMMIT_SHA: z.string().optional(),
+  /** Comma-separated addresses that become administrators once verified (bootstraps the first admin). */
+  ADMIN_EMAILS: z.preprocess(emptyToUndefined, z.string().optional()),
   /** Credential POSTs allowed per IP per 15 minutes. */
   AUTH_RATE_LIMIT: z.coerce.number().int().positive().default(20),
 });
 
-export type Env = Omit<z.infer<typeof envSchema>, 'AUTH_SECRET' | 'ADMIN_SKIP_2FA' | 'APP_URL' | 'API_URL' | 'PASSKEY_RP_ID'> & {
+export type Env = Omit<z.infer<typeof envSchema>, 'AUTH_SECRET' | 'ADMIN_SKIP_2FA' | 'APP_URL' | 'API_URL' | 'PASSKEY_RP_ID' | 'ADMIN_EMAILS'> & {
   AUTH_SECRET: string;
   /** Public origin of the app; the API is served under it at /api. */
   APP_URL: string;
@@ -29,9 +31,15 @@ export type Env = Omit<z.infer<typeof envSchema>, 'AUTH_SECRET' | 'ADMIN_SKIP_2F
   /** Origins Better Auth accepts for state-changing requests. Production trusts only APP_URL. */
   TRUSTED_ORIGINS: string[];
   ADMIN_SKIP_2FA: boolean;
+  /** Lower-cased addresses that become administrators once verified. */
+  ADMIN_EMAILS: string[];
   /** Short commit sha on Vercel, 'dev' elsewhere. */
   APP_VERSION: string;
 };
+
+export function adminEmails(list: string | undefined): string[] {
+  return (list ?? '').split(',').map((e) => e.trim().toLowerCase()).filter((e) => e.includes('@'));
+}
 
 /** Validates environment variables. Generates a throwaway AUTH_SECRET outside production. */
 export function loadEnv(source: Record<string, string | undefined> = process.env): Env {
@@ -45,7 +53,8 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
   }
   if (isProd && !parsed.DATABASE_URL) {
     throw new Error('DATABASE_URL is required in production. The embedded database is for local development only.');
-  }  // Vercel previews get a new hostname per deployment, so derive it rather than configure it.
+  }
+  // Vercel previews get a new hostname per deployment, so derive it rather than configure it.
   const appUrl =
     parsed.APP_URL ??
     (parsed.VERCEL_ENV === 'preview' && parsed.VERCEL_URL ? `https://${parsed.VERCEL_URL}` : undefined) ??
@@ -70,6 +79,7 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     TRUSTED_ORIGINS: isProd ? [appUrl] : [...new Set([appUrl, apiUrl])],
     AUTH_SECRET: secret,
     ADMIN_SKIP_2FA: parsed.ADMIN_SKIP_2FA === 'true',
+    ADMIN_EMAILS: adminEmails(parsed.ADMIN_EMAILS),
     APP_VERSION: parsed.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'dev',
   };
 }

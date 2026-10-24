@@ -5,10 +5,10 @@ import { loadEnv } from './env';
 
 export const TEST_ORIGIN = 'http://localhost:5173';
 
-export async function makeAuthHarness() {
+export async function makeAuthHarness(extraEnv: Record<string, string> = {}) {
   const handle: DbHandle = await createDb({ pgliteDir: ':memory:' });
   await runMigrations(handle);
-  const env = loadEnv({ NODE_ENV: 'test', AUTH_SECRET: 'test-secret-test-secret-test-secret-00' });
+  const env = loadEnv({ NODE_ENV: 'test', AUTH_SECRET: 'test-secret-test-secret-test-secret-00', ...extraEnv });
   const email = memoryEmailSender();
   const auth = createAuth({ db: handle.db, env, email });
   return { handle, env, email, auth };

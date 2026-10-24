@@ -112,13 +112,11 @@ See [worker.md](worker.md). It runs on the Oracle Cloud Always Free VM in Docker
 
 ## 9. First administrator
 
-Sign up on the live site and verify your email. Then promote yourself from your machine:
+1. In Vercel, add `ADMIN_EMAILS` = your email address (Production). Separate several with commas.
+2. Sign up on the live site with that address and click the link in the verification email. Verifying makes you an administrator. If you verified before adding `ADMIN_EMAILS`, the next production deploy promotes you.
+3. Turn on two-step verification in **Settings**. Admin tools stay closed until you do.
 
-```bash
-DATABASE_URL='postgresql://…' npm run seed:admin -- you@example.com
-```
-
-Then turn on two-step verification in **Settings**. Admin tools stay closed until you do.
+Alternatively, from your machine: `DATABASE_URL='postgresql://…' npm run seed:admin -- you@example.com`.
 
 ## 10. Local development
 

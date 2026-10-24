@@ -170,6 +170,25 @@ export async function migrateForProduction(env: Record<string, string | undefine
   return true;
 }
 
+/** Production builds promote verified accounts listed in ADMIN_EMAILS (new ones are promoted as they verify). */
+export async function promoteAdminsForProduction(env: Record<string, string | undefined> = process.env): Promise<string[]> {
+  if (env.VERCEL_ENV !== 'production' || !env.DATABASE_URL || !env.ADMIN_EMAILS) return [];
+  const { adminEmails } = await import('../src/env');
+  const { promoteToAdmin } = await import('../src/admin/promote');
+  const { createDb } = await import('@thinkmade/db');
+  const handle = await createDb({ databaseUrl: env.DATABASE_URL });
+  const done: string[] = [];
+  try {
+    for (const email of adminEmails(env.ADMIN_EMAILS)) {
+      // Not signed up or not verified yet: the sign-up flow promotes them on verification instead.
+      if (await promoteToAdmin(handle.db, email, 'ADMIN_EMAILS').then(() => true, () => false)) done.push(email);
+    }
+  } finally {
+    await handle.close();
+  }
+  return done;
+}
+
 /**
  * Production builds let the app's origin upload to and download from the object store, so nobody has
  * to set the bucket's CORS rules by hand. A failure is reported but doesn't block the deploy.
@@ -194,4 +213,6 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   console.info('[vercel] wrote .vercel/output');
   if (await migrateForProduction()) console.info('[vercel] database migrations applied');
   console.info(`[vercel] storage CORS ${await storageCorsForProduction()}`);
+  const admins = await promoteAdminsForProduction();
+  if (admins.length) console.info(`[vercel] administrators from ADMIN_EMAILS: ${admins.length}`);
 }
