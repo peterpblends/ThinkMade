@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { buildRoutes, bundleApi, migrateForProduction, staticExternalImports } from './build-vercel';
+import { buildRoutes, bundleApi, migrateForProduction, staticExternalImports, storageOrigins } from './build-vercel';
 
 const out = join(import.meta.dirname, '..', '..', '..', '.data', 'test-vercel-build');
 afterAll(() => rmSync(out, { recursive: true, force: true }));
@@ -79,5 +79,13 @@ describe('migrateForProduction', () => {
   it('only migrates production builds that have a database', async () => {
     expect(await migrateForProduction({ VERCEL_ENV: 'preview', DATABASE_URL: 'postgres://x' })).toBe(false);
     expect(await migrateForProduction({ VERCEL_ENV: 'production' })).toBe(false);
+  });
+});
+
+describe('storageOrigins', () => {
+  it('accepts endpoints with or without https:// and allows path and virtual-hosted styles', () => {
+    expect(storageOrigins('s3.us-east-005.backblazeb2.com', 'tm')).toEqual(['https://s3.us-east-005.backblazeb2.com', 'https://tm.s3.us-east-005.backblazeb2.com']);
+    expect(storageOrigins('https://x.r2.cloudflarestorage.com/')).toEqual(['https://x.r2.cloudflarestorage.com']);
+    expect(storageOrigins(undefined)).toEqual([]);
   });
 });

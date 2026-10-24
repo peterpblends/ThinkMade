@@ -14,12 +14,22 @@ export interface S3Config {
  * Any S3-compatible store. Backblaze B2: endpoint https://s3.<region>.backblazeb2.com, region e.g.
  * "us-west-004". Cloudflare R2: endpoint https://<account>.r2.cloudflarestorage.com, region "auto".
  */
+/**
+ * The signing region. Backblaze B2 endpoints name theirs (s3.<region>.backblazeb2.com) and B2 rejects
+ * any other, so it is taken from the endpoint when the configured region is missing or R2's "auto".
+ */
+export function storageRegion(endpoint: string, region?: string): string {
+  if (region && region !== 'auto') return region;
+  const b2 = /^(?:https?:\/\/)?s3\.([a-z0-9-]+)\.backblazeb2\.com/i.exec(endpoint.trim());
+  return b2 ? b2[1]!.toLowerCase() : 'auto';
+}
+
 export function createS3Storage(cfg: S3Config): ObjectStorage {
   const clientPromise = (async () => {
     const { S3Client } = await import('@aws-sdk/client-s3');
     return new S3Client({
-      endpoint: cfg.endpoint,
-      region: cfg.region ?? 'auto',
+      endpoint: cfg.endpoint.trim().replace(/^(?!https?:\/\/)/, 'https://'),
+      region: storageRegion(cfg.endpoint, cfg.region),
       credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
       forcePathStyle: true,
       // Newer AWS SDKs add CRC checksums to every upload by default, which some S3-compatible stores and

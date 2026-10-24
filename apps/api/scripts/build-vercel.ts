@@ -79,6 +79,16 @@ export function buildRoutes(indexHtml: string, opts: { connectOrigins?: string[]
   ];
 }
 
+/**
+ * Origins the browser uses for presigned storage URLs. The endpoint may be saved with or without https://.
+ * Path-style URLs use the endpoint itself; the virtual-hosted form is allowed too in case a store redirects.
+ */
+export function storageOrigins(endpoint?: string, bucket?: string): string[] {
+  if (!endpoint?.trim()) return [];
+  const url = new URL(/^https?:\/\//.test(endpoint.trim()) ? endpoint.trim() : `https://${endpoint.trim()}`);
+  return bucket ? [url.origin, `${url.protocol}//${bucket.trim()}.${url.host}`] : [url.origin];
+}
+
 /** Packages left out of the function. Each may only be loaded with a dynamic import() on a path production never takes. */
 export const API_EXTERNALS = [
   '@electric-sql/pglite', '@electric-sql/pglite-pgvector', 'drizzle-orm/pglite', 'pg-native',
@@ -140,7 +150,7 @@ export async function assemble(opts: { webDist: string; outDir: string }): Promi
   // The browser PUTs uploads and fetches downloads directly from R2, so CSP must allow its origin.
   // Presigned URLs are path-style (forcePathStyle), so their origin is the endpoint's origin.
   // S3_ENDPOINT must be set as a Vercel environment variable so it is present at build time.
-  const routes = buildRoutes(indexHtml, { connectOrigins: process.env.S3_ENDPOINT ? [new URL(process.env.S3_ENDPOINT).origin] : [] });
+  const routes = buildRoutes(indexHtml, { connectOrigins: storageOrigins(process.env.S3_ENDPOINT, process.env.S3_BUCKET) });
   writeFileSync(join(opts.outDir, 'config.json'), JSON.stringify({ version: 3, routes }, null, 2) + '\n');
 }
 
