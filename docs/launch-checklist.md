@@ -33,10 +33,10 @@ Nothing generates podcasts until a worker runs. Jobs wait safely in the queue un
 **Option A: your Mac (quickest)**
 
 ```bash
-cp .env.worker.example .env.worker
+npm run worker:setup
 ```
 
-Fill in `.env.worker` with the same values as in Vercel, plus `OPENROUTER_API_KEY`. For `DATABASE_URL`, copy the connection string from the Neon console (**Connect**), or from Vercel → **Storage** → your Neon database. Then:
+It asks for each value in turn (database, Groq, OpenRouter, Backblaze); paste each and press Enter. Secrets stay hidden. Then:
 
 ```bash
 npm run worker:mac -- install
