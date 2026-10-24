@@ -46,6 +46,8 @@ done
 [[ "$V_DATABASE_URL" == postgres* ]] || [[ -z "$V_DATABASE_URL" ]] || echo "Warning: the database value doesn't start with postgresql:// — check you copied the whole string."
 if (( ${#missing} )); then
   echo "Saved, but still missing: ${missing[*]}. Run npm run worker:setup again to add them."
-else
-  echo "Saved all settings to .env.worker. Next: npm run worker:mac -- install"
+  exit 1
 fi
+echo "Saved. Testing each setting with the real services..."
+cd "$ROOT" && ./node_modules/.bin/tsx --env-file=.env.worker scripts/worker-check.ts 2>&1 | grep -E '^(OK|FIX)|^$|All good|need fixing'
+
