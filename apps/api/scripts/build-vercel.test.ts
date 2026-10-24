@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { buildRoutes, bundleApi, migrateForProduction, staticExternalImports, storageOrigins } from './build-vercel';
+import { buildRoutes, bundleApi, migrateForProduction, staticExternalImports, storageCorsForProduction, storageOrigins } from './build-vercel';
 
 const out = join(import.meta.dirname, '..', '..', '..', '.data', 'test-vercel-build');
 afterAll(() => rmSync(out, { recursive: true, force: true }));
@@ -87,5 +87,12 @@ describe('storageOrigins', () => {
     expect(storageOrigins('s3.us-east-005.backblazeb2.com', 'tm')).toEqual(['https://s3.us-east-005.backblazeb2.com', 'https://tm.s3.us-east-005.backblazeb2.com']);
     expect(storageOrigins('https://x.r2.cloudflarestorage.com/')).toEqual(['https://x.r2.cloudflarestorage.com']);
     expect(storageOrigins(undefined)).toEqual([]);
+  });
+});
+
+describe('storageCorsForProduction', () => {
+  it('only touches the bucket on production builds with storage configured', async () => {
+    expect(await storageCorsForProduction({ VERCEL_ENV: 'preview' })).toMatch(/skipped/);
+    expect(await storageCorsForProduction({ VERCEL_ENV: 'production', APP_URL: 'https://x.test' })).toMatch(/skipped/);
   });
 });

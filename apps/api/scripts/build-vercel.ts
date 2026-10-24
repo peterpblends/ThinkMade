@@ -170,8 +170,28 @@ export async function migrateForProduction(env: Record<string, string | undefine
   return true;
 }
 
+/**
+ * Production builds let the app's origin upload to and download from the object store, so nobody has
+ * to set the bucket's CORS rules by hand. A failure is reported but doesn't block the deploy.
+ */
+export async function storageCorsForProduction(env: Record<string, string | undefined> = process.env): Promise<string> {
+  if (env.VERCEL_ENV !== 'production') return 'skipped (not a production build)';
+  if (!(env.S3_ENDPOINT && env.S3_BUCKET && env.S3_ACCESS_KEY_ID && env.S3_SECRET_ACCESS_KEY && env.APP_URL)) return 'skipped (storage or APP_URL not set)';
+  try {
+    const { applyBrowserCors } = await import('@thinkmade/ai');
+    const allowed = await applyBrowserCors(
+      { endpoint: env.S3_ENDPOINT, region: env.S3_REGION, bucket: env.S3_BUCKET, accessKeyId: env.S3_ACCESS_KEY_ID, secretAccessKey: env.S3_SECRET_ACCESS_KEY },
+      [new URL(env.APP_URL).origin],
+    );
+    return `browser access allowed for ${allowed.join(', ')}`;
+  } catch (err) {
+    return `could not be set: ${err instanceof Error ? err.message : String(err)}. Run npm run storage:cors with the same values.`;
+  }
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   await assemble({ webDist: join(root, 'apps', 'web', 'dist'), outDir: join(root, '.vercel', 'output') });
   console.info('[vercel] wrote .vercel/output');
   if (await migrateForProduction()) console.info('[vercel] database migrations applied');
+  console.info(`[vercel] storage CORS ${await storageCorsForProduction()}`);
 }

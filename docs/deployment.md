@@ -96,7 +96,7 @@ In production with no provider configured, every email is recorded as failed in 
 3. **Application Keys → Add a New Application Key:** allow access to that bucket only, **Read and Write**. Copy the **keyID** and **applicationKey** (shown once).
 4. In Vercel (and later the worker's `worker.env`), set `S3_ENDPOINT=https://s3.us-west-004.backblazeb2.com` (your endpoint), `S3_BUCKET`, `S3_ACCESS_KEY_ID` (keyID), `S3_SECRET_ACCESS_KEY` (applicationKey) and `S3_REGION` (the middle part of the endpoint, such as `us-west-004`).
 5. **Caps & Alerts:** set the daily caps to $0. When a free limit is reached, B2 then refuses requests instead of billing.
-6. Allow browser uploads and downloads (CORS). Put the same four `S3_` values and `S3_REGION` in your local `.env`, then run `npm run storage:cors`. B2's web interface can only allow downloads, so use the command.
+6. Browser uploads and downloads (CORS) are set up automatically: every production deploy allows `APP_URL` on the bucket and reports it in the build log as `[vercel] storage CORS …`. If that line says it couldn't be set, put the same `S3_` values in your local `.env` and run `npm run storage:cors`.
 
 Set `S3_ENDPOINT` in Vercel for both build and runtime. The build adds that origin to the content security policy's `connect-src`, which is what lets browsers upload to storage and download from it.
 
