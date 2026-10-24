@@ -49,10 +49,10 @@ The first episode downloads the Phonon voice model (65 MB) and voices, and the f
 | `DATABASE_URL` | The same Neon connection string the API uses |
 | `GROQ_API_KEY` | Groq key, for the language models and video transcription |
 | `OPENROUTER_API_KEY` | OpenRouter key (free account, no card), for photos and video frames. Groq's free tier has no vision model. |
-| `S3_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
-| `S3_BUCKET` | Your R2 bucket name |
-| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | An R2 API token scoped to that bucket |
-| `S3_REGION` | `auto` |
+| `S3_ENDPOINT` | Your B2 endpoint, such as `https://s3.us-west-004.backblazeb2.com` (or an R2 endpoint) |
+| `S3_BUCKET` | Your bucket name |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | A B2 application key (keyID and applicationKey) scoped to that bucket |
+| `S3_REGION` | The B2 region, such as `us-west-004` (`auto` for R2) |
 | `TTS_PROVIDER` | Leave unset for Phonon with Kokoro as backup. `kokoro` uses Kokoro only. |
 | `KOKORO_DTYPE` | `q8` (default). `fp32` sounds slightly better and runs about 2× slower. |
 

@@ -10,7 +10,10 @@ export interface S3Config {
   secretAccessKey: string;
 }
 
-/** Any S3-compatible store. Cloudflare R2: endpoint https://<account>.r2.cloudflarestorage.com, region "auto". */
+/**
+ * Any S3-compatible store. Backblaze B2: endpoint https://s3.<region>.backblazeb2.com, region e.g.
+ * "us-west-004". Cloudflare R2: endpoint https://<account>.r2.cloudflarestorage.com, region "auto".
+ */
 export function createS3Storage(cfg: S3Config): ObjectStorage {
   const clientPromise = (async () => {
     const { S3Client } = await import('@aws-sdk/client-s3');
@@ -19,6 +22,10 @@ export function createS3Storage(cfg: S3Config): ObjectStorage {
       region: cfg.region ?? 'auto',
       credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
       forcePathStyle: true,
+      // Newer AWS SDKs add CRC checksums to every upload by default, which some S3-compatible stores and
+      // browser presigned uploads don't support. Only send them when an operation requires one.
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
     });
   })();
   return {

@@ -2,7 +2,7 @@
   "name": "thinkmade",
   "private": true,
   "version": "0.1.0",
-  "description": "ThinkMade — Better Thinking. Made Personal.",
+  "description": "ThinkMade \u2014 Better Thinking. Made Personal.",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -23,7 +23,8 @@
     "build:vercel": "npm run build -w apps/web && tsx apps/api/scripts/build-vercel.ts",
     "e2e": "npm run e2e -w apps/web",
     "seed:admin": "npm run seed:admin -w apps/api --",
-    "build:icons": "npm run build:icons -w packages/brand"
+    "build:icons": "npm run build:icons -w packages/brand",
+    "storage:cors": "tsx --env-file-if-exists=.env scripts/storage-cors.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

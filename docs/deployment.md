@@ -22,7 +22,7 @@ Nothing here has been deployed yet. Every step below needs the owner's accounts.
 |---|---|---|
 | Vercel | Web app and API | Hobby. This is the owner's decision, recorded on 2026-10-22. See the plan note below. |
 | Neon | Postgres with pgvector | Free plan, no card required |
-| Cloudflare R2 | Audio and uploads, from Phase 2 | Free tier. Cloudflare may ask for a payment method on file. |
+| Backblaze B2 | Audio and uploads | 10 GB free, no card. Any S3-compatible store works (Cloudflare R2 needs a card on file). |
 | Resend or Brevo | Verification, password reset and bug-report email | Free tier |
 
 ## 3. Database (Neon)
@@ -51,7 +51,7 @@ Run it again after any deploy whose commit adds files under `packages/db/migrati
 | `APP_URL` | `https://thinkmade.zicaworld.com`, Production only |
 | `GROQ_API_KEY` | Groq key: Coach Me and voice transcription run in the API |
 | `OPENROUTER_API_KEY` | Optional here (the worker uses it for photos); lets **Admin → AI models → Test** check the vision model |
-| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION` | The same R2 values the worker uses (section 6a) |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION` | The same storage values the worker uses (section 6a). For B2, `S3_REGION` is the bucket's region, such as `us-west-004`, not `auto`. |
 | `EMBED_SERVER_URL` | `https://embed.zicaworld.com/v1`, the worker's embedding server (`worker.md`, "Search embeddings"). Without it, Discover uses text search only. |
 | `EMBED_SERVER_TOKEN` | The same token as the worker's `EMBED_SERVER_TOKEN` |
 
@@ -89,12 +89,18 @@ Set `RESEND_API_KEY` or `BREVO_API_KEY`, and `EMAIL_FROM`.
 
 In production with no provider configured, every email is recorded as failed in the admin Overview, and sign-ups cannot be verified. The app never pretends an email was sent.
 
-## 6a. Cloudflare R2 CORS and the content security policy
+## 6a. Object storage (Backblaze B2), CORS and the content security policy
 
-Set `S3_ENDPOINT` as a Vercel environment variable for both build and runtime. The build adds that origin to the content security policy's `connect-src`, which is what lets browsers upload to R2 and download from it.
+1. Sign up at backblaze.com (B2 Cloud Storage; the first 10 GB are free and no card is needed).
+2. **Buckets → Create a Bucket:** name `thinkmade` (or any free name), **Private**. Note its **Endpoint**, such as `s3.us-west-004.backblazeb2.com`.
+3. **Application Keys → Add a New Application Key:** allow access to that bucket only, **Read and Write**. Copy the **keyID** and **applicationKey** (shown once).
+4. In Vercel (and later the worker's `worker.env`), set `S3_ENDPOINT=https://s3.us-west-004.backblazeb2.com` (your endpoint), `S3_BUCKET`, `S3_ACCESS_KEY_ID` (keyID), `S3_SECRET_ACCESS_KEY` (applicationKey) and `S3_REGION` (the middle part of the endpoint, such as `us-west-004`).
+5. **Caps & Alerts:** set the daily caps to $0. When a free limit is reached, B2 then refuses requests instead of billing.
+6. Allow browser uploads and downloads (CORS). Put the same four `S3_` values and `S3_REGION` in your local `.env`, then run `npm run storage:cors`. B2's web interface can only allow downloads, so use the command.
 
+Set `S3_ENDPOINT` in Vercel for both build and runtime. The build adds that origin to the content security policy's `connect-src`, which is what lets browsers upload to storage and download from it.
 
-Downloads for offline listening fetch audio from the browser through a presigned R2 URL, so the bucket needs a CORS rule. In the R2 bucket's **Settings**, open **CORS policy** and allow `GET` and `HEAD` from `https://thinkmade.zicaworld.com`. Large photo and video uploads go straight to R2 too, so also allow `PUT` with the `content-type` header.
+B2's free downloads are 3× the data stored per month (for example 15 GB a month with 5 GB stored, about 250 hours of listening). Downloads through Cloudflare's CDN are free without limit if you later put `zicaworld.com` on Cloudflare's free plan.
 
 ## 7. Vercel plan note
 
