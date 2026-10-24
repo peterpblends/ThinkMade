@@ -4,7 +4,7 @@
 
 ThinkMade turns the world's best books and mental models into personalized podcasts. They teach you how to think through whatever you're trying to learn or solve.
 
-> **Status: all ten phases built and tested locally; not yet deployed.** It still needs a deployment, a run with the production model (Groq), checks on a real iPhone and Android phone, and an independent security review before public launch. See [docs/acceptance.md](docs/acceptance.md), [docs/security-assessment.md](docs/security-assessment.md) and [docs/reports/](docs/reports/).
+> **Status: live at https://thinkmade.zicaworld.com.** Email, the first administrator and the podcast worker still need your accounts: see [docs/launch-checklist.md](docs/launch-checklist.md). Real-phone testing and an independent security review are still to do before public promotion.
 
 ## What it does
 
