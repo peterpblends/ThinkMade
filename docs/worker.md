@@ -12,7 +12,32 @@ The worker does all the long work, so Vercel's request time limits never matter:
 
 It claims jobs from the `generation_job` table in Postgres. It makes only outbound connections unless you turn on the optional embedding server below.
 
-## On the Oracle Cloud Always Free VM (recommended)
+## Where to run it (all free)
+
+| Option | Card needed | Always available | Limits |
+|---|---|---|---|
+| **GitHub Actions** (on demand) | No | Yes | 2,000 free minutes a month on a private repository, roughly 40 three-episode series. Unlimited if the repository is public. |
+| **Your Mac** | No | Only while it's on and awake | None |
+| **Oracle Cloud Always Free VM** | Yes, for identity verification only (Always Free resources aren't charged) | Yes | 2 OCPU, 12 GB |
+
+You can run more than one: workers share the queue safely.
+
+## On GitHub Actions (no card)
+
+The workflow `.github/workflows/worker.yml` drains the queue and exits. The API starts a run whenever someone creates a podcast, and a run every 4 hours picks up jobs that were waiting out a rate limit.
+
+1. Allow pushing workflows once: `gh auth refresh -h github.com -s workflow`, then merge and push the `pending/ci-workflow` branch.
+2. In GitHub, **Settings → Secrets and variables → Actions → New repository secret**, add: `DATABASE_URL`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (and optionally `RESEND_API_KEY`, `EMAIL_FROM`). Use the same values as in Vercel.
+3. Create a fine-grained GitHub token (**Settings → Developer settings → Fine-grained tokens**) for the ThinkMade repository only, with **Contents: Read and write** (needed to start workflow runs). In Vercel, add `WORKER_DISPATCH_REPO=peterpblends/ThinkMade` and `WORKER_DISPATCH_TOKEN=<token>` (Sensitive), then redeploy.
+4. Test it: **Actions → Worker → Run workflow**. The log ends with `queue drained`.
+
+## On your Mac (no card)
+
+1. `cp .env.worker.example .env.worker` and fill it in with the same values as in Vercel. It's git-ignored.
+2. `npm run worker:mac -- install`. The worker starts now, at every login, and restarts if it stops. Jobs wait in the queue while the Mac sleeps.
+3. Check it with `npm run worker:mac -- status`; remove it with `npm run worker:mac -- uninstall`.
+
+## On the Oracle Cloud Always Free VM
 
 1. Create an Ampere A1 instance with 2 OCPU, 12 GB and Ubuntu 24.04. In the Oracle console, leave inbound rules at SSH only.
 2. Install Docker on it:

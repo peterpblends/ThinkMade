@@ -24,7 +24,8 @@
     "e2e": "npm run e2e -w apps/web",
     "seed:admin": "npm run seed:admin -w apps/api --",
     "build:icons": "npm run build:icons -w packages/brand",
-    "storage:cors": "tsx --env-file-if-exists=.env scripts/storage-cors.ts"
+    "storage:cors": "tsx --env-file-if-exists=.env scripts/storage-cors.ts",
+    "worker:mac": "zsh scripts/worker-mac.sh"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

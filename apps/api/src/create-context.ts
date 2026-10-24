@@ -64,6 +64,34 @@ async function loadIndexHtml(): Promise<string> {
 }
 
 /** Builds the database, runs migrations and wires auth. One context per process or serverless instance. */
+let lastDispatch = 0;
+
+/**
+ * Starts an on-demand worker run on GitHub Actions (repository_dispatch) when WORKER_DISPATCH_REPO and
+ * WORKER_DISPATCH_TOKEN are set. At most one request a minute per API instance; a run drains the whole
+ * queue, and runs don't overlap. Failures are logged, never shown to the listener: the job stays queued.
+ */
+export function dispatchWorker(env: Record<string, string | undefined>, fetchFn: typeof fetch = fetch, now = Date.now()): Promise<boolean> {
+  const repo = env.WORKER_DISPATCH_REPO;
+  const token = env.WORKER_DISPATCH_TOKEN;
+  if (!repo || !token || now - lastDispatch < 60_000) return Promise.resolve(false);
+  lastDispatch = now;
+  return fetchFn(`https://api.github.com/repos/${repo}/dispatches`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'content-type': 'application/json', 'user-agent': 'ThinkMade' },
+    body: JSON.stringify({ event_type: 'thinkmade-jobs' }),
+    signal: AbortSignal.timeout(5000),
+  })
+    .then((res) => {
+      if (!res.ok) console.warn(`[worker] dispatch to ${repo} failed with ${res.status}`);
+      return res.ok;
+    })
+    .catch((err) => {
+      console.warn('[worker] dispatch failed:', err instanceof Error ? err.message : err);
+      return false;
+    });
+}
+
 export async function createContext(
   options: CreateContextOptions = {},
 ): Promise<AppContext & { close(): Promise<void> }> {
@@ -131,7 +159,7 @@ export async function createContext(
     embedder: async () => createEmbedder(await getStageModel(handle.db, 'embed'), rawEnv),
     indexHtml: loadIndexHtml,
     worker,
-    pokeWorker: () => loop?.poke(),
+    pokeWorker: () => (loop ? loop.poke() : dispatchWorker(rawEnv)),
     now: () => new Date(),
     close: async () => {
       await loop?.stop();

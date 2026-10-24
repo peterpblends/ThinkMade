@@ -63,3 +63,13 @@ export async function requeueJob(db: Db, jobId: string, delaySeconds: number, er
         where id = ${jobId} ${workerId ? sql`and locked_by = ${workerId}` : sql``}`,
   );
 }
+
+/** Seconds until the next queued job may run (0 if one is ready now), or null when nothing is queued within `withinSeconds`. */
+export async function secondsUntilNextJob(db: Db, withinSeconds: number): Promise<number | null> {
+  const [row] = await queryRows<{ wait: number | null }>(
+    db,
+    sql`select case when min(run_after) is null then null else greatest(0, extract(epoch from min(run_after) - now()))::float end as wait from generation_job
+        where status = 'queued' and run_after <= now() + make_interval(secs => ${withinSeconds})`,
+  );
+  return row?.wait ?? null;
+}

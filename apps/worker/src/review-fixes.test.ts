@@ -112,3 +112,18 @@ describe('review fixes', () => {
     expect(j!.status).toBe('running');
   });
 });
+
+describe('secondsUntilNextJob', () => {
+  it('reports a job that is ready, one waiting a short retry, and nothing when the queue is empty', async () => {
+    const { secondsUntilNextJob } = await import('./queue');
+    world = await makeWorld();
+    expect(await secondsUntilNextJob(world.db, 600)).toBeNull();
+    const job = await world.enqueue('Soon', { episodes: 1 });
+    expect(await secondsUntilNextJob(world.db, 600)).toBe(0);
+    await world.db.update(schema.generationJob).set({ runAfter: new Date(Date.now() + 120_000) }).where(eq(schema.generationJob.id, job.id));
+    const wait = await secondsUntilNextJob(world.db, 600);
+    expect(wait).toBeGreaterThan(100);
+    expect(wait).toBeLessThanOrEqual(120);
+    expect(await secondsUntilNextJob(world.db, 60)).toBeNull();
+  });
+});
