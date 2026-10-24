@@ -2,7 +2,7 @@
 
 Status on 2026-10-24: **https://thinkmade.zicaworld.com is live.** The database (Neon) is migrated, storage (Backblaze B2) is connected with browser access set up, and Groq is configured. These steps remain. Each needs one of your accounts, so they can't be done for you.
 
-## 1. Email, so people can sign up (10 minutes)
+## 1. Email, so people can sign up (done 2026-10-24)
 
 Sign-up sends a verification email, and right now no email service is set in Vercel.
 
@@ -13,7 +13,7 @@ Sign-up sends a verification email, and right now no email service is set in Ver
    - `RESEND_API_KEY` = the key (Sensitive)
    - `EMAIL_FROM` = `ThinkMade <hello@thinkmade.zicaworld.com>` (must use the verified domain)
 
-## 2. Make yourself the administrator (2 minutes)
+## 2. Make yourself the administrator (done 2026-10-24)
 
 1. In Vercel, add `ADMIN_EMAILS` = the address you'll sign up with (Production).
 2. After steps 1 and 2, redeploy: **Deployments → … → Redeploy**.
