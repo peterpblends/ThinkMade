@@ -7,11 +7,11 @@ Status on 2026-10-24: **https://thinkmade.zicaworld.com is live.** The database 
 Sign-up sends a verification email, and right now no email service is set in Vercel.
 
 1. Create a free account at resend.com.
-2. **Domains → Add Domain:** `zicaworld.com`. Add the DNS records Resend shows at GreenGeeks, then wait for "Verified".
+2. **Domains → Add Domain:** `thinkmade.zicaworld.com`. Add the DNS records Resend shows at GreenGeeks (cPanel → Zone Editor), then click **Verify**.
 3. **API Keys → Create API Key**, then copy it.
 4. In Vercel (**thinkmade → Settings → Environment Variables**, Production and Preview), add:
    - `RESEND_API_KEY` = the key (Sensitive)
-   - `EMAIL_FROM` = `ThinkMade <hello@zicaworld.com>`
+   - `EMAIL_FROM` = `ThinkMade <hello@thinkmade.zicaworld.com>` (must use the verified domain)
 
 ## 2. Make yourself the administrator (2 minutes)
 
