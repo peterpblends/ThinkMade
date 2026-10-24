@@ -127,3 +127,17 @@ describe('secondsUntilNextJob', () => {
     expect(await secondsUntilNextJob(world.db, 60)).toBeNull();
   });
 });
+
+describe('rejected AI keys', () => {
+  it('fail at once with a clear message instead of retrying', async () => {
+    world = await makeWorld(() => {
+      throw new LlmError('groq returned 401: Invalid API Key', 401);
+    });
+    const job = await world.enqueue('Bad key', { episodes: 1 });
+    await runNextJob(world.deps);
+    const [j] = await world.db.select().from(schema.generationJob).where(eq(schema.generationJob.id, job.id));
+    expect(j!.status).toBe('failed');
+    expect(j!.attempts).toBe(1);
+    expect(j!.error).toMatch(/rejected ThinkMade's access key/);
+  });
+});

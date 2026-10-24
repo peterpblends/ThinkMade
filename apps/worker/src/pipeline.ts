@@ -674,7 +674,9 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       const outcome = await finalise('failed', 'The AI service is busy right now (its usage limit was reached). Please try again later.');
       return outcome;
     }
-    const permanent = err instanceof PermanentJobError || err instanceof ProviderNotConfiguredError;
+    // A rejected key (401/403) won't fix itself by retrying.
+    const rejectedKey = err instanceof LlmError && (err.status === 401 || err.status === 403);
+    const permanent = err instanceof PermanentJobError || err instanceof ProviderNotConfiguredError || rejectedKey;
     if (!permanent && (rateLimited || job.attempts < job.max_attempts)) {
       const delay = rateLimited ? Math.min(1800, 60 * 2 ** ((state.rateLimitRetries ?? 1) - 1)) : 15 * 2 ** (job.attempts - 1);
       await requeueJob(db, job.id, delay, message, !rateLimited, deps.workerId);
@@ -711,6 +713,9 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
 function userFacingError(err: unknown): string {
   if (err instanceof ProviderNotConfiguredError) return `Podcast generation isn't configured yet: ${err.message}`;
   if (err instanceof PermanentJobError) return err.message;
+  if (err instanceof LlmError && (err.status === 401 || err.status === 403)) {
+    return "The AI service rejected ThinkMade's access key, so this podcast couldn't be made. An administrator needs to update the key; then please try again.";
+  }
   if (err instanceof LlmError) return 'The language model service failed repeatedly. Please try again later.';
   return `Something went wrong while building your podcasts: ${err instanceof Error ? err.message : String(err)}`;
 }
