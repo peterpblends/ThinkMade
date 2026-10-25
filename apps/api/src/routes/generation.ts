@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, notInArray, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { schema } from '@thinkmade/db';
 import { createGenerationSchema, labelForStage, READY_LABEL, STAGE_LABELS } from '@thinkmade/shared';
@@ -32,11 +32,15 @@ export function generationRoutes(ctx: AppContext) {
     if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
     const { settings } = await ctx.settings.getActive();
 
+    // Failed or cancelled attempts don't use up the daily allowance, and administrators have none.
     const since = new Date(ctx.now().getTime() - 24 * 3600 * 1000);
-    const [recent] = await ctx.db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(schema.generationJob)
-      .where(and(eq(schema.generationJob.userId, user.id), gte(schema.generationJob.createdAt, since)));
+    const isAdmin = (user.role ?? '').split(',').map((r: string) => r.trim()).includes('admin');
+    const [recent] = isAdmin
+      ? [{ n: 0 }]
+      : await ctx.db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(schema.generationJob)
+          .where(and(eq(schema.generationJob.userId, user.id), gte(schema.generationJob.createdAt, since), notInArray(schema.generationJob.status, ['failed', 'cancelled'])));
     if ((recent?.n ?? 0) >= settings.limits.perUserDailyJobs) {
       return c.json({ error: 'daily_limit', message: `You can create ${settings.limits.perUserDailyJobs} series a day. Please try again tomorrow.` }, 429);
     }

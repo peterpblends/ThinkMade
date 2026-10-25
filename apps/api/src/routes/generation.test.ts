@@ -57,6 +57,21 @@ describe('generations', () => {
     expect(await second.json()).toMatchObject({ error: 'daily_limit' });
   });
 
+  it("doesn't count failed attempts against the daily limit, and exempts administrators", async () => {
+    const { app, json } = await setup();
+    const [u] = await ctx!.db.select().from(schema.user);
+    await ctx!.settings.update({ limits: { perUserDailyJobs: 1 } }, { id: u!.id });
+    const body = JSON.stringify({ topic: 'One topic please' });
+    expect((await app.request('/api/generations', { method: 'POST', headers: json, body })).status).toBe(202);
+    await ctx!.db.update(schema.generationJob).set({ status: 'failed' });
+    expect((await app.request('/api/generations', { method: 'POST', headers: json, body })).status).toBe(202);
+    expect((await app.request('/api/generations', { method: 'POST', headers: json, body })).status).toBe(429);
+    await ctx!.db.update(schema.user).set({ role: 'admin' }).where(eq(schema.user.id, u!.id));
+    // The session cookie caches the role for 5 minutes, so sign the cache out of the picture by re-reading it.
+    const fresh = await app.request('/api/generations', { method: 'POST', headers: { ...json, cookie: json.cookie.replace(/;?\s*[^;]*session_data=[^;]*/, '') }, body });
+    expect(fresh.status).toBe(202);
+  });
+
   it('reports real progress, then the finished series with playable audio', async () => {
     const { app, json, cookie } = await setup();
     const res = await app.request('/api/generations', {
