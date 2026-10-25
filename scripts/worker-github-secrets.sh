@@ -12,7 +12,7 @@ while IFS= read -r line; do
   [[ -z "$line" || "$line" == \#* ]] && continue
   key="${line%%=*}"; value="${line#*=}"
   [[ "$key" == NODE_ENV || -z "$value" ]] && continue
-  printf '%s' "$value" | gh secret set "$key" --repo "$REPO" --body - >/dev/null
+  printf "%s" "$value" | gh secret set "$key" --repo "$REPO" >/dev/null   # reads the value from stdin
   echo "Set $key"
   count=$((count + 1))
 done < "$FILE"
