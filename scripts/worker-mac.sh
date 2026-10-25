@@ -44,7 +44,10 @@ case "${1:-status}" in
 </plist>
 PLIST
     launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-    launchctl bootstrap "gui/$(id -u)" "$PLIST"
+    # bootout returns before the old service is gone; loading too soon fails with "Input/output error".
+    for _ in {1..20}; do launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || break; sleep 0.5; done
+    for attempt in 1 2 3; do launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null && break; sleep 2; done
+    launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || { echo "Could not start the service. Try again in a few seconds."; exit 1; }
     echo "Installed. The worker is starting; follow it with: tail -f $LOG"
     ;;
   uninstall)
