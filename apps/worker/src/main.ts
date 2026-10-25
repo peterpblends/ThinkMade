@@ -17,13 +17,14 @@ const deps = await createWorkerDeps(handle.db);
 if (process.env.WORKER_DRAIN === 'true') {
   let jobs = 0;
   const deadline = Date.now() + Number(process.env.WORKER_DRAIN_MINUTES ?? 300) * 60_000;
-  // Jobs waiting a short retry delay are waited for; anything further off is left for the next run.
+  // Jobs due within WORKER_DRAIN_WAIT_SECONDS (a retry or rate-limit pause) are waited for; later ones are
+  // left for the next run.
   while (Date.now() < deadline) {
     if (await runNextJob(deps)) {
       jobs++;
       continue;
     }
-    const wait = await secondsUntilNextJob(handle.db, 600);
+    const wait = await secondsUntilNextJob(handle.db, Number(process.env.WORKER_DRAIN_WAIT_SECONDS ?? 600));
     if (wait === null) break;
     await new Promise((r) => setTimeout(r, Math.max(5, wait) * 1000));
   }
