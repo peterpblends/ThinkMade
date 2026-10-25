@@ -42,11 +42,7 @@ It asks for each value in turn (database, Groq, OpenRouter, Backblaze); paste ea
 npm run worker:mac -- install
 ```
 
-**Option B: GitHub Actions (runs in the cloud, even when your Mac is off).** Follow "On GitHub Actions" in `docs/worker.md`. It starts with:
-
-```bash
-gh auth refresh -h github.com -s workflow
-```
+**Option B: GitHub Actions (runs in the cloud, even when your Mac is off).** The workflow is already on `main`. Add the repository secrets and the Vercel dispatch token as described in "On GitHub Actions" in `docs/worker.md`.
 
 ## 5. First podcast
 

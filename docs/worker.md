@@ -24,10 +24,10 @@ You can run more than one: workers share the queue safely.
 
 ## On GitHub Actions (no card)
 
-The workflow `.github/workflows/worker.yml` drains the queue and exits. The API starts a run whenever someone creates a podcast, and a run every 4 hours picks up jobs that were waiting out a rate limit.
+The workflow `.github/workflows/worker.yml` drains the queue and exits. The API starts a run whenever someone creates a podcast, and every 3 hours a quick check (under a minute) starts a run only if a job is due, such as one that waited out a rate limit.
 
-1. Allow pushing workflows once: `gh auth refresh -h github.com -s workflow`, then merge and push the `pending/ci-workflow` branch.
-2. In GitHub, **Settings → Secrets and variables → Actions → New repository secret**, add: `DATABASE_URL`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (and optionally `RESEND_API_KEY`, `EMAIL_FROM`). Use the same values as in Vercel.
+1. The workflow is already on `main`; nothing to push.
+2. Add the secrets. Either run `npm run worker:github-secrets` on your Mac (copies `.env.worker`; needs `gh auth login`), or in GitHub, **Settings → Secrets and variables → Actions → New repository secret**, add: `DATABASE_URL`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (and optionally `RESEND_API_KEY`, `EMAIL_FROM`). Use the same values as in Vercel.
 3. Create a fine-grained GitHub token (**Settings → Developer settings → Fine-grained tokens**) for the ThinkMade repository only, with **Contents: Read and write** (needed to start workflow runs). In Vercel, add `WORKER_DISPATCH_REPO=peterpblends/ThinkMade` and `WORKER_DISPATCH_TOKEN=<token>` (Sensitive), then redeploy.
 4. Test it: **Actions → Worker → Run workflow**. The log ends with `queue drained`.
 
