@@ -49,22 +49,22 @@ jobs:
           echo "Jobs due: $n"
           echo "count=$n" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
-        if: steps.due.outputs.count != '0'
+        if: github.event_name != 'schedule' || steps.due.outputs.count != '0'
       - uses: actions/setup-node@v4
-        if: steps.due.outputs.count != '0'
+        if: github.event_name != 'schedule' || steps.due.outputs.count != '0'
         with:
           node-version: 22
           cache: npm
       - name: Cache speech and embedding models
-        if: steps.due.outputs.count != '0'
+        if: github.event_name != 'schedule' || steps.due.outputs.count != '0'
         uses: actions/cache@v4
         with:
           path: .models
           key: thinkmade-models-v1
       - run: npm ci
-        if: steps.due.outputs.count != '0'
+        if: github.event_name != 'schedule' || steps.due.outputs.count != '0'
         env:
           SKIP_SPEECH_MODEL: '1'
       - name: Run queued podcast jobs
-        if: steps.due.outputs.count != '0'
+        if: github.event_name != 'schedule' || steps.due.outputs.count != '0'
         run: npm run start -w apps/worker
