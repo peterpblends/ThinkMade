@@ -79,7 +79,18 @@ export const planSchema = z.object({
           )
           .min(1)
           .max(5),
-        sections: z.array(z.object({ heading: z.string().max(120), goal: z.string().max(400) })).min(1).max(16),
+        // Models sometimes split a section into a heading-only and a goal-only item; accept that and
+        // fill the gap rather than failing the whole plan.
+        sections: z
+          .array(z.object({ heading: z.string().max(120).optional(), goal: z.string().max(400).optional() }))
+          .max(24)
+          .transform((list) =>
+            list
+              .filter((x) => x.heading?.trim() || x.goal?.trim())
+              .map((x, i) => ({ heading: x.heading?.trim() || `Part ${i + 1}`, goal: x.goal?.trim() || x.heading!.trim() }))
+              .slice(0, 16),
+          )
+          .refine((list) => list.length > 0, 'Give each episode at least one section with a heading and a goal.'),
       }),
     )
     .min(1),

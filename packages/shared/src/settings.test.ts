@@ -45,3 +45,21 @@ describe('applySettingsPatch', () => {
     expect(() => applySettingsPatch(DEFAULT_APP_SETTINGS, { podcast: { defaultEpisodes: 0 } })).toThrow();
   });
 });
+
+describe('planSchema sections', () => {
+  it('accepts a section split into heading-only and goal-only items and fills the gaps', async () => {
+    const { planSchema } = await import('./stage-schemas');
+    const ep = {
+      number: 1, title: 'Bottlenecks', description: 'Why work piles up behind one step.', primaryModelSlug: 'theory-of-constraints',
+      learningObjective: 'Find the constraint in a process.', outcomes: { thinking: 'Think in flows.', seeing: 'Spot queues forming.', doing: 'Fix the slowest step first.' },
+      keyTakeaways: ['Find the constraint', 'Exploit it'], examples: [{ title: 'Kitchen', kind: 'hypothetical', summary: 'Orders wait for one grill.' }],
+      sections: [{ heading: 'Intro', goal: 'Set the scene' }, { heading: 'The queue' }, { goal: 'Show how to fix it' }, {}],
+    };
+    const plan = planSchema.parse({ episodes: [ep] });
+    expect(plan.episodes[0]!.sections).toEqual([
+      { heading: 'Intro', goal: 'Set the scene' },
+      { heading: 'The queue', goal: 'The queue' },
+      { heading: 'Part 3', goal: 'Show how to fix it' },
+    ]);
+  });
+});
