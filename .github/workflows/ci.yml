@@ -1,9 +1,10 @@
 name: CI
 
+# Runs on pull requests and on demand (Actions -> CI -> Run workflow), not on every push to main:
+# the private repository's free minutes are kept for the podcast worker.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
