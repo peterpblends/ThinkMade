@@ -27,7 +27,8 @@
     "storage:cors": "tsx --env-file-if-exists=.env scripts/storage-cors.ts",
     "worker:mac": "zsh scripts/worker-mac.sh",
     "worker:setup": "zsh scripts/worker-env.sh",
-    "worker:check": "tsx --env-file-if-exists=.env.worker scripts/worker-check.ts"
+    "worker:check": "tsx --env-file-if-exists=.env.worker scripts/worker-check.ts",
+    "worker:github-secrets": "zsh scripts/worker-github-secrets.sh"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
