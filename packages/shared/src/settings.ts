@@ -164,26 +164,86 @@ export function phononVoice(voice: string): PhononVoice | undefined {
   return voice.startsWith('phonon:') ? PHONON_VOICES.find((v) => v.key === voice.slice(7)) : undefined;
 }
 
-/** A readable label for a stored voice id, e.g. "Zoey (Phonon, US female)". */
-export function voiceLabel(voice: string): string {
-  const p = phononVoice(voice);
-  return p ? `${p.name} (Phonon, ${p.accent} ${p.gender})` : `${voice} (Kokoro)`;
-}
+/**
+ * Kokoro's English voices (bundled with kokoro-js, Apache-2.0), stored by their ids. `name` is the host name
+ * used when a listener doesn't name their hosts; am_santa is left out as a novelty voice.
+ */
+export const KOKORO_VOICE_INFO = [
+  { id: 'af_heart', name: 'Hannah', accent: 'US', gender: 'female' },
+  { id: 'af_alloy', name: 'Allison', accent: 'US', gender: 'female' },
+  { id: 'af_aoede', name: 'Audrey', accent: 'US', gender: 'female' },
+  { id: 'af_bella', name: 'Bella', accent: 'US', gender: 'female' },
+  { id: 'af_jessica', name: 'Jessica', accent: 'US', gender: 'female' },
+  { id: 'af_kore', name: 'Cora', accent: 'US', gender: 'female' },
+  { id: 'af_nicole', name: 'Nicole', accent: 'US', gender: 'female' },
+  { id: 'af_nova', name: 'Nova', accent: 'US', gender: 'female' },
+  { id: 'af_river', name: 'River', accent: 'US', gender: 'female' },
+  { id: 'af_sarah', name: 'Sarah', accent: 'US', gender: 'female' },
+  { id: 'af_sky', name: 'Skye', accent: 'US', gender: 'female' },
+  { id: 'am_adam', name: 'Adam', accent: 'US', gender: 'male' },
+  { id: 'am_echo', name: 'Ethan', accent: 'US', gender: 'male' },
+  { id: 'am_eric', name: 'Eric', accent: 'US', gender: 'male' },
+  { id: 'am_fenrir', name: 'Finn', accent: 'US', gender: 'male' },
+  { id: 'am_liam', name: 'Liam', accent: 'US', gender: 'male' },
+  { id: 'am_michael', name: 'Michael', accent: 'US', gender: 'male' },
+  { id: 'am_onyx', name: 'Owen', accent: 'US', gender: 'male' },
+  { id: 'am_puck', name: 'Parker', accent: 'US', gender: 'male' },
+  { id: 'bf_emma', name: 'Emma', accent: 'UK', gender: 'female' },
+  { id: 'bf_alice', name: 'Alice', accent: 'UK', gender: 'female' },
+  { id: 'bf_isabella', name: 'Isabella', accent: 'UK', gender: 'female' },
+  { id: 'bf_lily', name: 'Lily', accent: 'UK', gender: 'female' },
+  { id: 'bm_george', name: 'George', accent: 'UK', gender: 'male' },
+  { id: 'bm_daniel', name: 'Daniel', accent: 'UK', gender: 'male' },
+  { id: 'bm_fable', name: 'Felix', accent: 'UK', gender: 'male' },
+  { id: 'bm_lewis', name: 'Lewis', accent: 'UK', gender: 'male' },
+] as const;
 
 /** Kokoro voice ids. af_heart is the highest-rated voice in the Kokoro model card. */
-export const KOKORO_VOICES = [
-  'af_heart',
-  'af_bella',
-  'af_nicole',
-  'af_sarah',
-  'af_sky',
-  'am_adam',
-  'am_michael',
-  'bf_emma',
-  'bf_isabella',
-  'bm_george',
-  'bm_lewis',
-] as const;
+export const KOKORO_VOICES = KOKORO_VOICE_INFO.map((v) => v.id);
+
+export interface VoiceInfo {
+  /** Stored id: `phonon:<key>` or a Kokoro id. */
+  id: string;
+  /** A person's name that suits the voice. */
+  name: string;
+  engine: 'Phonon' | 'Kokoro';
+  accent: 'US' | 'UK';
+  gender: 'female' | 'male';
+}
+
+/** Every voice ThinkMade can speak with. */
+export const VOICE_CATALOG: readonly VoiceInfo[] = [
+  ...PHONON_VOICES.map((v) => ({ id: `phonon:${v.key}`, name: v.name, engine: 'Phonon' as const, accent: v.accent, gender: v.gender })),
+  ...KOKORO_VOICE_INFO.map((v) => ({ id: v.id, name: v.name, engine: 'Kokoro' as const, accent: v.accent, gender: v.gender })),
+];
+
+export function voiceInfo(voice: string): VoiceInfo | undefined {
+  return VOICE_CATALOG.find((v) => v.id === voice);
+}
+
+/** A readable label for a stored voice id, e.g. "Zoey (Phonon, US female)". */
+export function voiceLabel(voice: string): string {
+  const v = voiceInfo(voice);
+  return v ? `${v.name} (${v.engine}, ${v.accent} ${v.gender})` : `${voice} (Kokoro)`;
+}
+
+/** The voices offered before the full Kokoro set was added; a stored list equal to this is upgraded. */
+const LEGACY_AVAILABLE_VOICES = [
+  ...PHONON_VOICES.map((v) => `phonon:${v.key}`),
+  ...['af_heart', 'af_bella', 'af_nicole', 'af_sarah', 'af_sky', 'am_adam', 'am_michael', 'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis'],
+];
+
+/**
+ * Brings a stored settings document up to date: a voice list that still matches an earlier default gains the
+ * voices added since. A list an administrator changed is left alone.
+ */
+export function upgradeAppSettings(settings: AppSettings): AppSettings {
+  const a = settings.voices.available;
+  if (a.length === LEGACY_AVAILABLE_VOICES.length && LEGACY_AVAILABLE_VOICES.every((v) => a.includes(v))) {
+    return { ...settings, voices: { ...settings.voices, available: VOICE_CATALOG.map((v) => v.id) } };
+  }
+  return settings;
+}
 
 /** Spec §8 initial defaults. The admin dashboard edits these; code never hardcodes them elsewhere. */
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -204,7 +264,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     single: 'phonon:zoey',
     hostA: 'phonon:zoey',
     hostB: 'phonon:easton',
-    available: [...PHONON_VOICES.map((v) => `phonon:${v.key}`), ...KOKORO_VOICES],
+    available: VOICE_CATALOG.map((v) => v.id),
   },
   media: {
     maxImages: 4,

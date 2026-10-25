@@ -134,6 +134,25 @@ describe('generations', () => {
     }
   });
 
+  it('records the voices the listener picked, and rejects voices that are not offered', async () => {
+    const { app, json } = await setup();
+    const ok = await app.request('/api/generations', { method: 'POST', headers: json, body: JSON.stringify({ topic: 'Pick my voices', voices: ['phonon:freya', 'bm_george'] }) });
+    expect(ok.status).toBe(202);
+    const { id } = (await ok.json()) as { id: string };
+    const [job] = await ctx!.db.select().from(schema.generationJob).where(eq(schema.generationJob.id, id));
+    expect(job!.options).toMatchObject({ chosenVoices: ['phonon:freya', 'bm_george'], customized: false });
+    expect((job!.options as { voicePool: string[] }).voicePool.length).toBeGreaterThanOrEqual(50);
+    const bad = await app.request('/api/generations', { method: 'POST', headers: json, body: JSON.stringify({ topic: 'Pick my voices', voices: ['not-a-voice'] }) });
+    expect(bad.status).toBe(400);
+  });
+
+  it('lists the voices listeners can pick from', async () => {
+    ctx = await createTestContext();
+    const res = (await (await createApp(ctx).request('/api/settings/public')).json()) as { voices: Array<{ id: string; name: string; gender: string }> };
+    expect(res.voices.length).toBeGreaterThanOrEqual(50);
+    expect(res.voices).toContainEqual({ id: 'phonon:zoey', name: 'Zoey', accent: 'US', gender: 'female' });
+  });
+
   it('lets the owner cancel a queued job', async () => {
     const { app, json, cookie } = await setup();
     const { id } = (await (await app.request('/api/generations', { method: 'POST', headers: json, body: JSON.stringify({ topic: 'Cancel this one' }) })).json()) as { id: string };

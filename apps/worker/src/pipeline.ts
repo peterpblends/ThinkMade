@@ -11,12 +11,12 @@ import {
   type ChatMessage,
 } from '@thinkmade/ai';
 import { getActivePrompts, indexSeriesEmbedding, queryRows, schema, type Db, type ModelStage } from '@thinkmade/db';
-import { HOST_NAMES, type GenerationOptions, type GenerationStage } from '@thinkmade/shared';
+import { chooseHosts, DEFAULT_APP_SETTINGS, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences } from '@thinkmade/shared';
 import { JobCancelledError, LostLeaseError, PermanentJobError, type WorkerDeps } from './deps';
 import { input, PLAN_TASK, RESEARCH_TASK, SCRIPT_TASK, SELECT_MODELS_TASK, stageSystem, UNDERSTAND_TASK } from './prompts';
 import type { ClaimedJob } from './queue';
 import { analyseUploads, type MediaAnalysis } from './media';
-import { aggregateJudgements, CRITERIA_LABELS, failingCriteria, judgementSchema, judgeWindows, scriptChecks, VALIDATE_TASK, type Judgement } from './quality';
+import { aggregateJudgements, CRITERIA_LABELS, failingCriteria, judgementSchema, judgeWindows, scriptChecks, VALIDATE_TASK, type EpisodeFormat, type Judgement } from './quality';
 import { extendLease, requeueJob } from './queue';
 import {
   modelSelectionSchema,
@@ -49,7 +49,7 @@ interface ResearchState {
 }
 
 interface ScriptState {
-  [episodeNumber: string]: { sections: Array<{ segments: Array<{ speaker: 'A' | 'B'; text: string }>; summary: string }> };
+  [episodeNumber: string]: { sections: Array<{ segments: Array<{ speaker: 'A' | 'B' | 'C' | 'D'; text: string }>; summary: string }> };
 }
 
 export interface JobState {
@@ -60,6 +60,10 @@ export interface JobState {
   plan?: Plan;
   /** Episodes planned so far, while the plan is built in batches. */
   planDraft?: Plan['episodes'];
+  /** Length, episodes or format the listener asked for in their own words. */
+  adjusted?: Partial<Pick<GenerationOptions, 'episodes' | 'lengthMinutes' | 'speakerFormat'>>;
+  /** This series' hosts and their voices. */
+  hosts?: Host[];
   scripts?: ScriptState;
   tokens?: number;
   rateLimitRetries?: number;
@@ -73,6 +77,46 @@ const PLAN_BATCH = 3;
 export function formatForEpisode(format: GenerationOptions['speakerFormat'], n: number): 'single' | 'two_hosts' {
   if (format === 'mixed') return n % 2 === 1 ? 'two_hosts' : 'single';
   return format;
+}
+
+/** The hosts of one episode: the first host alone, or all of them in a conversation. */
+export function episodeHosts(all: Host[], format: 'single' | 'two_hosts'): Host[] {
+  return format === 'single' ? all.slice(0, 1) : all;
+}
+
+export function episodeFormat(hosts: unknown[]): EpisodeFormat {
+  return hosts.length <= 1 ? 'single' : hosts.length === 2 ? 'two_hosts' : 'group';
+}
+
+/**
+ * Length, episode count and format the listener asked for in their own words. These apply only when they
+ * didn't set them in Customise, and never beyond the administrator's limits.
+ */
+export function listenerAdjustments(options: GenerationOptions, prefs: ListenerPreferences): NonNullable<JobState['adjusted']> {
+  if (options.customized) return {};
+  const p = DEFAULT_APP_SETTINGS.podcast;
+  const lim = options.limits ?? { maxEpisodes: p.maxEpisodesPerSeries, maxMinutes: p.maxEpisodeMinutes };
+  const out: NonNullable<JobState['adjusted']> = {};
+  if (prefs.lengthMinutes) out.lengthMinutes = Math.min(prefs.lengthMinutes, lim.maxMinutes);
+  const minutes = out.lengthMinutes ?? options.lengthMinutes;
+  if (prefs.episodes) {
+    const byAudio = options.maxAudioMinutes ? Math.max(1, Math.floor(options.maxAudioMinutes / minutes)) : Infinity;
+    out.episodes = Math.max(1, Math.min(prefs.episodes, lim.maxEpisodes, byAudio));
+  }
+  // Hosts the listener described all take part in every episode.
+  if (prefs.speakerFormat === 'single') out.speakerFormat = 'single';
+  else if (prefs.speakerFormat === 'conversation' || prefs.hosts.length > 1) out.speakerFormat = 'two_hosts';
+  return out;
+}
+
+async function recentVoices(db: Db, userId: string, excludeSeriesId: string | null): Promise<string[]> {
+  const rows = await queryRows<{ hosts: Array<{ voice?: string }> | null }>(
+    db,
+    sql`select e.hosts from episode e join podcast_series s on s.id = e.series_id
+        where s.user_id = ${userId} and (${excludeSeriesId}::text is null or s.id <> ${excludeSeriesId}::text)
+        order by s.created_at desc limit 12`,
+  );
+  return [...new Set(rows.flatMap((r) => (r.hosts ?? []).map((h) => h.voice).filter((v): v is string => !!v)))];
 }
 
 export function sectionCount(lengthMinutes: number): number {
@@ -291,6 +335,26 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       await saveState(db, job.id, state);
     }
     const u = state.understanding;
+    const prefs: ListenerPreferences = u.preferences ?? { hosts: [], requests: [] };
+
+    // What the listener asked for in their own words: length, episodes, format and hosts.
+    if (!state.plan && !state.adjusted) state.adjusted = listenerAdjustments(options, prefs);
+    Object.assign(options, state.adjusted ?? {});
+    if (!state.hosts) {
+      const described = prefs.hosts.filter((h) => h.name || h.role || h.gender);
+      const count = options.speakerFormat === 'single' ? 1 : Math.max(2, described.length, options.chosenVoices?.length ?? 0);
+      state.hosts = chooseHosts({
+        count,
+        requested: described,
+        ...(options.chosenVoices ? { chosenVoices: options.chosenVoices } : {}),
+        pool: options.voicePool ?? DEFAULT_APP_SETTINGS.voices.available,
+        recent: await recentVoices(db, job.user_id, seriesId),
+      });
+      await saveState(db, job.id, state);
+    }
+    const hostsForPrompt = (hosts: Array<{ id: string; name: string; age?: number; role?: string }>) =>
+      hosts.map((h) => ({ speaker: h.id, name: h.name, ...(h.age ? { age: h.age } : {}), ...(h.role ? { role: h.role } : {}) }));
+    const listener = { audience: u.audience, listenerRequests: prefs.requests };
 
     if (!seriesId) {
       const [s] = await db
@@ -405,6 +469,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
             learningMode: options.learningMode,
             teachingStyle: options.teachingStyle,
             lengthMinutes: options.lengthMinutes,
+            ...listener,
+            hosts: hostsForPrompt(state.hosts!),
             totalEpisodes: episodesIn.length,
             ...(earlier.length
               ? {
@@ -444,11 +510,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     const existing = await db.select().from(schema.episode).where(eq(schema.episode.seriesId, seriesId));
     for (const ep of state.plan.episodes) {
       if (existing.some((e) => e.number === ep.number)) continue;
-      const format = formatForEpisode(options.speakerFormat, ep.number);
-      const hosts =
-        format === 'two_hosts'
-          ? [{ id: 'A', name: HOST_NAMES.A, voice: options.voices.hostA }, { id: 'B', name: HOST_NAMES.B, voice: options.voices.hostB }]
-          : [{ id: 'A', name: HOST_NAMES.A, voice: options.voices.single }];
+      const hosts = episodeHosts(state.hosts!, formatForEpisode(options.speakerFormat, ep.number));
+      const format = episodeFormat(hosts);
       const [row] = await db
         .insert(schema.episode)
         .values({
@@ -495,7 +558,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         held++;
         continue;
       }
-      const result = await writeAndVoiceEpisode(planned, row.id, row.speakerFormat as 'single' | 'two_hosts', row.hosts ?? []);
+      const result = await writeAndVoiceEpisode(planned, row.id, row.speakerFormat as EpisodeFormat, row.hosts ?? []);
       if (result === 'needs_review') held++;
     }
     if (held > 0 || rejected > 0) {
@@ -516,7 +579,10 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       return await finalise('failed', message);
     }
 
-    async function writeAndVoiceEpisode(ep: PlannedEpisode, episodeId: string, format: 'single' | 'two_hosts', hosts: Array<{ id: string; name: string; voice: string }>): Promise<'ready' | 'needs_review'> {
+    async function writeAndVoiceEpisode(ep: PlannedEpisode, episodeId: string, format: EpisodeFormat, hosts: Array<{ id: string; name: string; voice: string; age?: number; role?: string }>): Promise<'ready' | 'needs_review'> {
+      const hostIds = hosts.map((h) => h.id);
+      // Lines given to a speaker this episode doesn't have go to the first host.
+      const ownSpeakers = <T extends { speaker: string }>(segs: T[]) => segs.map((x) => (hostIds.includes(x.speaker) ? x : { ...x, speaker: 'A' as const }));
       const totalWords = WORDS_PER_MINUTE * options.lengthMinutes;
       const perSection = Math.round(totalWords / ep.sections.length);
       const key = String(ep.number);
@@ -533,8 +599,9 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
             primaryModel: state.models!.find((m) => m.slug === ep.primaryModelSlug),
             supportingModels: ep.supportingModelSlugs.map((s) => state.models!.find((m) => m.slug === s)?.name).filter(Boolean),
             verifiedBooks: [ep.primaryModelSlug, ...ep.supportingModelSlugs].flatMap((s) => state.research![s]?.books ?? []).map((b) => ({ title: b.title, author: b.authors.join(', ') })),
-            hosts: hosts.map((h) => ({ speaker: h.id, name: h.name })),
+            hosts: hostsForPrompt(hosts),
             format,
+            ...listener,
             section: { index: i + 1, of: ep.sections.length, heading: ep.sections[i]!.heading, goal: ep.sections[i]!.goal },
             isFirstSection: i === 0,
             isLastSection: i === ep.sections.length - 1,
@@ -546,7 +613,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           ep.number,
           `section ${i + 1} of ${ep.sections.length}${revision ? ' (revision)' : ''}`,
         );
-        if (format === 'single') section.segments = section.segments.map((s) => ({ ...s, speaker: 'A' as const }));
+        section.segments = ownSpeakers(section.segments);
         // Smaller models often stop short; ask them to continue rather than accept a short episode.
         for (let topUp = 0; topUp < 2; topUp++) {
           const words = section.segments.reduce((n, x) => n + countWords(x.text), 0);
@@ -555,8 +622,9 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           const more = await runner.run('script', () =>
             chat('script', SCRIPT_TASK, {
               episode: { number: ep.number, title: ep.title, outcomes: ep.outcomes },
-              hosts: hosts.map((h) => ({ speaker: h.id, name: h.name })),
+              hosts: hostsForPrompt(hosts),
               format,
+              ...listener,
               section: { index: i + 1, of: ep.sections.length, heading: ep.sections[i]!.heading, goal: ep.sections[i]!.goal },
               isLastSection: i === ep.sections.length - 1,
               continueFrom: tail,
@@ -566,7 +634,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
             ep.number,
             `section ${i + 1} continued`,
           );
-          section.segments.push(...(format === 'single' ? more.segments.map((x) => ({ ...x, speaker: 'A' as const })) : more.segments));
+          section.segments.push(...ownSpeakers(more.segments));
         }
         done[i] = { segments: section.segments, summary: section.summary };
         await saveState(db, job.id, state);
@@ -582,7 +650,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       for (let revision = 1; !humanApproval; revision++) {
         const verdict = await runner.run('validate', async () => {
           const sections = done.map((d) => d.segments);
-          const checks = scriptChecks(sections, { targetWords: totalWords, format });
+          const checks = scriptChecks(sections, { targetWords: totalWords, format, hostIds });
           // Review windows must fit the review model's request limit: about 1.4 tokens a word, plus room for instructions and the verdict.
           const limit = (await deps.llm('validate')).requestTokenLimit;
           const windowWords = limit ? Math.max(1000, Math.floor((limit - 2000 - 1500) / 1.4)) : 4500;
@@ -594,6 +662,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
                 episode: { title: ep.title, learningObjective: ep.learningObjective, outcomes: ep.outcomes, primaryModel: state.models!.find((m) => m.slug === ep.primaryModelSlug)?.name },
                 verifiedBooks: [ep.primaryModelSlug, ...ep.supportingModelSlugs].flatMap((s) => state.research![s]?.books ?? []).map((b) => ({ title: b.title, author: b.authors.join(', ') })),
                 format,
+                hosts: hostsForPrompt(hosts),
+                ...listener,
                 sections: w.map((i) => ({ number: i + 1, heading: ep.sections[i]!.heading, text: done[i]!.segments.map((x) => `${x.speaker}: ${x.text}`).join('\n') })),
                 windowCoversWholeEpisode: windows.length === 1,
               }, judgementSchema, 2000),
@@ -647,7 +717,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       await deps.storage.putFile(audioKey, outFile, 'audio/mpeg');
       rmSync(outFile, { force: true });
       audioSeconds += audio.durationSeconds;
-      const transcript = segments.map((s) => (format === 'two_hosts' ? `${nameOf(s.speaker)}: ${s.text}` : s.text)).join('\n\n');
+      const transcript = segments.map((s) => (format !== 'single' ? `${nameOf(s.speaker)}: ${s.text}` : s.text)).join('\n\n');
       await db
         .update(schema.episode)
         .set({ status: 'ready', audioKey, audioBytes: audio.bytes, durationSeconds: audio.durationSeconds, transcript })

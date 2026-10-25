@@ -37,14 +37,17 @@ describe('voice router', () => {
     const tts = createVoiceRouterTts({ phonon, kokoro }, (m) => logs.push(m));
     await tts.synthesize('hi', 'phonon:easton');
     await tts.synthesize('hi', 'phonon:maeve');
-    expect(kokoro.calls).toEqual(['am_michael', 'bf_emma']);
+    expect(kokoro.calls).toEqual(['am_adam', 'bf_emma']);
     expect(phonon.calls).toHaveLength(1);
     expect(logs[0]).toMatch(/Phonon failed/);
   });
 
   it('maps by accent and gender', () => {
     expect(kokoroFallbackVoice('phonon:zoey')).toBe('af_heart');
-    expect(kokoroFallbackVoice('phonon:hugh')).toBe('bm_george');
+    expect(kokoroFallbackVoice('phonon:alfie')).toBe('bm_george');
+    // Three US female hosts keep three different voices.
+    expect(new Set(['phonon:zoey', 'phonon:juniper', 'phonon:everly'].map(kokoroFallbackVoice)).size).toBe(3);
+    expect(kokoroFallbackVoice('phonon:hugh')).toMatch(/^bm_/);
     expect(kokoroFallbackVoice('af_bella')).toBe('af_bella');
   });
 });

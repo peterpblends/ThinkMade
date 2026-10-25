@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Camera, Mic, Square, SlidersHorizontal, Video, X } from 'lucide-react';
 import { useVoiceInput, type VoiceInput } from '../lib/voice';
-import type { PublicPodcastSettings, PublicSettings } from '../lib/api';
+import type { PublicPodcastSettings, PublicSettings, VoiceOption } from '../lib/api';
 import { Button } from '../components/ui';
 
 export interface Customization {
@@ -23,6 +23,88 @@ export interface CreateRequest {
   /** null when the user kept the administrator defaults. */
   customization: Customization | null;
   attachments: Attachment[];
+  /** Voices picked for the hosts, in order; left out for different voices each series. */
+  voices?: string[];
+}
+
+const MAX_HOSTS = 4;
+const VOICE_GROUPS = [
+  ['US', 'female', 'American, female'],
+  ['US', 'male', 'American, male'],
+  ['UK', 'female', 'British, female'],
+  ['UK', 'male', 'British, male'],
+] as const;
+
+/** Optional: pick a voice for each host. By default every series gets its own voices. */
+function VoicePicker({ voices, hostCount, value, onChange }: { voices: VoiceOption[]; hostCount: number; value: string[] | null; onChange: (v: string[] | null) => void }) {
+  const choosing = value !== null;
+  const pick = (i: number, id: string) => onChange((value ?? []).map((v, j) => (j === i ? id : v)));
+  return (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="mb-2 text-sm font-semibold text-ink">Voices</legend>
+      <div className="flex flex-wrap gap-2">
+        {[
+          { key: 'auto', label: 'Different each series', on: !choosing, select: () => onChange(null) },
+          {
+            key: 'choose',
+            label: 'Choose voices',
+            on: choosing,
+            // Start with distinct voices, alternating female and male.
+            select: () => onChange(Array.from({ length: hostCount }, (_, i) => (voices.filter((v) => v.gender === (i % 2 ? 'male' : 'female'))[Math.floor(i / 2)] ?? voices[i] ?? voices[0]!).id)),
+          },
+        ].map((o) => (
+          <div key={o.key}>
+            <input type="radio" id={`voices-${o.key}`} name="voices" className="peer sr-only" checked={o.on} onChange={o.select} />
+            <label
+              htmlFor={`voices-${o.key}`}
+              className="flex min-h-11 cursor-pointer items-center rounded-full border border-line bg-surface px-4 text-[0.95rem] text-ink transition peer-checked:border-accent-strong peer-checked:bg-accent-strong peer-checked:text-on-accent peer-focus-visible:outline peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--tm-focus)]"
+            >
+              {o.label}
+            </label>
+          </div>
+        ))}
+      </div>
+      {!choosing && <p className="text-xs text-muted">Hosts you name in your request keep their names, with voices to match.</p>}
+      {choosing && (
+        <div className="flex flex-col gap-3">
+          {value.map((id, i) => (
+            <div key={i} className="flex items-end gap-2">
+              <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm text-ink">
+                Host {i + 1}
+                <select value={id} onChange={(e) => pick(i, e.target.value)} className="min-h-11 w-full rounded-xl border border-line bg-surface px-3 text-[0.95rem] text-ink">
+                  {VOICE_GROUPS.map(([accent, gender, label]) => (
+                    <optgroup key={label} label={label}>
+                      {voices
+                        .filter((v) => v.accent === accent && v.gender === gender)
+                        .map((v) => (
+                          <option key={v.id} value={v.id} disabled={v.id !== id && value.includes(v.id)}>
+                            {v.name}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </label>
+              {value.length > 1 && (
+                <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} aria-label={`Remove host ${i + 1}`} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted hover:bg-surface-2">
+                  <X aria-hidden size={18} />
+                </button>
+              )}
+            </div>
+          ))}
+          {value.length < MAX_HOSTS && (
+            <button
+              type="button"
+              onClick={() => onChange([...value, voices.find((v) => !value.includes(v.id))!.id])}
+              className="self-start rounded-full px-3 py-2 text-[0.95rem] font-semibold text-accent-ink hover:bg-surface-2"
+            >
+              Add a host
+            </button>
+          )}
+        </div>
+      )}
+    </fieldset>
+  );
 }
 
 const FALLBACK_MEDIA: PublicSettings['media'] = { maxImages: 4, maxImageBytes: 10_485_760, maxVideoSeconds: 120, maxVideoBytes: 104_857_600 };
@@ -166,10 +248,13 @@ export function CreateForm({
   busy = false,
   voice: voiceProp,
   media = FALLBACK_MEDIA,
+  voices: voiceOptions = [],
   status,
 }: {
   defaults: PublicPodcastSettings;
   media?: PublicSettings['media'];
+  /** Voices listeners may pick; the picker is hidden without them. */
+  voices?: VoiceOption[];
   /** Progress text while attachments upload. */
   status?: string | null;
   onCreate: (request: CreateRequest) => void;
@@ -230,6 +315,7 @@ export function CreateForm({
     speakerFormat: defaults.speakerFormat,
     learningMode: defaults.learningMode,
   });
+  const [chosenVoices, setChosenVoices] = useState<string[] | null>(null);
   const ids = { topic: useId(), error: useId(), panel: useId() };
 
   const update = <K extends keyof Customization>(key: K, value: Customization[K]) => {
@@ -245,7 +331,8 @@ export function CreateForm({
       return;
     }
     setError(null);
-    onCreate({ topic: trimmed, customization: touchedCustom || customOpen ? custom : null, attachments });
+    // Only choices the listener actually changed override what they wrote (for example "five episodes").
+    onCreate({ topic: trimmed, customization: touchedCustom ? custom : null, attachments, ...(chosenVoices ? { voices: chosenVoices } : {}) });
   };
 
   return (
@@ -351,6 +438,9 @@ export function CreateForm({
             onChange={(v) => update('episodes', v)}
           />
           <ChoiceGroup legend="Hosts" name="speakers" options={SPEAKERS} value={custom.speakerFormat} onChange={(v) => update('speakerFormat', v)} />
+          {voiceOptions.length > 1 && (
+            <VoicePicker voices={voiceOptions} hostCount={touchedCustom && custom.speakerFormat === 'single' ? 1 : 2} value={chosenVoices} onChange={setChosenVoices} />
+          )}
           <ChoiceGroup legend="Learning mode" name="mode" options={MODES} value={custom.learningMode} onChange={(v) => update('learningMode', v)} />
         </div>
       )}

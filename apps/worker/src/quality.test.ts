@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { aggregateJudgements, judgeWindows, scriptChecks } from './quality';
 
-const seg = (text: string, speaker: 'A' | 'B' = 'A') => ({ speaker, text });
+const seg = (text: string, speaker: 'A' | 'B' | 'C' = 'A') => ({ speaker, text });
 const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(' ') + '.';
 
 describe('scriptChecks', () => {
@@ -26,6 +26,13 @@ describe('scriptChecks', () => {
     expect(scriptChecks([[seg(words(150), 'A')]], { targetWords: 150, format: 'two_hosts' })).toContainEqual(expect.objectContaining({ code: 'one_sided' }));
   });
 
+  it('flags a three-host episode where one host barely speaks, and passes a balanced one', () => {
+    const lopsided = [[seg(words(80), 'A'), seg(words(66), 'B'), seg(words(4), 'C')]];
+    expect(scriptChecks(lopsided, { targetWords: 150, format: 'group', hostIds: ['A', 'B', 'C'] })).toContainEqual(expect.objectContaining({ code: 'one_sided', message: expect.stringContaining('host C') }));
+    const balanced = [[seg(words(50), 'A'), seg(words(50), 'B'), seg(words(50), 'C')]];
+    expect(scriptChecks(balanced, { targetWords: 150, format: 'group', hostIds: ['A', 'B', 'C'] })).toEqual([]);
+  });
+
   it('flags heavy repetition of the same sentence', () => {
     const repeated = Array.from({ length: 12 }, () => 'The key idea is to name the alternative you give up.').join(' ');
     expect(scriptChecks([[seg(repeated)]], { targetWords: 120, format: 'single' })).toContainEqual(expect.objectContaining({ code: 'repetition' }));
@@ -48,7 +55,7 @@ describe('judgeWindows', () => {
 });
 
 describe('aggregateJudgements', () => {
-  const s = (o: Partial<Record<string, number>>) => ({ model: 5, thinking: 5, seeing: 5, doing: 5, flow: 5, accuracy: 5, sources: 5, repetition: 5, ...o });
+  const s = (o: Partial<Record<string, number>>) => ({ model: 5, thinking: 5, seeing: 5, doing: 5, flow: 5, accuracy: 5, sources: 5, repetition: 5, instructions: 5, ...o });
 
   it('takes the best coverage across windows but the worst accuracy', () => {
     const agg = aggregateJudgements([

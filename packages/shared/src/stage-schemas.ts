@@ -17,8 +17,30 @@ export const understandingSchema = z.object({
   assumptions: z.array(z.string().max(300)).max(12).default([]),
   seriesTitle: z.string().min(3).max(120),
   seriesDescription: z.string().min(10).max(600),
+  /** What the listener asked for about the podcast itself. Missing parts mean they didn't say. */
+  preferences: z
+    .object({
+      hosts: z
+        .array(
+          z.object({
+            name: z.string().max(40).nullish(),
+            gender: z.enum(['female', 'male']).nullish().catch(null),
+            accent: z.enum(['US', 'UK']).nullish().catch(null),
+            age: z.number().int().min(5).max(110).nullish().catch(null),
+            role: z.string().max(400).nullish(),
+          }),
+        )
+        .max(4)
+        .default([]),
+      requests: z.array(z.string().max(500)).max(24).default([]),
+      episodes: z.number().int().min(1).max(50).nullish().catch(null),
+      lengthMinutes: z.number().int().min(1).max(60).nullish().catch(null),
+      speakerFormat: z.enum(['single', 'conversation']).nullish().catch(null),
+    })
+    .default({ hosts: [], requests: [] }),
 });
 export type Understanding = z.infer<typeof understandingSchema>;
+export type ListenerPreferences = Understanding['preferences'];
 
 export const modelSelectionSchema = z.object({
   models: z
@@ -100,7 +122,7 @@ export type PlannedEpisode = Plan['episodes'][number];
 
 export const scriptSectionSchema = z.object({
   segments: z
-    .array(z.object({ speaker: z.enum(['A', 'B']), text: z.string().min(1).max(4000) }))
+    .array(z.object({ speaker: z.enum(['A', 'B', 'C', 'D']), text: z.string().min(1).max(4000) }))
     .min(1)
     .max(120),
   summary: z.string().max(800).default(''),
@@ -108,7 +130,7 @@ export const scriptSectionSchema = z.object({
 export type ScriptSection = z.infer<typeof scriptSectionSchema>;
 
 // --- Quality review ---
-export const CRITERIA = ['model', 'thinking', 'seeing', 'doing', 'flow', 'accuracy', 'sources', 'repetition'] as const;
+export const CRITERIA = ['model', 'thinking', 'seeing', 'doing', 'flow', 'accuracy', 'sources', 'repetition', 'instructions'] as const;
 export type Criterion = (typeof CRITERIA)[number];
 
 
@@ -122,11 +144,13 @@ export const CRITERIA_LABELS: Record<Criterion, string> = {
   accuracy: 'Information is accurate',
   sources: 'Supporting sources are credible and verified',
   repetition: 'Avoids unnecessary repetition',
+  instructions: "Follows the listener's requests",
 };
 
 const score = z.coerce.number().int().min(1).max(5);
 export const judgementSchema = z.object({
-  scores: z.object(Object.fromEntries(CRITERIA.map((c) => [c, score])) as Record<Criterion, typeof score>),
+  // A reviewer prompt an administrator wrote before "instructions" existed may not score it.
+  scores: z.object(Object.fromEntries(CRITERIA.map((c) => [c, c === 'instructions' ? score.default(5) : score])) as Record<Criterion, typeof score>),
   problems: z.array(z.string().max(400)).max(20).default([]),
   sectionsToRevise: z.array(z.coerce.number().int().min(1)).max(20).default([]),
   revisionNotes: z.string().max(2000).default(''),
@@ -141,11 +165,12 @@ You are the quality reviewer. Grade this podcast script before it is turned into
 - doing: the listener sees step-by-step practical application with concrete examples.
 - flow: it sounds like a natural, engaging conversation, not a lecture with announced sections; hosts have real roles.
 - accuracy: claims are accurate; nothing invented (books, quotes, studies, statistics, cases); hypotheticals are labelled.
-- sources: only books from the verified list are named, with correct authors; no quotations from them.
+- sources: only books from the verified list are named, with correct authors; no quotations from them. Scripture or other texts the listener asked for are fine when cited accurately.
 - repetition: no needless repetition within the script or of earlier sections.
+- instructions: the script follows the listener's requests (listenerRequests and audience) and the hosts' descriptions (names, ages, roles) wherever they apply to this window. Score 5 when there are none.
 You are reviewing a window of the script (sections listed). Judge coverage criteria on what you can see; the full episode outcomes are given for context.
 List concrete problems, the section numbers that must be rewritten, and specific revision notes the writer can act on.
-Shape: {"scores": {"model": n, "thinking": n, "seeing": n, "doing": n, "flow": n, "accuracy": n, "sources": n, "repetition": n}, "problems": string[], "sectionsToRevise": number[], "revisionNotes": string}`;
+Shape: {"scores": {"model": n, "thinking": n, "seeing": n, "doing": n, "flow": n, "accuracy": n, "sources": n, "repetition": n, "instructions": n}, "problems": string[], "sectionsToRevise": number[], "revisionNotes": string}`;
 
 
 // --- Photo and video analysis ---

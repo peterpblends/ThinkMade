@@ -1,9 +1,12 @@
 import { countWords } from '@thinkmade/ai';
 
 import { CRITERIA, type Criterion, type Judgement } from '@thinkmade/shared';
+
+/** One host, a two-host conversation, or a group of three or four hosts. */
+export type EpisodeFormat = 'single' | 'two_hosts' | 'group';
 export { CRITERIA, CRITERIA_LABELS, judgementSchema, VALIDATE_TASK, type Criterion, type Judgement } from '@thinkmade/shared';
 
-type Segment = { speaker: 'A' | 'B'; text: string };
+type Segment = { speaker: string; text: string };
 
 export interface CheckProblem {
   code: 'too_short' | 'too_long' | 'announced_labels' | 'one_sided' | 'repetition' | 'unspeakable';
@@ -13,7 +16,7 @@ export interface CheckProblem {
 }
 
 /** Fast deterministic checks that do not need a model. */
-export function scriptChecks(sections: Segment[][], opts: { targetWords: number; format: 'single' | 'two_hosts' }): CheckProblem[] {
+export function scriptChecks(sections: Segment[][], opts: { targetWords: number; format: EpisodeFormat; hostIds?: string[] }): CheckProblem[] {
   const problems: CheckProblem[] = [];
   const all = sections.flat();
   const total = all.reduce((n, s) => n + countWords(s.text), 0);
@@ -32,9 +35,11 @@ export function scriptChecks(sections: Segment[][], opts: { targetWords: number;
       problems.push({ code: 'unspeakable', section: i + 1, message: 'Contains markdown or stage directions that would be read aloud.' });
     }
   });
-  if (opts.format === 'two_hosts') {
-    const b = all.filter((s) => s.speaker === 'B').reduce((n, s) => n + countWords(s.text), 0);
-    if (b < total * 0.15) problems.push({ code: 'one_sided', section: null, message: 'In a two-host episode both hosts need a real share of the conversation.' });
+  if (opts.format !== 'single') {
+    // Every host needs a real share: at least 15% of the words with two hosts, 10% with three, 7.5% with four.
+    const ids = opts.hostIds ?? ['A', 'B'];
+    const quiet = ids.filter((id) => all.filter((s) => s.speaker === id).reduce((n, s) => n + countWords(s.text), 0) < (total * 0.3) / ids.length);
+    if (quiet.length) problems.push({ code: 'one_sided', section: null, message: `Every host needs a real share of the conversation; host ${quiet.join(' and ')} barely speaks.` });
   }
   const sentences = all.flatMap((s) => s.text.split(/(?<=[.!?])\s+/)).map((x) => x.trim().toLowerCase()).filter((x) => countWords(x) >= 6);
   if (sentences.length >= 6) {

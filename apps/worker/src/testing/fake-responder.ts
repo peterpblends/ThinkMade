@@ -114,12 +114,12 @@ export function fakeResponder(messages: ChatMessage[]): string {
         })),
       });
     case 'script': {
-      const two = inp.format === 'two_hosts';
+      const ids: string[] = inp.format === 'single' ? ['A'] : (inp.hosts ?? [{ speaker: 'A' }, { speaker: 'B' }]).map((h: { speaker: string }) => h.speaker);
       const total = Number(inp.targetWords ?? 100);
       const turns = Math.max(2, Math.round(total / 40));
       const per = Math.max(8, Math.round(total / turns));
       return JSON.stringify({
-        segments: Array.from({ length: turns }, (_, i) => ({ speaker: two && i % 2 === 1 ? 'B' : 'A', text: words(per) })),
+        segments: Array.from({ length: Math.max(turns, ids.length) }, (_, i) => ({ speaker: ids[i % ids.length], text: words(per) })),
         summary: `Covered ${inp.section?.heading ?? 'a section'}.`,
       });
     }

@@ -4,6 +4,7 @@ import {
   DEFAULT_APP_SETTINGS,
   appSettingsSchema,
   applySettingsPatch,
+  upgradeAppSettings,
   type AppSettings,
   type AppSettingsPatch,
 } from '@thinkmade/shared';
@@ -50,7 +51,7 @@ export function createSettingsService(db: Db): SettingsService {
       .from(schema.appSetting)
       .where(and(eq(schema.appSetting.name, NAME), eq(schema.appSetting.active, true)));
     if (!row) return null;
-    return { version: row.version, settings: appSettingsSchema.parse(row.document) };
+    return { version: row.version, settings: upgradeAppSettings(appSettingsSchema.parse(row.document)) };
   }
 
   /** Inserts `settings` as the next version, makes it the only active one, and audits the change. */
