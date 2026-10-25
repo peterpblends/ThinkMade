@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { CheckCircle2, Heart, Library as LibraryIcon, Play, Search } from 'lucide-react';
+import { CheckCircle2, Heart, Library as LibraryIcon, LoaderCircle, Play, Search } from 'lucide-react';
 import { api } from '../lib/api';
 import { useSession } from '../lib/auth-client';
 import { formatDuration } from '../lib/format';
@@ -79,19 +79,70 @@ export function EpisodeRow({ e, queue, extra }: { e: LibraryEpisode; queue: Libr
   );
 }
 
-function SeriesRow({ s }: { s: SeriesListItem }) {
+/** One podcast in My Podcasts: the same card whether it is ready, still being made, or couldn't be finished. */
+export function SeriesCard({ to, title, description, status }: { to: string; title: string; description: string; status: React.ReactNode }) {
   return (
     <li>
-      <Link to={`/series/${s.id}`} className="flex flex-col gap-1 rounded-2xl border border-line bg-surface p-4 shadow-card hover:bg-surface-2">
-        <span className="font-serif text-lg font-semibold">{s.title}</span>
-        <span className="text-sm text-muted">
-          {s.status === 'generating' ? 'Being created · ' : ''}
-          {s.readyCount} of {s.episodeCount} episodes ready{s.totalSeconds ? ` · ${formatDuration(s.totalSeconds)}` : ''}
-          {s.visibility === 'public' ? ' · Public' : ''}
-        </span>
+      <Link to={to} className="flex flex-col gap-1 rounded-2xl border border-line bg-surface p-4 shadow-card hover:bg-surface-2">
+        <span className="font-serif text-lg font-semibold leading-snug">{title}</span>
+        {description && <span className="line-clamp-2 text-[0.95rem] text-muted">{description}</span>}
+        <span className="mt-1 flex flex-wrap items-center gap-x-1.5 text-sm text-muted">{status}</span>
       </Link>
     </li>
   );
+}
+
+function Working({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 font-semibold text-accent-ink">
+      <LoaderCircle aria-hidden size={15} className="animate-spin" /> {label}
+    </span>
+  );
+}
+
+/** A short, readable excerpt of what the listener asked for, for a podcast that has no title yet. */
+function excerpt(topic: string | null): string {
+  if (!topic) return 'From your photo or video';
+  const t = topic.replace(/\s+/g, ' ').trim();
+  return t.length > 140 ? `${t.slice(0, 140).replace(/\s+\S*$/, '')}…` : t;
+}
+
+/** Podcasts being made come first, then finished ones, all as the same cards. */
+export function PodcastList({ series, generations }: { series: SeriesListItem[]; generations: GenerationListItem[] }) {
+  const working = generations.filter((g) => g.status === 'queued' || g.status === 'running');
+  const latest = new Map<string, GenerationListItem>();
+  for (const g of generations) if (g.seriesId && !latest.has(g.seriesId)) latest.set(g.seriesId, g);
+  const untitled = working.filter((g) => !g.seriesId);
+  const cards = [
+    ...untitled.map((g) => (
+      <SeriesCard key={g.id} to={`/generations/${g.id}`} title="Creating your podcast" description={excerpt(g.topic)} status={<Working label={`${g.label}…`} />} />
+    )),
+    ...series.map((s) => {
+      const gen = latest.get(s.id);
+      const busy = gen && (gen.status === 'queued' || gen.status === 'running');
+      const counts = `${s.episodeCount} episode${s.episodeCount === 1 ? '' : 's'}${s.totalSeconds ? ` · ${formatDuration(s.totalSeconds)}` : ''}`;
+      let status: React.ReactNode;
+      if (busy || s.status === 'generating') {
+        status = (
+          <>
+            <Working label={gen?.label ? `${gen.label}…` : 'Being created…'} />
+            {s.episodeCount > 0 && <span>· {s.readyCount} of {s.episodeCount} ready</span>}
+          </>
+        );
+      } else if (s.status === 'failed' && s.readyCount === 0) {
+        status = <span className="font-semibold text-danger">Couldn't be finished. Tap to try again.</span>;
+      } else if (s.readyCount < s.episodeCount) {
+        status = <span>{s.readyCount} of {s.episodeCount} episodes ready</span>;
+      } else {
+        status = <span>{counts}</span>;
+      }
+      if (s.visibility === 'public') status = <>{status}<span>· Public</span></>;
+      // Until an episode is ready, the progress page says more than an empty series page.
+      const to = (busy || s.status === 'failed') && s.readyCount === 0 && gen ? `/generations/${gen.id}` : `/series/${s.id}`;
+      return <SeriesCard key={s.id} to={to} title={s.title} description={s.description} status={status} />;
+    }),
+  ];
+  return cards.length ? <ul className="flex flex-col gap-3">{cards}</ul> : null;
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
@@ -103,11 +154,12 @@ function Empty({ children }: { children: React.ReactNode }) {
   );
 }
 
-interface GenerationListItem {
+export interface GenerationListItem {
   id: string;
   status: string;
   label: string;
   topic: string | null;
+  seriesId: string | null;
 }
 
 function downloadToEpisode(d: DownloadRecord): LibraryEpisode {
@@ -160,9 +212,17 @@ export function LibraryScreen() {
   const [sort, setSort] = useState('recent');
   const params = new URLSearchParams({ ...(q ? { q } : {}), ...(model ? { model } : {}), sort });
   const lib = useQuery({ queryKey: ['library', q, model, sort], queryFn: () => api<LibraryData>(`/api/library?${params}`), enabled: !!user });
-  const series = useQuery({ queryKey: ['series', 'mine'], queryFn: () => api<{ series: SeriesListItem[] }>('/api/series'), enabled: !!user });
+  const series = useQuery({
+    queryKey: ['series', 'mine'],
+    queryFn: () => api<{ series: SeriesListItem[] }>('/api/series'),
+    enabled: !!user,
+    // Keep progress and episode counts current while a podcast is being made.
+    refetchInterval: (query) => (query.state.data?.series.some((x) => x.status === 'generating') ? 5000 : false),
+  });
   const gens = useQuery({ queryKey: ['generations'], queryFn: () => api<{ generations: GenerationListItem[] }>('/api/generations'), enabled: !!user?.emailVerified, refetchInterval: 5000 });
-  const active = (gens.data?.generations ?? []).filter((g) => g.status === 'queued' || g.status === 'running');
+  const generations = gens.data?.generations ?? [];
+  const active = generations.filter((g) => g.status === 'queued' || g.status === 'running');
+  const seriesList = series.data?.series ?? [];
 
   if (!user && (!online || isPending)) {
     // Offline (or session unknown): downloads still work.
@@ -240,25 +300,16 @@ export function LibraryScreen() {
         </div>
       )}
       <div role="tabpanel" aria-label={tab}>
-        {active.length > 0 && (tab === 'Continue Listening' || tab === 'My Podcasts') && (
+        {active.length > 0 && tab === 'Continue Listening' && (
           <section aria-labelledby="in-progress" className="mb-6">
             <h2 id="in-progress" className="mb-2 text-lg">Being created</h2>
-            <ul className="flex flex-col gap-2">
-              {active.map((g) => (
-                <li key={g.id}>
-                  <Link to={`/generations/${g.id}`} className="flex flex-col rounded-2xl border border-line bg-surface p-4 hover:bg-surface-2">
-                    <span className="font-semibold">{g.topic || 'Your photo or video'}</span>
-                    <span className="text-sm text-muted">{g.label}…</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <PodcastList series={seriesList.filter((s) => active.some((g) => g.seriesId === s.id))} generations={active} />
           </section>
         )}
         {tab === 'Continue Listening' && list(lib.data?.continueListening, <>Episodes you've started appear here. <Link to="/" className="font-semibold text-accent-ink underline">Create a series</Link> or open My Podcasts.</>)}
         {tab === 'My Podcasts' &&
-          (series.data?.series.length ? (
-            <ul className="flex flex-col gap-3">{series.data.series.map((s) => <SeriesRow key={s.id} s={s} />)}</ul>
+          (seriesList.length || active.length ? (
+            <PodcastList series={seriesList} generations={generations} />
           ) : (
             <Empty>
               Nothing here yet. Your podcasts appear here as soon as you create them. <Link to="/" className="font-semibold text-accent-ink underline">Create your first series</Link>

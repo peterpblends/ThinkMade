@@ -30,6 +30,12 @@ export interface SeriesDetail {
   isOwner: boolean;
   createdAt: string;
   episodes: EpisodeSummary[];
+  /** Owner only: episodes a reviewer removed, which can be replaced. */
+  removedEpisodes?: Array<{ id: string; number: number }>;
+  /** Owner only: the job adding or replacing episodes, while it runs. */
+  activeGenerationId?: string | null;
+  /** Owner only: the most episodes a series may have. */
+  maxEpisodes?: number;
 }
 
 export interface SeriesListItem {

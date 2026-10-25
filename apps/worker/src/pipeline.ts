@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import {
   assembleEpisode,
   completeJson,
@@ -64,6 +64,10 @@ export interface JobState {
   adjusted?: Partial<Pick<GenerationOptions, 'episodes' | 'lengthMinutes' | 'speakerFormat'>>;
   /** This series' hosts and their voices. */
   hosts?: Host[];
+  /** Episodes (by number) to plan again because a reviewer rejected them. */
+  replan?: number[];
+  /** The series' episode count once the episodes the listener added are planned. */
+  extendTo?: number;
   scripts?: ScriptState;
   tokens?: number;
   rateLimitRetries?: number;
@@ -445,6 +449,57 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       modelIds[m.slug] = row!.id;
     }
 
+    const valid = new Set(state.models!.map((m) => m.slug));
+    /** Plans the given episodes in one request, keeping each to its requested number and to known models. */
+    const planEpisodes = async (
+      batch: Array<{ number: number; primaryModelSlug: string; speakerFormat: string; sections: number }>,
+      earlier: PlannedEpisode[],
+      instruction: string | null,
+      note: string,
+    ): Promise<PlannedEpisode[]> => {
+      const part = await runner.run('plan', () =>
+        chat<Plan>('plan', PLAN_TASK, {
+          objective: u.objective,
+          context: u.context,
+          evidence: u.evidence,
+          assumptions: u.assumptions,
+          learningMode: options.learningMode,
+          teachingStyle: options.teachingStyle,
+          lengthMinutes: options.lengthMinutes,
+          ...listener,
+          hosts: hostsForPrompt(state.hosts!),
+          totalEpisodes: options.episodes,
+          ...(earlier.length ? { earlierEpisodes: earlier.map((e) => ({ number: e.number, title: e.title, primaryModelSlug: e.primaryModelSlug, learningObjective: e.learningObjective })) } : {}),
+          ...(instruction ? { instruction } : {}),
+          episodes: batch,
+          models: state.models!.map((m) => ({ slug: m.slug, name: m.name, summary: m.summary, relevance: m.relevance, verifiedBooks: state.research![m.slug]?.books.map((b) => ({ title: b.title, author: b.authors.join(', ') })) ?? [], related: state.research![m.slug]?.related ?? [] })),
+        }, planSchema.refine((p) => p.episodes.length >= batch.length, {
+          // Sent back to the model, which then corrects its plan instead of the job failing.
+          message: `Plan all ${batch.length} episodes, numbered ${batch[0]!.number} to ${batch.at(-1)!.number}; the reply had fewer.`,
+          path: ['episodes'],
+        }), 8192),
+      undefined, note);
+      // Enforce the requested shape regardless of what the model returned.
+      return batch.map((want, i) => {
+        const ep = part.episodes.find((e) => e.number === want.number) ?? part.episodes[i];
+        if (!ep) throw new Error(`The plan is missing episode ${want.number}`);
+        const primaryModelSlug = valid.has(ep.primaryModelSlug) ? ep.primaryModelSlug : want.primaryModelSlug;
+        return { ...ep, number: want.number, primaryModelSlug, supportingModelSlugs: ep.supportingModelSlugs.filter((x) => valid.has(x) && x !== primaryModelSlug) };
+      });
+    };
+    /** Links an episode to its mental models and their verified books. */
+    const linkEpisode = async (episodeId: string, ep: PlannedEpisode) => {
+      for (const slug of [ep.primaryModelSlug, ...ep.supportingModelSlugs]) {
+        if (!modelIds[slug]) continue;
+        await db.insert(schema.episodeMentalModel).values({ episodeId, mentalModelId: modelIds[slug]!, role: slug === ep.primaryModelSlug ? 'primary' : 'supporting' }).onConflictDoNothing();
+        for (const b of state.research![slug]?.books ?? []) {
+          const bookId = await upsertBook(db, b);
+          const sourceId = await sourceForBook(db, bookId, b);
+          await db.insert(schema.episodeSource).values({ episodeId, sourceId, note: b.why || null }).onConflictDoNothing();
+        }
+      }
+    };
+
     // 4. Plan
     if (!state.plan) {
       const sections = sectionCount(options.lengthMinutes);
@@ -454,50 +509,13 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       });
       // Plan a few episodes per request: free models stop early on long replies, and a series can have 50.
       // Each batch sees the episodes already planned, and progress is saved so a retry carries on from it.
-      const valid = new Set(state.models!.map((m) => m.slug));
       state.planDraft ??= [];
       while (state.planDraft.length < episodesIn.length) {
         const batch = episodesIn.slice(state.planDraft.length, state.planDraft.length + PLAN_BATCH);
         const earlier = state.planDraft;
-        const note = `Episodes ${batch[0]!.number}–${batch.at(-1)!.number} of ${episodesIn.length}`;
-        const part = await runner.run('plan', () =>
-          chat<Plan>('plan', PLAN_TASK, {
-            objective: u.objective,
-            context: u.context,
-            evidence: u.evidence,
-            assumptions: u.assumptions,
-            learningMode: options.learningMode,
-            teachingStyle: options.teachingStyle,
-            lengthMinutes: options.lengthMinutes,
-            ...listener,
-            hosts: hostsForPrompt(state.hosts!),
-            totalEpisodes: episodesIn.length,
-            ...(earlier.length
-              ? {
-                  earlierEpisodes: earlier.map((e) => ({ number: e.number, title: e.title, primaryModelSlug: e.primaryModelSlug, learningObjective: e.learningObjective })),
-                  instruction: `Plan only episodes ${batch[0]!.number} to ${batch.at(-1)!.number}. earlierEpisodes are already planned: build on them and don't repeat them.`,
-                }
-              : {}),
-            episodes: batch,
-            models: state.models!.map((m) => ({ slug: m.slug, name: m.name, summary: m.summary, relevance: m.relevance, verifiedBooks: state.research![m.slug]?.books.map((b) => ({ title: b.title, author: b.authors.join(', ') })) ?? [], related: state.research![m.slug]?.related ?? [] })),
-          }, planSchema.refine((p) => p.episodes.length >= batch.length, {
-            // Sent back to the model, which then corrects its plan instead of the job failing.
-            message: `Plan all ${batch.length} episodes, numbered ${batch[0]!.number} to ${batch.at(-1)!.number}; the reply had fewer.`,
-            path: ['episodes'],
-          }), 8192),
-        undefined, note);
-        // Enforce the requested shape regardless of what the model returned.
-        for (const [i, want] of batch.entries()) {
-          const ep = part.episodes.find((e) => e.number === want.number) ?? part.episodes[i];
-          if (!ep) throw new Error(`The plan is missing episode ${want.number}`);
-          const primaryModelSlug = valid.has(ep.primaryModelSlug) ? ep.primaryModelSlug : want.primaryModelSlug;
-          state.planDraft.push({
-            ...ep,
-            number: want.number,
-            primaryModelSlug,
-            supportingModelSlugs: ep.supportingModelSlugs.filter((s) => valid.has(s) && s !== primaryModelSlug),
-          });
-        }
+        state.planDraft.push(
+          ...(await planEpisodes(batch, earlier, earlier.length ? `Plan only episodes ${batch[0]!.number} to ${batch.at(-1)!.number}. earlierEpisodes are already planned: build on them and don't repeat them.` : null, `Episodes ${batch[0]!.number}–${batch.at(-1)!.number} of ${episodesIn.length}`)),
+        );
         await saveState(db, job.id, state);
       }
       const plan: Plan = { episodes: state.planDraft };
@@ -505,6 +523,32 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       state.plan = plan;
       await saveState(db, job.id, state);
     }
+
+    // More episodes for an existing series: continue after the last one, starting with models it hasn't taught yet.
+    if (state.extendTo && state.extendTo > state.plan.episodes.length) {
+      const taught = new Set(state.plan.episodes.map((e) => e.primaryModelSlug));
+      const order = [...state.models!.filter((m) => !taught.has(m.slug)), ...state.models!];
+      const from = state.plan.episodes.length;
+      while (state.plan.episodes.length < state.extendTo) {
+        const next = Math.max(...state.plan.episodes.map((e) => e.number)) + 1;
+        const batch = Array.from({ length: Math.min(PLAN_BATCH, state.extendTo - state.plan.episodes.length) }, (_, i) => ({
+          number: next + i,
+          primaryModelSlug: order[(state.plan!.episodes.length - from + i) % order.length]!.slug,
+          speakerFormat: formatForEpisode(options.speakerFormat, next + i),
+          sections: sectionCount(options.lengthMinutes),
+        }));
+        state.plan.episodes.push(
+          ...(await planEpisodes(
+            batch,
+            state.plan.episodes,
+            `Continue the series with episodes ${batch[0]!.number} to ${batch.at(-1)!.number}. earlierEpisodes are already published: build on them, take the listener further, and don't repeat them.`,
+            `More episodes: ${batch[0]!.number}–${batch.at(-1)!.number}`,
+          )),
+        );
+        await saveState(db, job.id, state);
+      }
+    }
+    delete state.extendTo;
 
     // Episode rows (idempotent).
     const existing = await db.select().from(schema.episode).where(eq(schema.episode.seriesId, seriesId));
@@ -520,17 +564,44 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           outcomes: ep.outcomes, keyTakeaways: ep.keyTakeaways, examples: ep.examples, hosts, status: 'pending',
         })
         .returning({ id: schema.episode.id });
-      const episodeId = row!.id;
-      const slugs = [ep.primaryModelSlug, ...ep.supportingModelSlugs];
-      for (const slug of slugs) {
-        if (!modelIds[slug]) continue;
-        await db.insert(schema.episodeMentalModel).values({ episodeId, mentalModelId: modelIds[slug]!, role: slug === ep.primaryModelSlug ? 'primary' : 'supporting' }).onConflictDoNothing();
-        for (const b of state.research![slug]?.books ?? []) {
-          const bookId = await upsertBook(db, b);
-          const sourceId = await sourceForBook(db, bookId, b);
-          await db.insert(schema.episodeSource).values({ episodeId, sourceId, note: b.why || null }).onConflictDoNothing();
-        }
+      await linkEpisode(row!.id, ep);
+    }
+
+    // Replacements for episodes a reviewer rejected: plan a different episode in the same place and start it
+    // afresh. The row (and its review history) is kept; its content, script and audio are replaced.
+    for (const number of [...(state.replan ?? [])]) {
+      const idx = state.plan.episodes.findIndex((e) => e.number === number);
+      const row = existing.find((e) => e.number === number);
+      if (idx >= 0 && row) {
+        const [rejection] = await db
+          .select({ notes: schema.episodeQualityCheck.notes })
+          .from(schema.episodeQualityCheck)
+          .where(and(eq(schema.episodeQualityCheck.episodeId, row.id), eq(schema.episodeQualityCheck.checkedBy, 'human'), eq(schema.episodeQualityCheck.passed, 0)))
+          .orderBy(desc(schema.episodeQualityCheck.revision))
+          .limit(1);
+        const old = state.plan.episodes[idx]!;
+        const reason = rejection?.notes?.[0];
+        const [ep] = await planEpisodes(
+          [{ number, primaryModelSlug: old.primaryModelSlug, speakerFormat: formatForEpisode(options.speakerFormat, number), sections: sectionCount(options.lengthMinutes) }],
+          state.plan.episodes.filter((e) => e.number !== number),
+          `Plan a replacement for episode ${number} only. A reviewer rejected the previous version, "${old.title}"${reason ? `, noting: ${reason}` : ''}. Make it clearly different from that version while still fitting between the other episodes (earlierEpisodes).`,
+          `Replacement for episode ${number}`,
+        );
+        state.plan.episodes[idx] = ep!;
+        delete state.scripts?.[String(number)];
+        await db
+          .update(schema.episode)
+          .set({
+            title: ep!.title, description: ep!.description, learningObjective: ep!.learningObjective, outcomes: ep!.outcomes, keyTakeaways: ep!.keyTakeaways, examples: ep!.examples,
+            primaryMentalModelId: modelIds[ep!.primaryModelSlug] ?? null, status: 'pending', script: null, transcript: null, audioKey: null, audioBytes: null, durationSeconds: null,
+          })
+          .where(eq(schema.episode.id, row.id));
+        await db.delete(schema.episodeMentalModel).where(eq(schema.episodeMentalModel.episodeId, row.id));
+        await db.delete(schema.episodeSource).where(eq(schema.episodeSource.episodeId, row.id));
+        await linkEpisode(row.id, ep!);
       }
+      state.replan = (state.replan ?? []).filter((n) => n !== number);
+      await saveState(db, job.id, state);
     }
 
     // 5–7. Script, check, synthesise each episode.
@@ -538,7 +609,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     const episodes = await db.select().from(schema.episode).where(eq(schema.episode.seriesId, seriesId));
     let audioSeconds = 0;
     let held = 0;
-    let rejected = 0;
+    // Episodes a reviewer rejected are off the series: they are neither written again nor reported as failures.
+    // (Before the "rejected" status, a rejection left the episode "failed" with a human check.)
     const humanRejected = new Set(
       (
         await db
@@ -547,13 +619,10 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           .where(and(eq(schema.episodeQualityCheck.checkedBy, 'human'), eq(schema.episodeQualityCheck.passed, 0)))
       ).map((r) => r.id),
     );
+    const isRejected = (row: { id: string; status: string }) => row.status === 'rejected' || (row.status === 'failed' && humanRejected.has(row.id));
     for (const planned of state.plan.episodes) {
       const row = episodes.find((e) => e.number === planned.number)!;
-      if (row.status === 'ready') continue;
-      if (row.status === 'failed' && humanRejected.has(row.id)) {
-        rejected++;
-        continue;
-      }
+      if (row.status === 'ready' || isRejected(row)) continue;
       if (row.status === 'needs_review') {
         held++;
         continue;
@@ -561,7 +630,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       const result = await writeAndVoiceEpisode(planned, row.id, row.speakerFormat as EpisodeFormat, row.hosts ?? []);
       if (result === 'needs_review') held++;
     }
-    if (held > 0 || rejected > 0) {
+    const kept = state.plan.episodes.filter((p) => !isRejected(episodes.find((e) => e.number === p.number)!)).length;
+    if (held > 0 || kept === 0) {
       let notified = false;
       if (held > 0 && deps.notifyAdmins) {
         notified = await deps
@@ -571,10 +641,10 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           )
           .catch(() => false);
       }
-      const all = held + rejected === state.plan.episodes.length;
+      const all = held === kept;
       const message = all
         ? `Your podcasts did not pass our quality review, so we did not record them.${notified ? ' Our team has been notified.' : ''} Please try rephrasing your question.`
-        : `${held + rejected} episode${held + rejected > 1 ? 's' : ''} did not pass our quality review and ${held + rejected > 1 ? 'were' : 'was'} not recorded.${notified ? ' Our team has been notified.' : ''} The rest are ready.`;
+        : `${held} episode${held > 1 ? 's' : ''} did not pass our quality review and ${held > 1 ? 'were' : 'was'} not recorded.${notified ? ' Our team has been notified.' : ''} The rest are ready.`;
       await db.insert(schema.usageMetric).values({ metric: 'llm_tokens', value: state.tokens ?? 0, userId: job.user_id, jobId: job.id });
       return await finalise('failed', message);
     }

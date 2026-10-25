@@ -86,16 +86,17 @@ describe('review fixes', () => {
     const eps = await world.db.select().from(schema.episode).orderBy(schema.episode.number);
     // Reject episode 1 and approve episode 2, as the admin routes do.
     await world.db.insert(schema.episodeQualityCheck).values({ episodeId: eps[0]!.id, revision: 99, passed: 0, scores: {}, notes: ['no'], checkedBy: 'human' });
-    await world.db.update(schema.episode).set({ status: 'failed' }).where(eq(schema.episode.id, eps[0]!.id));
+    await world.db.update(schema.episode).set({ status: 'rejected' }).where(eq(schema.episode.id, eps[0]!.id));
     await world.db.insert(schema.episodeQualityCheck).values({ episodeId: eps[1]!.id, revision: 99, passed: 1, scores: {}, notes: ['ok'], checkedBy: 'human' });
     await world.db.update(schema.episode).set({ status: 'pending' }).where(eq(schema.episode.id, eps[1]!.id));
     await world.db.update(schema.generationJob).set({ status: 'queued', runAfter: new Date(0), attempts: 0 }).where(eq(schema.generationJob.id, job.id));
     setFakeValidation(PASS);
     await runNextJob(world.deps);
     const after = await world.db.select().from(schema.episode).orderBy(schema.episode.number);
-    expect(after.map((e) => e.status)).toEqual(['failed', 'ready']);
+    expect(after.map((e) => e.status)).toEqual(['rejected', 'ready']);
+    // A rejected episode is off the series, not a failure: the rest of the series is complete.
     const [j] = await world.db.select().from(schema.generationJob).where(eq(schema.generationJob.id, job.id));
-    expect(j!.status).toBe('partial');
+    expect(j!.status).toBe('succeeded');
   });
 
   it("a worker that lost its lease cannot overwrite the new owner's result", async () => {
