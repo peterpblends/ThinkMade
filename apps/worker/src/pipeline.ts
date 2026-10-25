@@ -58,12 +58,16 @@ export interface JobState {
   models?: ModelSelection['models'];
   research?: ResearchState;
   plan?: Plan;
+  /** Episodes planned so far, while the plan is built in batches. */
+  planDraft?: Plan['episodes'];
   scripts?: ScriptState;
   tokens?: number;
   rateLimitRetries?: number;
 }
 
 const MAX_RATE_LIMIT_RETRIES = 8;
+/** Episodes planned per request. */
+const PLAN_BATCH = 3;
 
 /** Speaker format per episode: mixed alternates, starting with a two-host conversation. */
 export function formatForEpisode(format: GenerationOptions['speakerFormat'], n: number): 'single' | 'two_hosts' {
@@ -384,35 +388,54 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         const m = chosen[i % chosen.length]!;
         return { number: i + 1, primaryModelSlug: m.slug, speakerFormat: formatForEpisode(options.speakerFormat, i + 1), sections };
       });
-      const plan = await runner.run('plan', () =>
-        chat<Plan>('plan', PLAN_TASK, {
-          objective: u.objective,
-          context: u.context,
-          evidence: u.evidence,
-          assumptions: u.assumptions,
-          learningMode: options.learningMode,
-          teachingStyle: options.teachingStyle,
-          lengthMinutes: options.lengthMinutes,
-          episodes: episodesIn,
-          models: state.models!.map((m) => ({ slug: m.slug, name: m.name, summary: m.summary, relevance: m.relevance, verifiedBooks: state.research![m.slug]?.books.map((b) => ({ title: b.title, author: b.authors.join(', ') })) ?? [], related: state.research![m.slug]?.related ?? [] })),
-        }, planSchema.refine((p) => p.episodes.length >= episodesIn.length, {
-          // Sent back to the model, which then corrects its plan instead of the job failing.
-          message: `Plan all ${episodesIn.length} episodes, numbered 1 to ${episodesIn.length}; the reply had fewer.`,
-          path: ['episodes'],
-        }), 8192),
-      );
-      // Enforce the requested shape regardless of what the model returned.
+      // Plan a few episodes per request: free models stop early on long replies, and a series can have 50.
+      // Each batch sees the episodes already planned, and progress is saved so a retry carries on from it.
       const valid = new Set(state.models!.map((m) => m.slug));
-      plan.episodes = episodesIn.map((want) => {
-        const ep = plan.episodes.find((e) => e.number === want.number) ?? plan.episodes[want.number - 1];
-        if (!ep) throw new Error(`The plan is missing episode ${want.number}`);
-        return {
-          ...ep,
-          number: want.number,
-          primaryModelSlug: valid.has(ep.primaryModelSlug) ? ep.primaryModelSlug : want.primaryModelSlug,
-          supportingModelSlugs: ep.supportingModelSlugs.filter((s) => valid.has(s) && s !== ep.primaryModelSlug),
-        };
-      });
+      state.planDraft ??= [];
+      while (state.planDraft.length < episodesIn.length) {
+        const batch = episodesIn.slice(state.planDraft.length, state.planDraft.length + PLAN_BATCH);
+        const earlier = state.planDraft;
+        const note = `Episodes ${batch[0]!.number}–${batch.at(-1)!.number} of ${episodesIn.length}`;
+        const part = await runner.run('plan', () =>
+          chat<Plan>('plan', PLAN_TASK, {
+            objective: u.objective,
+            context: u.context,
+            evidence: u.evidence,
+            assumptions: u.assumptions,
+            learningMode: options.learningMode,
+            teachingStyle: options.teachingStyle,
+            lengthMinutes: options.lengthMinutes,
+            totalEpisodes: episodesIn.length,
+            ...(earlier.length
+              ? {
+                  earlierEpisodes: earlier.map((e) => ({ number: e.number, title: e.title, primaryModelSlug: e.primaryModelSlug, learningObjective: e.learningObjective })),
+                  instruction: `Plan only episodes ${batch[0]!.number} to ${batch.at(-1)!.number}. earlierEpisodes are already planned: build on them and don't repeat them.`,
+                }
+              : {}),
+            episodes: batch,
+            models: state.models!.map((m) => ({ slug: m.slug, name: m.name, summary: m.summary, relevance: m.relevance, verifiedBooks: state.research![m.slug]?.books.map((b) => ({ title: b.title, author: b.authors.join(', ') })) ?? [], related: state.research![m.slug]?.related ?? [] })),
+          }, planSchema.refine((p) => p.episodes.length >= batch.length, {
+            // Sent back to the model, which then corrects its plan instead of the job failing.
+            message: `Plan all ${batch.length} episodes, numbered ${batch[0]!.number} to ${batch.at(-1)!.number}; the reply had fewer.`,
+            path: ['episodes'],
+          }), 8192),
+        undefined, note);
+        // Enforce the requested shape regardless of what the model returned.
+        for (const [i, want] of batch.entries()) {
+          const ep = part.episodes.find((e) => e.number === want.number) ?? part.episodes[i];
+          if (!ep) throw new Error(`The plan is missing episode ${want.number}`);
+          const primaryModelSlug = valid.has(ep.primaryModelSlug) ? ep.primaryModelSlug : want.primaryModelSlug;
+          state.planDraft.push({
+            ...ep,
+            number: want.number,
+            primaryModelSlug,
+            supportingModelSlugs: ep.supportingModelSlugs.filter((s) => valid.has(s) && s !== primaryModelSlug),
+          });
+        }
+        await saveState(db, job.id, state);
+      }
+      const plan: Plan = { episodes: state.planDraft };
+      delete state.planDraft;
       state.plan = plan;
       await saveState(db, job.id, state);
     }
