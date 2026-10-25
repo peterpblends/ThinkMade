@@ -49,6 +49,7 @@ const json = (cookie?: string) => ({ ...(cookie ? { cookie } : {}), 'content-typ
 const ATTEMPTS: Array<[string, string, (i: Record<string, string>) => string, unknown?]> = [
   ['GET', 'read generation status', (i) => `/api/generations/${i.job}`],
   ['POST', 'cancel the generation', (i) => `/api/generations/${i.job}/cancel`, {}],
+  ['POST', 'retry the generation', (i) => `/api/generations/${i.job}/retry`, {}],
   ['GET', 'read the series', (i) => `/api/series/${i.series}`],
   ['PATCH', 'change visibility', (i) => `/api/series/${i.series}`, { visibility: 'public' }],
   ['DELETE', 'delete the series', (i) => `/api/series/${i.series}`],

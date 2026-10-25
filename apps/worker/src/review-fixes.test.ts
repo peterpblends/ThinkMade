@@ -160,6 +160,29 @@ describe('short plans', () => {
     expect(j!.status).toBe('succeeded');
     expect(planCalls).toBe(2);
   });
+
+  it('plans a long series a few episodes at a time, so a model that stops early still covers them all', async () => {
+    const asked: number[][] = [];
+    const earlier: number[] = [];
+    world = await makeWorld((messages) => {
+      const out = fakeResponder(messages);
+      const system = typeof messages[0]!.content === 'string' ? messages[0]!.content : '';
+      if (!system.startsWith('STAGE: plan')) return out;
+      const text = messages[1]!.content as string;
+      const inp = JSON.parse(text.slice(text.indexOf('INPUT:') + 6)) as { episodes: { number: number }[]; earlierEpisodes?: unknown[] };
+      asked.push(inp.episodes.map((e) => e.number));
+      earlier.push(inp.earlierEpisodes?.length ?? 0);
+      const plan = JSON.parse(out) as { episodes: unknown[] };
+      return JSON.stringify({ ...plan, episodes: plan.episodes.slice(0, 3) }); // never more than 3 per reply
+    });
+    const job = await world.enqueue('Ten episodes', { episodes: 10, lengthMinutes: 5 });
+    await runNextJob(world.deps);
+    const [j] = await world.db.select().from(schema.generationJob).where(eq(schema.generationJob.id, job.id));
+    expect(j!.status).toBe('succeeded');
+    expect(asked.flat()).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(earlier).toEqual([0, 3, 6, 9]); // each batch sees the episodes already planned
+    expect(await world.db.select().from(schema.episode)).toHaveLength(10);
+  });
 });
 
 describe('daily allowance used up', () => {
