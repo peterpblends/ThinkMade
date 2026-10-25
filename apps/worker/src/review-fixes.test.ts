@@ -141,3 +141,23 @@ describe('rejected AI keys', () => {
     expect(j!.error).toMatch(/rejected ThinkMade's access key/);
   });
 });
+
+describe('short plans', () => {
+  it('asks the model to plan every requested episode instead of failing', async () => {
+    let planCalls = 0;
+    world = await makeWorld((messages) => {
+      const out = fakeResponder(messages);
+      const system = typeof messages[0]!.content === 'string' ? messages[0]!.content : '';
+      if (!system.startsWith('STAGE: plan')) return out;
+      planCalls++;
+      if (planCalls > 1) return out;
+      const plan = JSON.parse(out) as { episodes: unknown[] };
+      return JSON.stringify({ ...plan, episodes: plan.episodes.slice(0, 1) }); // first reply drops episodes
+    });
+    const job = await world.enqueue('Two episodes', { episodes: 2 });
+    await runNextJob(world.deps);
+    const [j] = await world.db.select().from(schema.generationJob).where(eq(schema.generationJob.id, job.id));
+    expect(j!.status).toBe('succeeded');
+    expect(planCalls).toBe(2);
+  });
+});

@@ -155,3 +155,11 @@ describe('voice transcription', () => {
     expect((await app.request('/api/transcribe', { method: 'POST', headers: { cookie }, body: form })).status).toBe(415);
   });
 });
+
+describe('progress steps', () => {
+  it('ticks a step whose optional stage never ran once a later step has started', async () => {
+    const { steps } = await import('./generation');
+    const s = steps('running', 'plan', new Set(['understand', 'select_models', 'research']));
+    expect(s.map((x) => x.state)).toEqual(['done', 'done', 'active', 'pending']);
+  });
+});

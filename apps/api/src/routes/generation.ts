@@ -9,9 +9,11 @@ import { requireVerified, type AppVariables } from '../middleware/session';
 type StepState = 'pending' | 'active' | 'done' | 'failed';
 
 /** Builds the four user-facing steps from the real stage records. */
-function steps(status: string, current: string | null, doneStages: Set<string>): Array<{ label: string; state: StepState }> {
-  return STAGE_LABELS.map((s) => {
-    const all = (s.stages as readonly string[]).every((x) => doneStages.has(x));
+export function steps(status: string, current: string | null, doneStages: Set<string>): Array<{ label: string; state: StepState }> {
+  // A step is done once a later one has begun: some stages (photo analysis) only run when needed.
+  const reached = STAGE_LABELS.reduce((max, s, i) => ((s.stages as readonly string[]).some((x) => doneStages.has(x) || x === current) ? i : max), -1);
+  return STAGE_LABELS.map((s, i) => {
+    const all = i < reached || (s.stages as readonly string[]).every((x) => doneStages.has(x));
     const active = (s.stages as readonly string[]).includes(current ?? '');
     let state: StepState = 'pending';
     if (status === 'succeeded' || all) state = 'done';

@@ -395,7 +395,11 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           lengthMinutes: options.lengthMinutes,
           episodes: episodesIn,
           models: state.models!.map((m) => ({ slug: m.slug, name: m.name, summary: m.summary, relevance: m.relevance, verifiedBooks: state.research![m.slug]?.books.map((b) => ({ title: b.title, author: b.authors.join(', ') })) ?? [], related: state.research![m.slug]?.related ?? [] })),
-        }, planSchema, 8192),
+        }, planSchema.refine((p) => p.episodes.length >= episodesIn.length, {
+          // Sent back to the model, which then corrects its plan instead of the job failing.
+          message: `Plan all ${episodesIn.length} episodes, numbered 1 to ${episodesIn.length}; the reply had fewer.`,
+          path: ['episodes'],
+        }), 8192),
       );
       // Enforce the requested shape regardless of what the model returned.
       const valid = new Set(state.models!.map((m) => m.slug));

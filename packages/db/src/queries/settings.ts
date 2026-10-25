@@ -26,22 +26,22 @@ type StageDefault = Omit<StageModel, 'params'> & { params?: Record<string, unkno
 // Groq's free tier refuses any request over 8,000 tokens (its per-minute limit), counting prompt and
 // max_tokens; tm_request_token_limit keeps requests under it with a margin.
 const GROQ_FREE = { reasoning_effort: 'low', tm_request_token_limit: 7500 };
-const QWEN = { provider: 'groq', model: 'qwen/qwen3.8-27b', params: GROQ_FREE };
 const GPT_OSS_120B = { provider: 'groq', model: 'openai/gpt-oss-120b', params: GROQ_FREE };
 const GPT_OSS_20B = { provider: 'groq', model: 'openai/gpt-oss-20b', params: GROQ_FREE };
 
 /**
  * Zero-cost defaults (checked October 2026). Each Groq model has its own daily allowance on the free
- * tier, so stages are spread across three models. Groq's free tier has no vision model, so photos and
- * video frames go to Gemma 4 on OpenRouter's free tier.
+ * tier, so stages are spread across two models. Qwen3.8-27B isn't used: some free accounts cap it at
+ * 1,000 output tokens a minute, which a plan or script can't fit in. Groq's free tier has no vision
+ * model, so photos and video frames go to Gemma 4 on OpenRouter's free tier.
  */
 export const FREE_STAGE_MODELS: Record<ModelStage, StageDefault> = {
-  understand: QWEN,
-  select_models: QWEN,
+  understand: GPT_OSS_20B,
+  select_models: GPT_OSS_20B,
   research: GPT_OSS_120B,
-  plan: QWEN,
+  plan: GPT_OSS_120B,
   script: GPT_OSS_120B,
-  validate: QWEN,
+  validate: GPT_OSS_20B,
   coach: GPT_OSS_20B,
   vision: { provider: 'openrouter', model: 'google/gemma-4-31b-it:free' },
   // EmbeddingGemma 2 runs on the worker; the API reaches it through EMBED_SERVER_URL.
@@ -66,19 +66,25 @@ export function defaultStageModel(stage: ModelStage, override?: { provider: stri
 }
 
 /**
- * Inserts a default model row for any stage without one. Existing admin choices are kept, except
- * rows on Groq models that were retired from the free tier, which would otherwise fail every job.
+ * Inserts a default model row for any stage without one. Rows an administrator chose (updated_by set)
+ * are kept, unless they point at a Groq model retired from the free tier, which would fail every job.
+ * Rows nobody chose follow the current defaults, so improved defaults reach existing databases.
  */
 export async function seedModelConfig(db: Db, override?: { provider: string; model: string } | null) {
-  const rows = await db.select({ stage: aiModelConfig.stage, provider: aiModelConfig.provider, model: aiModelConfig.model }).from(aiModelConfig);
+  const rows = await db
+    .select({ stage: aiModelConfig.stage, provider: aiModelConfig.provider, model: aiModelConfig.model, params: aiModelConfig.params, updatedBy: aiModelConfig.updatedBy })
+    .from(aiModelConfig);
   const existing = new Map(rows.map((r) => [r.stage, r]));
   for (const stage of MODEL_STAGES) {
     const row = existing.get(stage);
     const values = defaultStageModel(stage, override);
     if (!row) {
       await db.insert(aiModelConfig).values({ stage, ...values }).onConflictDoNothing();
-    } else if ((row.provider === 'groq' && RETIRED_GROQ_MODELS.has(row.model)) || (row.provider === 'hash' && row.model === 'hash-384' && values.provider !== 'hash')) {
-      // Retired Groq models, and the old keyword-embedder default, move to the current defaults.
+      continue;
+    }
+    const retired = (row.provider === 'groq' && RETIRED_GROQ_MODELS.has(row.model)) || (row.provider === 'hash' && row.model === 'hash-384' && values.provider !== 'hash');
+    const stale = !row.updatedBy && (row.provider !== values.provider || row.model !== values.model || JSON.stringify(row.params ?? {}) !== JSON.stringify(values.params));
+    if (retired || stale) {
       await db.update(aiModelConfig).set({ ...values, updatedAt: new Date() }).where(eq(aiModelConfig.stage, stage));
     }
   }
