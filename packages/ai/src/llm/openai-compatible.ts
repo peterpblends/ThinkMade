@@ -46,6 +46,7 @@ export function estimateTokens(messages: ChatMessage[]): number {
 
 /** Fields ThinkMade sets itself; admin params can't override them. */
 const RESERVED = new Set(['model', 'messages', 'stream', 'n', 'response_format', 'max_tokens', 'temperature', 'tools']);
+// (`tm_` params, such as tm_fallbacks and tm_request_token_limit, are ThinkMade settings and never sent.)
 
 /** Works with Groq, OpenRouter, Ollama, vLLM and Gemini's OpenAI-compatible endpoint. */
 export function createOpenAiCompatibleLlm(cfg: OpenAiCompatibleConfig): LlmClient {
@@ -90,7 +91,7 @@ export function createOpenAiCompatibleLlm(cfg: OpenAiCompatibleConfig): LlmClien
       }
       if (!res.ok) {
         const detail = (await res.text().catch(() => '')).slice(0, 300);
-        throw new LlmError(`${cfg.provider} returned ${res.status}: ${detail}`, res.status);
+        throw new LlmError(`${cfg.provider} returned ${res.status}: ${detail}`, res.status, res.status === 429 ? (retryAfterMs(res.headers) ?? undefined) : undefined);
       }
       const data = (await res.json()) as {
         choices?: Array<{ message?: { content?: string | null } }>;

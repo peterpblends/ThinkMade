@@ -48,3 +48,17 @@ describe('ProgressView', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/isn't configured yet/);
   });
 });
+
+describe('waiting for the free allowance', () => {
+  it('says when the podcast will continue', async () => {
+    const { render, screen } = await import('@testing-library/react');
+    const { ProgressView } = await import('./generation-progress');
+    render(
+      <ProgressView
+        data={{ id: 'j', status: 'queued', label: 'Building your podcasts', steps: [], error: null, retrying: true, resumesAt: '2026-10-25T18:30:00Z', seriesId: null, episodes: [] }}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.getByText(/free AI allowance is used up/)).toBeTruthy();
+  });
+});

@@ -33,7 +33,9 @@ describe('free model defaults', () => {
     await handle.db.insert(t).values({ stage: 'coach', provider: 'ollama', model: 'mine', params: {}, updatedBy: 'admin1' });
     await handle.db.insert(t).values({ stage: 'validate', provider: 'groq', model: 'qwen/qwen3.8-27b', params: {} });
     await seedModelConfig(handle.db);
-    expect(await getStageModel(handle.db, 'script')).toEqual({ provider: 'groq', model: 'openai/gpt-oss-120b', params: { reasoning_effort: 'low', tm_request_token_limit: 7500 } });
+    const script = await getStageModel(handle.db, 'script');
+    expect(script).toMatchObject({ provider: 'groq', model: 'openai/gpt-oss-120b', params: { reasoning_effort: 'low', tm_request_token_limit: 7500 } });
+    expect((script!.params.tm_fallbacks as Array<{ model: string }>).map((f) => f.model)).toEqual(['openai/gpt-oss-20b', 'nvidia/nemotron-3-ultra-550b-a55b:free', 'nvidia/nemotron-3.5-lightning:free']);
     expect((await getStageModel(handle.db, 'coach'))?.model).toBe('mine'); // an admin's choice is kept
     expect((await getStageModel(handle.db, 'validate'))?.model).toBe('openai/gpt-oss-20b'); // an old default follows the new one
     expect((await getStageModel(handle.db, 'plan'))?.model).toBe('openai/gpt-oss-120b');

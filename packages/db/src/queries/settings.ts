@@ -26,8 +26,24 @@ type StageDefault = Omit<StageModel, 'params'> & { params?: Record<string, unkno
 // Groq's free tier refuses any request over 8,000 tokens (its per-minute limit), counting prompt and
 // max_tokens; tm_request_token_limit keeps requests under it with a margin.
 const GROQ_FREE = { reasoning_effort: 'low', tm_request_token_limit: 7500 };
-const GPT_OSS_120B = { provider: 'groq', model: 'openai/gpt-oss-120b', params: GROQ_FREE };
-const GPT_OSS_20B = { provider: 'groq', model: 'openai/gpt-oss-20b', params: GROQ_FREE };
+// When a model's free allowance runs out, the next free source is tried: Groq's other model (its own
+// daily allowance), then OpenRouter's free models (about 50 requests a day in total, shared with photo
+// analysis). Fallbacks without an API key are skipped. Free models come and go; these answered
+// ThinkMade's JSON prompts in live tests on 2026-10-25.
+const OPENROUTER_FREE = [
+  { provider: 'openrouter', model: 'nvidia/nemotron-3-ultra-550b-a55b:free' },
+  { provider: 'openrouter', model: 'nvidia/nemotron-3.5-lightning:free' },
+];
+const GPT_OSS_120B = {
+  provider: 'groq',
+  model: 'openai/gpt-oss-120b',
+  params: { ...GROQ_FREE, tm_fallbacks: [{ provider: 'groq', model: 'openai/gpt-oss-20b', params: GROQ_FREE }, ...OPENROUTER_FREE] },
+};
+const GPT_OSS_20B = {
+  provider: 'groq',
+  model: 'openai/gpt-oss-20b',
+  params: { ...GROQ_FREE, tm_fallbacks: [{ provider: 'groq', model: 'openai/gpt-oss-120b', params: GROQ_FREE }, ...OPENROUTER_FREE] },
+};
 
 /**
  * Zero-cost defaults (checked October 2026). Each Groq model has its own daily allowance on the free
@@ -43,7 +59,12 @@ export const FREE_STAGE_MODELS: Record<ModelStage, StageDefault> = {
   script: GPT_OSS_120B,
   validate: GPT_OSS_20B,
   coach: GPT_OSS_20B,
-  vision: { provider: 'openrouter', model: 'google/gemma-4-31b-it:free' },
+  vision: {
+    provider: 'openrouter',
+    model: 'google/gemma-4-31b-it:free',
+    // Gemma is often rate limited upstream; NVIDIA's free vision model is the backup.
+    params: { tm_fallbacks: [{ provider: 'openrouter', model: 'nvidia/nemotron-3.5-super-vl:free' }, { provider: 'openrouter', model: 'google/gemma-4-26b-a4b-it:free' }] },
+  },
   // EmbeddingGemma 2 runs on the worker; the API reaches it through EMBED_SERVER_URL.
   embed: { provider: 'local', model: 'embeddinggemma-2' },
 };

@@ -85,7 +85,7 @@ export async function analyseUploads(deps: WorkerDeps, uploadIds: string[], ques
           extra = { ...(transcript ? { transcript } : {}), durationSeconds: info.durationSeconds };
           rmSync(path, { force: true });
         }
-        const res = await completeJson(llm, [{ role: 'system', content: stageSystem('vision', visionTask) }, { role: 'user', content }], mediaAnalysisSchema, { temperature: 0.2, maxTokens: 1500 });
+        const res = await completeJson(llm, [{ role: 'system', content: stageSystem('vision', visionTask) }, { role: 'user', content }], mediaAnalysisSchema, { temperature: 0.2, maxTokens: 3000 }); // room for a reasoning model's thinking
         onTokens(res.usage.promptTokens + res.usage.completionTokens);
         const analysis: MediaAnalysis = { kind: sniffed.kind, ...res.data, ...extra };
         await deps.db.update(schema.mediaUpload).set({ status: 'validated', analysis: analysis as unknown as Record<string, unknown> }).where(eq(schema.mediaUpload.id, id));

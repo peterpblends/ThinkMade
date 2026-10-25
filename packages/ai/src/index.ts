@@ -7,6 +7,7 @@ export * from './llm/structured';
 export * from './llm/fake';
 export * from './llm/openai-compatible';
 export * from './llm/providers';
+export * from './llm/fallback';
 export * from './tts/types';
 export * from './tts/tone';
 export * from './tts/kokoro';

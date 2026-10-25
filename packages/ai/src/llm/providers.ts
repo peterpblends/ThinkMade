@@ -1,4 +1,5 @@
 import { createFakeLlm } from './fake';
+import { createFallbackLlm } from './fallback';
 import { createOpenAiCompatibleLlm } from './openai-compatible';
 import type { ChatMessage, LlmClient } from './types';
 
@@ -32,7 +33,33 @@ export function setFakeResponder(fn: ((messages: ChatMessage[]) => string) | nul
   fakeResponder = fn;
 }
 
+/** A further model to try when the first is out of allowance, from the stage's `tm_fallbacks` param. */
+interface FallbackConfig {
+  provider: string;
+  model: string;
+  params?: Record<string, unknown>;
+}
+
+/**
+ * The stage's model, followed by any `tm_fallbacks` whose provider is configured (a fallback without an
+ * API key is skipped, so optional providers cost nothing to list).
+ */
 export function createLlm(cfg: ModelConfig, env: Env = process.env): LlmClient {
+  const primary = createSingleLlm(cfg, env);
+  const fallbacks = Array.isArray(cfg.params?.tm_fallbacks) ? (cfg.params.tm_fallbacks as FallbackConfig[]) : [];
+  const extra: LlmClient[] = [];
+  for (const f of fallbacks) {
+    if (!f || typeof f.provider !== 'string' || typeof f.model !== 'string') continue;
+    try {
+      extra.push(createSingleLlm({ provider: f.provider, model: f.model, params: f.params ?? {} }, env));
+    } catch (err) {
+      if (!(err instanceof ProviderNotConfiguredError)) throw err;
+    }
+  }
+  return createFallbackLlm([primary, ...extra]);
+}
+
+function createSingleLlm(cfg: ModelConfig, env: Env): LlmClient {
   if (cfg.provider === 'fake') {
     if (env.NODE_ENV === 'production') throw new ProviderNotConfiguredError('The fake provider is not allowed in production.');
     if (!fakeResponder) throw new ProviderNotConfiguredError('No fake responder registered.');

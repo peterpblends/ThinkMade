@@ -682,7 +682,11 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     const rejectedKey = err instanceof LlmError && (err.status === 401 || err.status === 403);
     const permanent = err instanceof PermanentJobError || err instanceof ProviderNotConfiguredError || rejectedKey;
     if (!permanent && (rateLimited || job.attempts < job.max_attempts)) {
-      const delay = rateLimited ? Math.min(1800, 60 * 2 ** ((state.rateLimitRetries ?? 1) - 1)) : 15 * 2 ** (job.attempts - 1);
+      // A daily allowance resets hours later: wait for the time the provider gave (up to 6 hours at a time)
+      // instead of using up the retries in an hour.
+      const resetSeconds = err instanceof LlmError && err.retryAfterMs ? Math.ceil(err.retryAfterMs / 1000) + 60 : 0;
+      const backoff = Math.min(1800, 60 * 2 ** ((state.rateLimitRetries ?? 1) - 1));
+      const delay = rateLimited ? Math.min(21_600, Math.max(backoff, resetSeconds)) : 15 * 2 ** (job.attempts - 1);
       await requeueJob(db, job.id, delay, message, !rateLimited, deps.workerId);
       log('job requeued', { jobId: job.id, attempt: job.attempts, delay, message });
       return 'requeued';

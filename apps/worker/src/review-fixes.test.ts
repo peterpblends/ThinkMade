@@ -161,3 +161,18 @@ describe('short plans', () => {
     expect(planCalls).toBe(2);
   });
 });
+
+describe('daily allowance used up', () => {
+  it('waits until the provider says the allowance resets, instead of failing within the hour', async () => {
+    world = await makeWorld(() => {
+      throw new LlmError('All providers at their limits', 429, 2 * 3600_000);
+    });
+    const job = await world.enqueue('Late in the day', { episodes: 1 });
+    await runNextJob(world.deps);
+    const [j] = await world.db.select().from(schema.generationJob).where(eq(schema.generationJob.id, job.id));
+    expect(j!.status).toBe('queued');
+    const waitHours = (j!.runAfter.getTime() - Date.now()) / 3600_000;
+    expect(waitHours).toBeGreaterThan(1.9);
+    expect(waitHours).toBeLessThan(2.2);
+  });
+});

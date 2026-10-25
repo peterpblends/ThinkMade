@@ -11,6 +11,8 @@ export interface GenerationStatus {
   steps: Array<{ label: string; state: 'pending' | 'active' | 'done' | 'failed' }>;
   error: string | null;
   retrying: boolean;
+  /** When the job will continue after a free AI allowance resets. */
+  resumesAt?: string | null;
   seriesId: string | null;
   episodes: Array<{ id: string; number: number; title: string; status: string }>;
 }
@@ -36,7 +38,13 @@ export function ProgressView({ data, onCancel, cancelling = false }: { data: Gen
         ))}
       </ol>
 
-      {data.retrying && !done && <Notice>A service was briefly unavailable, so we're retrying automatically.</Notice>}
+      {data.retrying && !done && (
+        <Notice>
+          {data.resumesAt
+            ? `Today's free AI allowance is used up. Your podcast will continue automatically around ${new Date(data.resumesAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`
+            : "A service was briefly unavailable, so we're retrying automatically."}
+        </Notice>
+      )}
 
       {data.episodes.some((e) => e.status === 'ready') && (
         <section aria-labelledby="ready-eps" className="flex flex-col gap-2">

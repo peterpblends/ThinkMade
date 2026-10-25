@@ -140,6 +140,8 @@ export function generationRoutes(ctx: AppContext) {
       steps: steps(job.status, job.currentStage, doneStages),
       error: ['failed', 'partial', 'cancelled'].includes(job.status) ? job.error : null,
       retrying: job.status === 'queued' && job.attempts > 0,
+      // Set when the job is waiting for a free AI allowance to reset, not just a short retry.
+      resumesAt: job.status === 'queued' && job.attempts > 0 && job.runAfter.getTime() - ctx.now().getTime() > 10 * 60_000 ? job.runAfter.toISOString() : null,
       seriesId: job.seriesId,
       episodes,
     });

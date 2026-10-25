@@ -32,6 +32,8 @@ export class LlmError extends Error {
   constructor(
     message: string,
     public readonly status?: number,
+    /** For 429s: how long until the provider's limit resets, when it said. */
+    public readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = 'LlmError';
