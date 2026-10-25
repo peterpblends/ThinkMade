@@ -34,7 +34,15 @@ export interface PublicPodcastSettings {
   episodeChoices: number[];
 }
 
+export interface VoiceOption {
+  id: string;
+  name: string;
+  accent: 'US' | 'UK';
+  gender: 'female' | 'male';
+}
+
 export interface PublicSettings {
   podcast: PublicPodcastSettings;
   media: { maxImages: number; maxImageBytes: number; maxVideoSeconds: number; maxVideoBytes: number };
+  voices?: VoiceOption[];
 }

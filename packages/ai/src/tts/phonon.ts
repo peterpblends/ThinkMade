@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { phononVoice } from '@thinkmade/shared';
+import { KOKORO_VOICE_INFO, PHONON_VOICES, phononVoice } from '@thinkmade/shared';
 import type { TtsEngine } from './types';
 
 /** Hugging Face commits the files are pinned to, so a cached file never mixes with a newer upload. */
@@ -119,12 +119,16 @@ export function createPhononTts(options: PhononOptions = {}): TtsEngine {
   };
 }
 
-/** Kokoro voice used when a Phonon voice can't be spoken, matched on accent and gender. */
+/**
+ * Kokoro voice used when a Phonon voice can't be spoken, matched on accent and gender. Different Phonon voices
+ * map to different Kokoro voices, so hosts who sounded different still do.
+ */
 export function kokoroFallbackVoice(voice: string): string {
   const v = phononVoice(voice);
   if (!v) return voice;
-  if (v.accent === 'UK') return v.gender === 'female' ? 'bf_emma' : 'bm_george';
-  return v.gender === 'female' ? 'af_heart' : 'am_michael';
+  const peers = PHONON_VOICES.filter((p) => p.accent === v.accent && p.gender === v.gender);
+  const options = KOKORO_VOICE_INFO.filter((k) => k.accent === v.accent && k.gender === v.gender);
+  return options[peers.findIndex((p) => p.key === v.key) % options.length]!.id;
 }
 
 /**

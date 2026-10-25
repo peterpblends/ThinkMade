@@ -96,7 +96,7 @@ export function CreateScreen() {
       setStatus(null);
       const { id } = await api<{ id: string }>('/api/generations', {
         method: 'POST',
-        body: JSON.stringify({ topic: req.topic, customization: req.customization, mediaUploadIds }),
+        body: JSON.stringify({ topic: req.topic, customization: req.customization, mediaUploadIds, ...(req.voices ? { voices: req.voices } : {}) }),
       });
       saveDraft('');
       navigate(`/generations/${id}`);
@@ -128,7 +128,7 @@ export function CreateScreen() {
       )}
 
       {settings.data ? (
-        <CreateForm defaults={settings.data.podcast} media={settings.data.media} onCreate={(r) => void onCreate(r)} initialTopic={readDraft()} busy={busy} status={status} />
+        <CreateForm defaults={settings.data.podcast} media={settings.data.media} voices={settings.data.voices ?? []} onCreate={(r) => void onCreate(r)} initialTopic={readDraft()} busy={busy} status={status} />
       ) : settings.isError ? (
         <Notice tone="error" role="alert">
           ThinkMade can't reach its server right now. Check your connection and try again.

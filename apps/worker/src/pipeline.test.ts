@@ -46,8 +46,10 @@ describe('generation pipeline', () => {
     // Mixed format: episode 1 is a conversation, episode 2 a single host.
     const byNum = Object.fromEntries(episodes.map((e) => [e.number, e]));
     expect(byNum[1]!.speakerFormat).toBe('two_hosts');
-    expect(byNum[1]!.transcript).toMatch(/^Maya: /);
+    expect(byNum[1]!.transcript!.startsWith(`${byNum[1]!.hosts![0]!.name}: `)).toBe(true);
     expect(byNum[2]!.speakerFormat).toBe('single');
+    // The single-host episode keeps the series' first host.
+    expect(byNum[2]!.hosts).toEqual([byNum[1]!.hosts![0]]);
 
     const stages = await world.db.select().from(schema.generationStage).where(eq(schema.generationStage.jobId, job.id));
     const names = new Set(stages.map((s) => s.stage));

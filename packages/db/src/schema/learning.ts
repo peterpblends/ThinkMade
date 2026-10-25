@@ -165,7 +165,7 @@ export const episode = pgTable(
     keyTakeaways: jsonb('key_takeaways').notNull().$type<string[]>().default([]),
     examples: jsonb('examples').notNull().$type<Array<Record<string, unknown>>>().default([]),
     script: jsonb('script').$type<Array<{ speaker: string; text: string }>>(),
-    hosts: jsonb('hosts').$type<Array<{ id: string; name: string; voice: string }>>(),
+    hosts: jsonb('hosts').$type<Array<{ id: string; name: string; voice: string; age?: number; role?: string }>>(),
     transcript: text('transcript'),
     audioKey: text('audio_key'),
     audioBytes: integer('audio_bytes'),

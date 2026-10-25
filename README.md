@@ -9,7 +9,7 @@ ThinkMade turns the world's best books and mental models into personalized podca
 ## What it does
 
 - **Ask.** Type, speak, or show a photo or short video of what you want to learn or solve.
-- **Build.** The worker picks the mental models that help, verifies real books about them in Open Library and Google Books, and plans a series. It writes scripts that weave Thinking, Seeing and Doing together, and reviews each script against eight quality criteria. Scripts that fail are rewritten or held for a person. Approved scripts are voiced with Phonon (Kokoro as backup), by one host or two.
+- **Build.** The worker picks the mental models that help, verifies real books about them in Open Library and Google Books, and plans a series. It writes scripts that weave Thinking, Seeing and Doing together, and reviews each script against eight quality criteria. Scripts that fail are rewritten or held for a person. Approved scripts are voiced with Phonon (Kokoro as backup) by one to four hosts. Hosts and voices follow the request (names, ages, roles) and otherwise change from series to series, from 52 English voices.
 - **Listen.** A full player with offline downloads, progress that syncs across devices, favourites, ratings and lock-screen controls.
 - **Go further.** Coach Me holds a private, contextual conversation about each episode. Continue Learning offers Explore, Go Deeper, Reinforce or an update. You can also share publicly and discover what others have shared.
 - **Run it.** The admin dashboard covers usage and free-tier alerts, AI models per stage, versioned prompts with test runs, a quality review queue, bug reports, people, moderation and an audit log.

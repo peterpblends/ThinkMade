@@ -36,6 +36,8 @@ export const createGenerationSchema = z.strictObject({
   /** With parentSeriesId: look for newer verified material on the same topic. */
   update: z.boolean().optional(),
   coachingSessionId: z.string().uuid().optional(),
+  /** Voices picked for the hosts, in order. Left out, each series gets its own voices. */
+  voices: z.array(z.string().min(1).max(40)).min(1).max(4).optional(),
 }).refine((v) => v.topic.length >= 3 || v.mediaUploadIds.length > 0 || !!v.coachingSessionId || !!v.parentSeriesId, {
   path: ['topic'],
   message: 'Tell us a little more about what you want to think through, or add a photo or video.',
@@ -51,11 +53,19 @@ export interface GenerationOptions {
   visibility: 'private' | 'public';
   language: string;
   teachingStyle: string;
+  /** Administrator default voices; used when no voice pool is set (jobs created before voice pools). */
   voices: { single: string; hostA: string; hostB: string };
+  /** Voices a series may use. Each series picks its own from these. */
+  voicePool?: string[];
+  /** Voices the listener picked for their hosts, in order. */
+  chosenVoices?: string[];
+  /** True when the listener set length, episodes and format themselves; otherwise requests in their words apply. */
+  customized?: boolean;
+  /** Administrator maximums, for requests taken from the listener's words. */
+  limits?: { maxEpisodes: number; maxMinutes: number };
   bitrateKbps: number;
   maxTokens: number;
   maxAudioMinutes: number;
   quality?: { minScore: number; maxRevisions: number };
 }
 
-export const HOST_NAMES = { A: 'Maya', B: 'Theo' } as const;

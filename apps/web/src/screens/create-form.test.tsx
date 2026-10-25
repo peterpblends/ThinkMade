@@ -16,6 +16,43 @@ const defaults = {
   episodeChoices: [1, 3, 5, 10],
 };
 
+const voices = [
+  { id: 'phonon:zoey', name: 'Zoey', accent: 'US' as const, gender: 'female' as const },
+  { id: 'phonon:easton', name: 'Easton', accent: 'US' as const, gender: 'male' as const },
+  { id: 'phonon:freya', name: 'Freya', accent: 'UK' as const, gender: 'female' as const },
+  { id: 'bm_george', name: 'George', accent: 'UK' as const, gender: 'male' as const },
+];
+
+describe('CreateForm voices', () => {
+  it('gives each series its own voices unless the listener chooses', async () => {
+    const onCreate = vi.fn();
+    render(<CreateForm defaults={defaults} voices={voices} onCreate={onCreate} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Customize' }));
+    expect(screen.getByRole('radio', { name: 'Different each series' })).toBeChecked();
+    await userEvent.type(screen.getByRole('textbox', { name: /your topic/i }), 'Five episodes about patience');
+    await userEvent.click(screen.getByRole('button', { name: 'Create My Podcasts' }));
+    // Opening Customize without changing anything leaves the request's own numbers in charge.
+    expect(onCreate).toHaveBeenCalledWith({ topic: 'Five episodes about patience', customization: null, attachments: [] });
+  });
+
+  it('sends the voices picked for each host, without changing the other settings', async () => {
+    const onCreate = vi.fn();
+    render(<CreateForm defaults={defaults} voices={voices} onCreate={onCreate} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Customize' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Choose voices' }));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Host 2' }), 'bm_george');
+    await userEvent.click(screen.getByRole('button', { name: 'Add a host' }));
+    expect(screen.getAllByRole('combobox')).toHaveLength(3);
+    await userEvent.type(screen.getByRole('textbox', { name: /your topic/i }), 'Three voices');
+    await userEvent.click(screen.getByRole('button', { name: 'Create My Podcasts' }));
+    const req = onCreate.mock.calls[0]![0];
+    expect(req.customization).toBeNull();
+    expect(req.voices).toHaveLength(3);
+    expect(req.voices.slice(0, 2)).toEqual(['phonon:zoey', 'bm_george']);
+    expect(new Set(req.voices).size).toBe(3);
+  });
+});
+
 describe('CreateForm', () => {
   it('asks the core question and offers one primary action plus Customize', () => {
     render(<CreateForm defaults={defaults} onCreate={vi.fn()} />);

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { EPISODE_COUNT_CHOICES, PODCAST_LENGTH_CHOICES } from '@thinkmade/shared';
+import { EPISODE_COUNT_CHOICES, PODCAST_LENGTH_CHOICES, voiceInfo } from '@thinkmade/shared';
 import type { AppContext } from '../create-context';
 
 /** Settings any visitor may read: what the Create screen needs, nothing operational. */
@@ -20,6 +20,11 @@ export function publicSettingsRoutes(ctx: AppContext) {
         episodeChoices: EPISODE_COUNT_CHOICES.filter((n) => n <= p.maxEpisodesPerSeries),
       },
       media: settings.media,
+      // Voices listeners may pick for their hosts.
+      voices: settings.voices.available.flatMap((id) => {
+        const v = voiceInfo(id);
+        return v ? [{ id, name: v.name, accent: v.accent, gender: v.gender }] : [];
+      }),
     });
   });
 }
