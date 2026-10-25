@@ -19,7 +19,21 @@ export interface GenerationStatus {
 
 const TERMINAL = new Set(['succeeded', 'partial', 'failed', 'cancelled']);
 
-export function ProgressView({ data, onCancel, cancelling = false }: { data: GenerationStatus; onCancel: () => void; cancelling?: boolean }) {
+const RETRYABLE = new Set(['partial', 'failed', 'cancelled']);
+
+export function ProgressView({
+  data,
+  onCancel,
+  cancelling = false,
+  onRetry,
+  retrying = false,
+}: {
+  data: GenerationStatus;
+  onCancel: () => void;
+  cancelling?: boolean;
+  onRetry?: () => void;
+  retrying?: boolean;
+}) {
   const done = TERMINAL.has(data.status);
   return (
     <div className="flex flex-col gap-6">
@@ -77,6 +91,12 @@ export function ProgressView({ data, onCancel, cancelling = false }: { data: Gen
       )}
       {data.status === 'cancelled' && <Notice>This series was cancelled.</Notice>}
 
+      {onRetry && RETRYABLE.has(data.status) && (
+        <Button onClick={onRetry} busy={retrying}>
+          Try again
+        </Button>
+      )}
+
       {data.status === 'succeeded' && data.seriesId && (
         <Link to={`/series/${data.seriesId}`} className="inline-flex min-h-14 items-center justify-center rounded-full bg-accent-strong px-5 text-[1.05rem] font-semibold text-on-accent shadow-card">
           Open your series
@@ -106,11 +126,15 @@ export function GenerationProgressScreen() {
     mutationFn: () => api(`/api/generations/${id}/cancel`, { method: 'POST', body: '{}' }),
     onSuccess: () => q.refetch(),
   });
+  const retry = useMutation({
+    mutationFn: () => api(`/api/generations/${id}/retry`, { method: 'POST', body: '{}' }),
+    onSuccess: () => q.refetch(),
+  });
   return (
     <div>
       <PageHeader title={q.data?.label ?? 'Building your podcasts'} />
       {q.data ? (
-        <ProgressView data={q.data} onCancel={() => cancel.mutate()} cancelling={cancel.isPending} />
+        <ProgressView data={q.data} onCancel={() => cancel.mutate()} cancelling={cancel.isPending} onRetry={() => retry.mutate()} retrying={retry.isPending} />
       ) : q.isError ? (
         <Notice tone="error" role="alert">
           We couldn't find that request.

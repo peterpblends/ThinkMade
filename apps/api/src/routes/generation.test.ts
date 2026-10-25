@@ -143,6 +143,29 @@ describe('generations', () => {
     expect(res.status).toBe('cancelled');
   });
 
+  it('lets the owner try a failed generation again, resuming the same series', async () => {
+    const { app, json, cookie } = await setup();
+    const body = JSON.stringify({ topic: 'Retry this one', customization: { lengthMinutes: 1, episodes: 1, speakerFormat: 'single', learningMode: 'explore' } });
+    const { id } = (await (await app.request('/api/generations', { method: 'POST', headers: json, body })).json()) as { id: string };
+    // Not retryable while it is still queued.
+    expect((await app.request(`/api/generations/${id}/retry`, { method: 'POST', headers: json })).status).toBe(409);
+    await runNextJob(ctx!.worker!);
+    const [done] = await ctx!.db.select().from(schema.generationJob).where(eq(schema.generationJob.id, id));
+    // Simulate a run that failed after the series was created.
+    await ctx!.db.update(schema.generationJob).set({ status: 'failed', error: 'The plan was incomplete.', attempts: 3 }).where(eq(schema.generationJob.id, id));
+    await ctx!.db.update(schema.podcastSeries).set({ status: 'failed' }).where(eq(schema.podcastSeries.id, done!.seriesId!));
+    await ctx!.db.update(schema.episode).set({ status: 'failed' }).where(eq(schema.episode.seriesId, done!.seriesId!));
+
+    expect((await app.request(`/api/generations/${id}/retry`, { method: 'POST', headers: json })).status).toBe(202);
+    const [queued] = await ctx!.db.select().from(schema.generationJob).where(eq(schema.generationJob.id, id));
+    expect(queued).toMatchObject({ status: 'queued', attempts: 0, error: null, seriesId: done!.seriesId });
+    await runNextJob(ctx!.worker!);
+    const res = (await (await app.request(`/api/generations/${id}`, { headers: { cookie } })).json()) as { status: string; episodes: Array<{ status: string }> };
+    expect(res.status).toBe('succeeded');
+    expect(res.episodes.map((e) => e.status)).toEqual(['ready']);
+    expect(await ctx!.db.select().from(schema.podcastSeries)).toHaveLength(1);
+  });
+
   it('lists my series newest first', async () => {
     const { app, json, cookie } = await setup();
     await app.request('/api/generations', { method: 'POST', headers: json, body: JSON.stringify({ topic: 'Listing test', customization: { lengthMinutes: 1, episodes: 1, speakerFormat: 'single', learningMode: 'explore' } }) });

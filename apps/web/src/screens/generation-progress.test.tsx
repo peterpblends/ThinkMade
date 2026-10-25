@@ -47,6 +47,21 @@ describe('ProgressView', () => {
     render(<MemoryRouter><ProgressView data={{ ...base, status: 'failed', error: "Podcast generation isn't configured yet: Groq is selected but GROQ_API_KEY is not set." }} onCancel={() => {}} /></MemoryRouter>);
     expect(screen.getByRole('alert')).toHaveTextContent(/isn't configured yet/);
   });
+
+  it('offers to try a failed series again', async () => {
+    let retried = 0;
+    render(<MemoryRouter><ProgressView data={{ ...base, status: 'failed', error: 'The language model service failed repeatedly.' }} onCancel={() => {}} onRetry={() => retried++} /></MemoryRouter>);
+    screen.getByRole('button', { name: 'Try again' }).click();
+    expect(retried).toBe(1);
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+  });
+
+  it('does not offer to try again while the series is being built or once it is ready', () => {
+    const { rerender } = render(<MemoryRouter><ProgressView data={base} onCancel={() => {}} onRetry={() => {}} /></MemoryRouter>);
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+    rerender(<MemoryRouter><ProgressView data={{ ...base, status: 'succeeded', seriesId: 's1' }} onCancel={() => {}} onRetry={() => {}} /></MemoryRouter>);
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+  });
 });
 
 describe('waiting for the free allowance', () => {
