@@ -38,6 +38,8 @@ function arc(r: number, a0: number, a1: number): string {
 export const SYMBOL_GEOMETRY = {
   viewBox: `0 0 ${GRID} ${GRID}`,
   ridgePath: RIDGES.map(([r, a0, a1]) => arc(r, a0, a1)).join(' '),
+  /** Each ridge on its own, innermost first (for animating them separately). */
+  ridgePaths: RIDGES.map(([r, a0, a1]) => arc(r, a0, a1)),
   strokeWidth: STROKE,
   center: CENTER,
   coreRadius: CORE_RADIUS,

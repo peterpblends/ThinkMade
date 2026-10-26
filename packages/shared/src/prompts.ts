@@ -23,6 +23,7 @@ export function input(data: unknown): string {
 
 export const UNDERSTAND_TASK = `
 Work out what the person is really trying to learn or solve. Separate what they actually said or showed (evidence) from what you are inferring (assumptions).
+People write anything from one word to a long brief, and none of them should need to phrase it well. Read short or broad input (for example "leadership", "making better decisions" or "I'm having trouble motivating my team") as a wish to understand and handle that topic well, and write the objective in those terms. Keep their intent: never invent personal circumstances, goals, problems or a narrower focus they did not mention, and never add an unrelated learning objective. Any interpretation goes in assumptions, never in evidence or the objective.
 Write a series title (short, specific, inviting) and a one-paragraph series description that would make sense to someone who has never heard of mental models. Describe the hosts in the description only by what the person said about them; never invent host names.
 Record what the person asked for about the podcast itself in "preferences", and leave out anything they did not say:
 - hosts: each host they described, in their order, with the name, gender, accent ("US" or "UK"), age and role or personality they gave. For gender, use what they said, or what the host's name or description makes clear.
@@ -47,7 +48,7 @@ Also name related mental models and how they relate.
 Shape: {"models": [{"slug": string, "books": [{"title": string, "author": string, "why": string}], "related": [{"name": string, "relation": "complementary" | "contrasting" | "prerequisite" | "related"}]}]}`;
 
 export const PLAN_TASK = `
-Plan the podcast series as an effective learning sequence. Each episode teaches one primary mental model, connected to the person's objective.
+Plan the podcast series as an effective learning sequence. Each episode teaches one primary mental model, connected to the person's objective. Every episode serves that objective; do not introduce unrelated goals, and treat assumptions as possibilities, not facts about the person.
 Every episode must help the listener:
 - THINK: understand what the model is, why it works, its assumptions, its limits and common misunderstandings;
 - SEE: recognise the signals, symptoms and situations where it applies (and where it does not);

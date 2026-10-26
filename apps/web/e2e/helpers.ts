@@ -28,7 +28,7 @@ export async function signUpAndVerify(page: Page, prefix: string) {
   await signUp(page, email);
   await page.getByRole('heading', { name: 'Check your email' }).waitFor();
   await page.goto(await lastEmailLink(page, email));
-  await page.getByRole('heading', { name: 'What would you like to think through today?' }).waitFor();
+  await page.getByRole('heading', { name: 'What would you like to think through?' }).waitFor();
   return email;
 }
 

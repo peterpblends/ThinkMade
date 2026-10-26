@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test';
+import { BRAND } from '@thinkmade/shared';
 
 test('landing shows name, tagline and purpose', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('img', { name: 'ThinkMade' }).first()).toBeVisible();
   await expect(page.getByText('Better Thinking. Made Personal.').first()).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'What would you like to think through today?' })).toBeVisible();
-  await expect(page.getByText('Personalized podcasts that teach you how to think.').first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'What would you like to think through?' })).toBeVisible();
+  await expect(page.getByText(BRAND.purpose)).toBeVisible();
+  await expect(page.getByText("A challenge you're facing, a decision you're making, or something you want to understand better.")).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create My Podcasts' })).toBeVisible();
 });
 
@@ -53,4 +55,13 @@ test('viewport asks Android to resize content for the keyboard so the tab bar st
   await page.goto('/');
   const content = await page.locator('meta[name="viewport"]').getAttribute('content');
   expect(content).toContain('interactive-widget=resizes-content');
+});
+
+test('opening splash animates the logo, then shows the Create page', async ({ page }) => {
+  await page.goto('/?splash=1');
+  const splash = page.getByTestId('splash');
+  await expect(splash).toBeVisible();
+  await expect(splash).toContainText('Better Thinking. Made Personal.');
+  await expect(splash).toBeHidden({ timeout: 6000 });
+  await expect(page.getByRole('button', { name: 'Create My Podcasts' })).toBeVisible();
 });

@@ -6,6 +6,9 @@ export const BRAND = {
   shortDescription: 'Personalized podcasts that teach you how to think.',
   fullDescription:
     "ThinkMade transforms the world's best books and mental models into personalized podcasts that teach you how to think through whatever you're trying to learn or solve.",
+  /** What ThinkMade does, in one sentence for the Create page. */
+  purpose:
+    "ThinkMade transforms the world's best knowledge and mental models into personalized podcasts that help you think better, recognize opportunities, and put what you learn into practice.",
   methodology: 'Thinking. Seeing. Doing.',
   productionUrl: 'https://thinkmade.zicaworld.com',
   colors: {
