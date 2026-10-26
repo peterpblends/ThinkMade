@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { setFakeResponder, textOf, type ChatMessage } from '@thinkmade/ai';
+import { LlmError, setFakeResponder, textOf, type ChatMessage } from '@thinkmade/ai';
 import { schema } from '@thinkmade/db';
 import { fakeResponder, runNextJob, setFakeValidation } from '@thinkmade/worker';
 import { createApp } from '../app';
@@ -233,6 +233,39 @@ describe('usage dashboard, moderation and audit', () => {
 
     expect((await app.request('/api/admin/report?days=12', { headers: { cookie } })).status).toBe(400);
     expect((await app.request('/api/admin/report', { headers: { cookie: user } })).status).toBe(403);
+  });
+
+  it('lets an admin restart a podcast that errored out, which then finishes for its owner', async () => {
+    const { app, cookie, user, h } = await admin();
+    setFakeResponder(() => {
+      throw new LlmError('groq returned 401: Invalid API Key', 401);
+    });
+    const created = (await (await app.request('/api/generations', { method: 'POST', headers: h(user), body: JSON.stringify({ topic: 'Why do we procrastinate?', customization: ONE }) })).json()) as { id: string };
+    await runNextJob(ctx!.worker!);
+    const t = schema.generationJob;
+    expect((await ctx!.db.select().from(t).where(eq(t.id, created.id)))[0]!.status).toBe('failed');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose shape for assertions
+    const before = (await (await app.request('/api/admin/report', { headers: { cookie } })).json()) as Record<string, any>;
+    expect(before.errors).toEqual([expect.objectContaining({ jobId: created.id, status: 'failed' })]);
+
+    expect((await app.request(`/api/admin/generations/${created.id}/restart`, { method: 'POST', headers: h(user) })).status).toBe(403);
+    setFakeResponder(fakeResponder);
+    const res = await app.request(`/api/admin/generations/${created.id}/restart`, { method: 'POST', headers: h(cookie) });
+    expect(res.status).toBe(202);
+    expect((await ctx!.db.select().from(t).where(eq(t.id, created.id)))[0]).toMatchObject({ status: 'queued', error: null, attempts: 0 });
+    // Only once: it is in the queue now.
+    expect((await app.request(`/api/admin/generations/${created.id}/restart`, { method: 'POST', headers: h(cookie) })).status).toBe(409);
+    const [entry] = await ctx!.db.select().from(schema.auditLog).where(eq(schema.auditLog.action, 'generation.restart'));
+    expect(entry).toMatchObject({ targetId: created.id, before: expect.objectContaining({ status: 'failed' }) });
+
+    await runNextJob(ctx!.worker!);
+    const [done] = await ctx!.db.select().from(t).where(eq(t.id, created.id));
+    expect(done!.status).toBe('succeeded');
+    const [series] = await ctx!.db.select().from(schema.podcastSeries).where(eq(schema.podcastSeries.id, done!.seriesId!));
+    expect(series!.status).toBe('ready');
+    // A finished podcast has nothing to restart.
+    expect((await app.request(`/api/admin/generations/${created.id}/restart`, { method: 'POST', headers: h(cookie) })).status).toBe(409);
+    expect((await app.request('/api/admin/generations/nope/restart', { method: 'POST', headers: h(cookie) })).status).toBe(404);
   });
 
   it('lets an admin unpublish a public series, with an audit trail', async () => {

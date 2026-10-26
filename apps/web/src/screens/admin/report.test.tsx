@@ -56,6 +56,19 @@ describe('AdminReport', () => {
     expect(screen.getByLabelText('4 out of 5 stars')).toBeInTheDocument();
   });
 
+  it('restarts a podcast that errored out and says so', async () => {
+    const fetch = renderReport();
+    await screen.findByRole('button', { name: /ann@example.com/ });
+    await userEvent.click(screen.getByRole('button', { name: /^Errors/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Restart Broken' }));
+    expect(fetch.mock.calls.some((c) => c[0] === '/api/admin/generations/j2/restart')).toBe(true);
+    expect(await screen.findByRole('status')).toHaveTextContent('Restarted “Broken”. It is back in the queue');
+    // Finished podcasts have nothing to restart.
+    await userEvent.click(screen.getByRole('button', { name: /^Generated/ }));
+    expect(screen.queryByRole('button', { name: 'Restart Habit Loops' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Restart Broken' })).toBeInTheDocument();
+  });
+
   it('asks the API for the chosen period', async () => {
     const fetch = renderReport();
     await screen.findByRole('button', { name: /ann@example.com/ });

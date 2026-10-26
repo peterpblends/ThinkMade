@@ -4,6 +4,7 @@ import { cancelJob, schema } from '@thinkmade/db';
 import { createGenerationSchema, labelForStage, READY_LABEL, STAGE_LABELS } from '@thinkmade/shared';
 import type { AppContext } from '../create-context';
 import { LimitError, resolveOptions } from '../generation/options';
+import { restartJob } from '../generation/restart';
 import { requireVerified, type AppVariables } from '../middleware/session';
 
 type StepState = 'pending' | 'active' | 'done' | 'failed';
@@ -161,24 +162,15 @@ export function generationRoutes(ctx: AppContext) {
     return c.json({ ok: true, status: 'cancelled' });
   });
 
-  // Puts a failed, partial or cancelled job back in the queue. The worker resumes from its saved progress
-  // and keeps the same series; ready episodes and those held for review are left as they are.
+  // Puts a failed, partial or cancelled job back in the queue, resuming from its saved progress.
   r.post('/generations/:id/retry', requireVerified(), async (c) => {
     const [job] = await ctx.db
       .select()
       .from(schema.generationJob)
       .where(and(eq(schema.generationJob.id, c.req.param('id')), eq(schema.generationJob.userId, c.var.session!.user.id)));
     if (!job) return c.json({ error: 'not_found' }, 404);
-    if (!['failed', 'partial', 'cancelled'].includes(job.status)) return c.json({ error: 'not_retryable', message: 'This series is still being built.' }, 409);
-    const { rateLimitRetries: _, ...state } = (job.state ?? {}) as Record<string, unknown>;
-    const updated = await ctx.db
-      .update(schema.generationJob)
-      .set({ status: 'queued', attempts: 0, error: null, finishedAt: null, cancelRequested: 0, runAfter: ctx.now(), state })
-      .where(and(eq(schema.generationJob.id, job.id), eq(schema.generationJob.status, job.status)))
-      .returning({ id: schema.generationJob.id });
-    if (!updated.length) return c.json({ error: 'not_retryable', message: 'This series is already being retried.' }, 409);
-    if (job.seriesId) await ctx.db.update(schema.podcastSeries).set({ status: 'generating' }).where(eq(schema.podcastSeries.id, job.seriesId));
-    ctx.pokeWorker();
+    const result = await restartJob(ctx, job, ['failed', 'partial', 'cancelled']);
+    if (!result.ok) return c.json({ error: 'not_retryable', message: result.message }, result.status);
     return c.json({ id: job.id, status: 'queued' }, 202);
   });
 
