@@ -1,7 +1,9 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CreateForm } from './create-form';
+import { CREATE_EXAMPLES, EXAMPLE_INTERVAL_MS } from './create-examples';
 
 const media = { maxImages: 2, maxImageBytes: 10_000_000, maxVideoSeconds: 120, maxVideoBytes: 100_000_000 };
 const defaults = {
@@ -22,6 +24,44 @@ const voices = [
   { id: 'phonon:freya', name: 'Freya', accent: 'UK' as const, gender: 'female' as const },
   { id: 'bm_george', name: 'George', accent: 'UK' as const, gender: 'male' as const },
 ];
+
+describe('CreateForm examples', () => {
+  afterEach(() => vi.useRealTimers());
+  const box = () => screen.getByRole('textbox', { name: /your topic/i });
+
+  it('asks the question, explains it, and starts with the first example', () => {
+    render(<CreateForm defaults={defaults} onCreate={vi.fn()} />);
+    expect(screen.getByRole('heading', { name: 'What would you like to think through?' })).toBeInTheDocument();
+    expect(box()).toHaveAccessibleDescription(/a challenge you're facing, a decision you're making, or something you want to understand better/i);
+    expect(box()).toHaveAttribute('placeholder', 'How can I recognize opportunities that others overlook?');
+  });
+
+  it('rotates examples in the empty box, and holds still while someone is focused or has typed', () => {
+    vi.useFakeTimers();
+    render(<CreateForm defaults={defaults} onCreate={vi.fn()} />);
+    act(() => void vi.advanceTimersByTime(EXAMPLE_INTERVAL_MS));
+    expect(box()).toHaveAttribute('placeholder', CREATE_EXAMPLES[1]);
+    fireEvent.focus(box());
+    act(() => void vi.advanceTimersByTime(EXAMPLE_INTERVAL_MS * 3));
+    expect(box()).toHaveAttribute('placeholder', CREATE_EXAMPLES[1]);
+    fireEvent.blur(box());
+    fireEvent.change(box(), { target: { value: 'leadership' } });
+    act(() => void vi.advanceTimersByTime(EXAMPLE_INTERVAL_MS * 3));
+    expect(box()).toHaveAttribute('placeholder', CREATE_EXAMPLES[1]);
+  });
+
+  it('does not rotate while recording', () => {
+    vi.useFakeTimers();
+    const recording = { supported: true, state: 'recording' as const, error: null, transcript: null, onDevice: false, start: vi.fn(), stop: vi.fn(), cancel: vi.fn() };
+    render(<CreateForm defaults={defaults} onCreate={vi.fn()} voice={recording} />);
+    act(() => void vi.advanceTimersByTime(EXAMPLE_INTERVAL_MS * 2));
+    expect(box()).toHaveAttribute('placeholder', CREATE_EXAMPLES[0]);
+  });
+
+  it('keeps every example short enough for a phone', () => {
+    for (const e of CREATE_EXAMPLES) expect(e.length, e).toBeLessThanOrEqual(90);
+  });
+});
 
 describe('CreateForm voices', () => {
   it('gives each series its own voices unless the listener chooses', async () => {
@@ -56,7 +96,7 @@ describe('CreateForm voices', () => {
 describe('CreateForm', () => {
   it('asks the core question and offers one primary action plus Customize', () => {
     render(<CreateForm defaults={defaults} onCreate={vi.fn()} />);
-    expect(screen.getByRole('heading', { name: 'What would you like to think through today?' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'What would you like to think through?' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create My Podcasts' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Customize' })).toHaveAttribute('aria-expanded', 'false');
   });

@@ -9,6 +9,7 @@ import { LibraryScreen } from './screens/library';
 import { PlayerProvider } from './player/player-context';
 import { makeOfflineSender, resolveSource } from './offline/player-adapters';
 import { SyncManager } from './offline/sync-manager';
+import { Splash } from './components/splash';
 import { getDownload } from './offline/downloads';
 
 /** Screens a first-time visitor doesn't need are loaded on demand to keep the Create screen fast on phones. */
@@ -108,6 +109,7 @@ export function App() {
       <PlayerProvider sendProgress={sendProgress} resolveSource={resolve}>
         <SyncManager />
         <RouterProvider router={router} />
+        <Splash />
       </PlayerProvider>
     </QueryClientProvider>
   );

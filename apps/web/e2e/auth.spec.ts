@@ -6,7 +6,7 @@ test('sign up, verify by email link, and land signed in', async ({ page }) => {
   await signUp(page, email);
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
   await page.goto(await lastEmailLink(page, email));
-  await expect(page.getByRole('heading', { name: 'What would you like to think through today?' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'What would you like to think through?' })).toBeVisible();
   await page.getByRole('button', { name: /account menu/i }).click();
   await expect(page.getByText(email)).toBeVisible();
   await page.keyboard.press('Escape');

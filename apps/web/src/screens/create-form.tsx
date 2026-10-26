@@ -3,6 +3,7 @@ import { Camera, Mic, Square, SlidersHorizontal, Video, X } from 'lucide-react';
 import { useVoiceInput, type VoiceInput } from '../lib/voice';
 import type { PublicPodcastSettings, PublicSettings, VoiceOption } from '../lib/api';
 import { Button } from '../components/ui';
+import { CREATE_EXAMPLES, EXAMPLE_INTERVAL_MS } from './create-examples';
 
 export interface Customization {
   lengthMinutes: number;
@@ -240,6 +241,17 @@ function VoiceControls({ voice, onFiles }: { voice: VoiceInput; onFiles: (files:
   );
 }
 
+/** Cycles through example questions while `active`; holds the current one otherwise. */
+export function useRotatingExample(active: boolean): string {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => setI((n) => (n + 1) % CREATE_EXAMPLES.length), EXAMPLE_INTERVAL_MS);
+    return () => clearInterval(t);
+  }, [active]);
+  return CREATE_EXAMPLES[i]!;
+}
+
 /** The one thing ThinkMade asks: what would you like to think through? Customization stays optional. */
 export function CreateForm({
   defaults,
@@ -316,7 +328,10 @@ export function CreateForm({
     learningMode: defaults.learningMode,
   });
   const [chosenVoices, setChosenVoices] = useState<string[] | null>(null);
-  const ids = { topic: useId(), error: useId(), panel: useId() };
+  const ids = { topic: useId(), error: useId(), panel: useId(), hint: useId() };
+  // Example questions rotate in the empty box, but never while someone is typing, focused or recording.
+  const [focused, setFocused] = useState(false);
+  const example = useRotatingExample(!topic && !focused && voice.state === 'idle');
 
   const update = <K extends keyof Customization>(key: K, value: Customization[K]) => {
     setTouchedCustom(true);
@@ -336,8 +351,13 @@ export function CreateForm({
   };
 
   return (
-    <form onSubmit={submit} noValidate className="flex flex-col gap-4">
-      <h1 className="text-[2rem] leading-tight text-ink sm:text-[2.25rem]">What would you like to think through today?</h1>
+    <form onSubmit={submit} noValidate className="flex flex-col gap-3 sm:gap-4">
+      <div className="flex flex-col gap-1 sm:gap-1.5">
+        <h1 className="text-[1.6rem] leading-[1.15] text-ink sm:text-[2.25rem]">What would you like to think through?</h1>
+        <p id={ids.hint} className="text-[0.95rem] leading-snug text-muted">
+          A challenge you're facing, a decision you're making, or something you want to understand better.
+        </p>
+      </div>
 
       <div className="rounded-[var(--radius-card)] border border-line bg-surface shadow-card focus-within:border-accent">
         <label htmlFor={ids.topic} className="sr-only">
@@ -347,12 +367,14 @@ export function CreateForm({
           id={ids.topic}
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
-          rows={4}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          rows={3}
           maxLength={2000}
-          placeholder="A question, a decision, a problem at work… e.g. “Why do projects in my team always run late?”"
+          placeholder={example}
           aria-invalid={error ? true : undefined}
-          aria-describedby={error ? ids.error : undefined}
-          className="block w-full resize-none rounded-t-[var(--radius-card)] bg-transparent px-4 pb-2 pt-4 text-[1.05rem] leading-relaxed text-ink [overflow-wrap:anywhere] placeholder:text-muted focus:outline-none"
+          aria-describedby={error ? ids.error : ids.hint}
+          className="block min-h-[5.5rem] w-full resize-none rounded-t-[var(--radius-card)] bg-transparent px-4 pb-2 pt-3.5 text-[1.05rem] sm:min-h-[7.5rem] leading-relaxed text-ink [overflow-wrap:anywhere] placeholder:text-muted focus:outline-none"
         />
         <div className="flex min-h-12 flex-wrap items-center gap-1 border-t border-line/70 px-2 py-1">
           <VoiceControls voice={voice} onFiles={addFiles} />

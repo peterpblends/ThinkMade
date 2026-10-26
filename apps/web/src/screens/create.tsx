@@ -117,15 +117,11 @@ export function CreateScreen() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
-      {!isPending && !user && (
-        <section aria-labelledby="intro" className="flex flex-col gap-2">
-          <p id="intro" className="font-serif text-[1.15rem] italic text-accent-ink">
-            {BRAND.tagline}
-          </p>
-          <p className="text-muted">{BRAND.shortDescription}</p>
-        </section>
-      )}
+    <div className="flex flex-col gap-4 sm:gap-6">
+      <section aria-label={`About ${BRAND.name}`} className="flex flex-col gap-1 sm:gap-1.5">
+        <p className="font-serif text-[1.08rem] italic leading-snug text-accent-ink sm:text-[1.2rem]">{BRAND.tagline}</p>
+        <p className="text-[0.875rem] leading-snug text-muted sm:text-[0.95rem] sm:leading-relaxed">{BRAND.purpose}</p>
+      </section>
 
       {settings.data ? (
         <CreateForm defaults={settings.data.podcast} media={settings.data.media} voices={settings.data.voices ?? []} onCreate={(r) => void onCreate(r)} initialTopic={readDraft()} busy={busy} status={status} />
