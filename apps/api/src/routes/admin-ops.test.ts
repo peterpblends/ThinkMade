@@ -126,6 +126,10 @@ describe('AI model and prompt administration', () => {
     type Row = { stage: string; provider: string; model: string; custom: boolean; recommended: { provider: string; model: string } };
     const before = ((await (await app.request('/api/admin/models', { headers: { cookie } })).json()) as { stages: Row[] }).stages.find((s) => s.stage === 'vision')!;
     expect(before).toMatchObject({ provider: 'groq', custom: true, recommended: { provider: 'openrouter', model: 'google/gemma-4-31b-it:free' } });
+    // Even the mistaken setting keeps the recommended model and its backups behind it; missing keys are shown.
+    const backups = (before as Row & { backups: Array<{ provider: string; model: string; ready: boolean; keyVar: string | null }> }).backups;
+    expect(backups[0]).toMatchObject({ provider: 'openrouter', model: 'google/gemma-4-31b-it:free' });
+    expect(backups).toContainEqual({ provider: 'gemini', model: 'gemini-flash-latest', ready: !!process.env.GEMINI_API_KEY, keyVar: 'GEMINI_API_KEY' });
     expect((await app.request('/api/admin/models/vision/reset', { method: 'POST', headers: h(cookie), body: '{}' })).status).toBe(200);
     const after = ((await (await app.request('/api/admin/models', { headers: { cookie } })).json()) as { stages: Row[] }).stages.find((s) => s.stage === 'vision')!;
     expect(after).toMatchObject({ provider: 'openrouter', model: 'google/gemma-4-31b-it:free', custom: false });

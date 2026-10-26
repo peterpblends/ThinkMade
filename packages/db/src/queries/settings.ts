@@ -27,9 +27,14 @@ type StageDefault = Omit<StageModel, 'params'> & { params?: Record<string, unkno
 // max_tokens; tm_request_token_limit keeps requests under it with a margin.
 const GROQ_FREE = { reasoning_effort: 'low', tm_request_token_limit: 7500 };
 // When a model's free allowance runs out, the next free source is tried: Groq's other model (its own
-// daily allowance), then OpenRouter's free models (about 50 requests a day in total, shared with photo
-// analysis). Fallbacks without an API key are skipped. Free models come and go; these answered
-// ThinkMade's JSON prompts in live tests on 2026-10-25.
+// daily allowance), then Google's Gemini Flash models (free tier without a card, about 1,500 requests a day
+// each; the "-latest" aliases follow Google's newest Flash models), then OpenRouter's free models (about 50
+// requests a day in total, shared with photo analysis). Fallbacks without an API key are skipped. Free models
+// come and go; the OpenRouter ones answered ThinkMade's JSON prompts in live tests on 2026-10-25.
+const GEMINI_FREE = [
+  { provider: 'gemini', model: 'gemini-flash-latest' },
+  { provider: 'gemini', model: 'gemini-flash-lite-latest' },
+];
 const OPENROUTER_FREE = [
   { provider: 'openrouter', model: 'nvidia/nemotron-3-ultra-550b-a55b:free' },
   { provider: 'openrouter', model: 'nvidia/nemotron-3.5-lightning:free' },
@@ -37,12 +42,12 @@ const OPENROUTER_FREE = [
 const GPT_OSS_120B = {
   provider: 'groq',
   model: 'openai/gpt-oss-120b',
-  params: { ...GROQ_FREE, tm_fallbacks: [{ provider: 'groq', model: 'openai/gpt-oss-20b', params: GROQ_FREE }, ...OPENROUTER_FREE] },
+  params: { ...GROQ_FREE, tm_fallbacks: [{ provider: 'groq', model: 'openai/gpt-oss-20b', params: GROQ_FREE }, ...GEMINI_FREE, ...OPENROUTER_FREE] },
 };
 const GPT_OSS_20B = {
   provider: 'groq',
   model: 'openai/gpt-oss-20b',
-  params: { ...GROQ_FREE, tm_fallbacks: [{ provider: 'groq', model: 'openai/gpt-oss-120b', params: GROQ_FREE }, ...OPENROUTER_FREE] },
+  params: { ...GROQ_FREE, tm_fallbacks: [{ provider: 'groq', model: 'openai/gpt-oss-120b', params: GROQ_FREE }, ...GEMINI_FREE, ...OPENROUTER_FREE] },
 };
 
 /**
@@ -62,12 +67,33 @@ export const FREE_STAGE_MODELS: Record<ModelStage, StageDefault> = {
   vision: {
     provider: 'openrouter',
     model: 'google/gemma-4-31b-it:free',
-    // Gemma is often rate limited upstream; NVIDIA's free vision model is the backup.
-    params: { tm_fallbacks: [{ provider: 'openrouter', model: 'nvidia/nemotron-3.5-super-vl:free' }, { provider: 'openrouter', model: 'google/gemma-4-26b-a4b-it:free' }] },
+    // Gemma is often rate limited upstream; Gemini Flash (which reads images) and NVIDIA's free vision model are the backups.
+    params: {
+      tm_fallbacks: [...GEMINI_FREE, { provider: 'openrouter', model: 'nvidia/nemotron-3.5-super-vl:free' }, { provider: 'openrouter', model: 'google/gemma-4-26b-a4b-it:free' }],
+    },
   },
   // EmbeddingGemma 2 runs on the worker; the API reaches it through EMBED_SERVER_URL.
   embed: { provider: 'local', model: 'embeddinggemma-2' },
 };
+
+/**
+ * The model an administrator chose for a stage, followed by the stage's recommended model and its free
+ * backups: a choice of one model never removes the switch-over when that model is busy, out of allowance or
+ * misconfigured. Duplicates are dropped. Settings that already list their own backups are kept as they are.
+ */
+export function withRecommendedFallbacks(stage: ModelStage, cfg: StageModel): StageModel {
+  if (stage === 'embed' || Array.isArray(cfg.params?.tm_fallbacks)) return cfg;
+  const rec = defaultStageModel(stage, null);
+  const chain = [{ provider: rec.provider, model: rec.model, params: withoutFallbacks(rec.params) }, ...((rec.params.tm_fallbacks as Array<{ provider: string; model: string; params?: Record<string, unknown> }>) ?? [])];
+  const seen = new Set([`${cfg.provider}|${cfg.model}`]);
+  const fallbacks = chain.filter((f) => !seen.has(`${f.provider}|${f.model}`) && seen.add(`${f.provider}|${f.model}`));
+  return { ...cfg, params: { ...cfg.params, tm_fallbacks: fallbacks } };
+}
+
+function withoutFallbacks(params: Record<string, unknown>): Record<string, unknown> {
+  const { tm_fallbacks: _, ...rest } = params;
+  return rest;
+}
 
 /** Groq models that have left the free tier. Rows still pointing at them are moved to the current default. */
 const RETIRED_GROQ_MODELS = new Set([
@@ -111,7 +137,8 @@ export async function seedModelConfig(db: Db, override?: { provider: string; mod
   }
 }
 
+/** A stage's model as stored, with the recommended backups added after an administrator's own choice. */
 export async function getStageModel(db: Db, stage: ModelStage): Promise<StageModel | null> {
   const [row] = await db.select().from(aiModelConfig).where(eq(aiModelConfig.stage, stage));
-  return row ? { provider: row.provider, model: row.model, params: row.params ?? {} } : null;
+  return row ? withRecommendedFallbacks(stage, { provider: row.provider, model: row.model, params: row.params ?? {} }) : null;
 }

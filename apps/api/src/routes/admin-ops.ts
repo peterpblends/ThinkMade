@@ -1,8 +1,8 @@
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { completeJson, EmbedderUnavailableError, LLM_PROVIDERS, textOf } from '@thinkmade/ai';
-import { defaultStageModel, MODEL_STAGES, queryRows, schema, type ModelStage } from '@thinkmade/db';
+import { completeJson, EmbedderUnavailableError, LLM_PROVIDERS, providerConfigured, providerKeyVar, textOf } from '@thinkmade/ai';
+import { defaultStageModel, MODEL_STAGES, queryRows, schema, withRecommendedFallbacks, type ModelStage } from '@thinkmade/db';
 import { DEFAULT_PROMPTS, input, PROMPT_STAGES, stageSystem, STAGE_SCHEMAS, type PromptStage } from '@thinkmade/shared';
 import type { AppContext } from '../create-context';
 import { clientIp } from '../middleware/rate-limit';
@@ -105,7 +105,10 @@ export function adminOpsRoutes(ctx: AppContext) {
       stages: MODEL_STAGES.map((stage) => {
         const row = rows.find((x) => x.stage === stage);
         const rec = defaultStageModel(stage, null);
+        // What this stage switches to when its model is busy or out of allowance, and whether each is ready.
+        const chain = stage === 'embed' ? [] : ((withRecommendedFallbacks(stage, { provider: row?.provider ?? rec.provider, model: row?.model ?? rec.model, params: row?.params ?? rec.params }).params.tm_fallbacks as Array<{ provider: string; model: string }>) ?? []);
         return {
+          backups: chain.map((f) => ({ provider: f.provider, model: f.model, ready: providerConfigured(f.provider, process.env), keyVar: providerKeyVar(f.provider) ?? null })),
           stage,
           provider: row?.provider ?? null,
           model: row?.model ?? null,

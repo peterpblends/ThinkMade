@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { createFallbackLlm } from './fallback';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { clearRestingModels, createFallbackLlm } from './fallback';
 import { createLlm } from './providers';
 import { LlmError, type LlmClient } from './types';
 
@@ -19,6 +19,8 @@ const limited = (ms?: number) => () => {
   throw new LlmError('429 daily limit', 429, ms);
 };
 
+beforeEach(() => clearRestingModels());
+
 describe('createFallbackLlm', () => {
   it('uses the next provider when the first is out of allowance, and logs it', async () => {
     const logs: string[] = [];
@@ -26,7 +28,32 @@ describe('createFallbackLlm', () => {
     const b = client('openrouter', () => 'from b');
     const llm = createFallbackLlm([a, b], (m) => logs.push(m));
     expect((await llm.chat([{ role: 'user', content: 'hi' }])).content).toBe('from b');
-    expect(logs[0]).toMatch(/answered by openrouter/);
+    expect(logs).toContainEqual(expect.stringMatching(/answered by openrouter/));
+  });
+
+  it('skips a model that is out of allowance until its limit resets, without spending a request on it', async () => {
+    let t = 0;
+    const a = client('groq', limited(3_600_000));
+    const b = client('gemini', () => 'from gemini');
+    const llm = createFallbackLlm([a, b], () => {}, () => t);
+    await llm.chat([{ role: 'user', content: 'one' }]);
+    await llm.chat([{ role: 'user', content: 'two' }]);
+    expect(a.calls).toBe(1);
+    expect(b.calls).toBe(2);
+    t = 3_600_001; // the allowance has reset
+    await llm.chat([{ role: 'user', content: 'three' }]);
+    expect(a.calls).toBe(2);
+  });
+
+  it("rests a model that doesn't exist, so a misconfigured setting falls straight through to a backup", async () => {
+    const missing = client('groq', () => {
+      throw new LlmError('groq returned 404: The model `gemma-4-31b-it:free` does not exist', 404);
+    });
+    const backup = client('openrouter', () => 'from backup');
+    const llm = createFallbackLlm([missing, backup], () => {});
+    expect((await llm.chat([{ role: 'user', content: 'hi' }])).content).toBe('from backup');
+    await llm.chat([{ role: 'user', content: 'again' }]);
+    expect(missing.calls).toBe(1);
   });
 
   it('when every provider is rate limited, reports the soonest reset so the job can wait', async () => {

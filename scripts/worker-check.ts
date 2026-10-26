@@ -49,6 +49,13 @@ await check('OpenRouter', async () => {
   return res.ok ? [true, 'key accepted'] : [false, `key rejected (${res.status}); ${shape(key)}`];
 });
 
+await check('Gemini (backup models)', async () => {
+  const key = env.GEMINI_API_KEY;
+  if (!key) return [false, 'GEMINI_API_KEY is missing: without it there is no backup once Groq and OpenRouter reach their free limits'];
+  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/models', { headers: { authorization: `Bearer ${key}` } });
+  return res.ok ? [true, 'key accepted'] : [false, `key rejected (${res.status}); ${shape(key)}`];
+});
+
 await check('Backblaze', async () => {
   if (!(env.S3_ENDPOINT && env.S3_BUCKET && env.S3_ACCESS_KEY_ID && env.S3_SECRET_ACCESS_KEY)) return [false, 'an S3_ setting is missing'];
   const s = createS3Storage({ endpoint: env.S3_ENDPOINT, region: env.S3_REGION, bucket: env.S3_BUCKET, accessKeyId: env.S3_ACCESS_KEY_ID, secretAccessKey: env.S3_SECRET_ACCESS_KEY });

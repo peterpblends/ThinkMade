@@ -51,6 +51,7 @@ Run it again after any deploy whose commit adds files under `packages/db/migrati
 | `APP_URL` | `https://thinkmade.zicaworld.com`, Production only |
 | `GROQ_API_KEY` | Groq key: Coach Me and voice transcription run in the API |
 | `OPENROUTER_API_KEY` | Optional here (the worker uses it for photos); lets **Admin → AI models → Test** check the vision model |
+| `GEMINI_API_KEY` | Recommended. Google AI Studio key (free, no card): the backup for Coach Me when Groq reaches its free limit. Add it to the worker's secrets too. |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION` | The same storage values the worker uses (section 6a). For B2, `S3_REGION` is the bucket's region, such as `us-west-004`, not `auto`. |
 | `EMBED_SERVER_URL` | `https://embed.zicaworld.com/v1`, the worker's embedding server (`worker.md`, "Search embeddings"). Without it, Discover uses text search only. |
 | `EMBED_SERVER_TOKEN` | The same token as the worker's `EMBED_SERVER_TOKEN` |

@@ -4,7 +4,14 @@ import { api, ApiError } from '../../lib/api';
 import { Button, Card, Field, Notice, PageHeader } from '../../components/ui';
 
 interface Models {
-  stages: Array<{ stage: string; provider: string | null; model: string | null; custom?: boolean; recommended?: { provider: string; model: string } }>;
+  stages: Array<{
+    stage: string;
+    provider: string | null;
+    model: string | null;
+    custom?: boolean;
+    recommended?: { provider: string; model: string };
+    backups?: Array<{ provider: string; model: string; ready: boolean; keyVar: string | null }>;
+  }>;
   providers: { llm: string[]; embed: string[] };
 }
 
@@ -89,6 +96,21 @@ function StageRow({ s, providers }: { s: Models['stages'][number]; providers: st
           )}
         </div>
       </form>
+      {s.backups && s.backups.length > 0 && (
+        <details className="text-sm">
+          <summary className="min-h-11 cursor-pointer py-2 font-semibold text-accent-ink">
+            Switches to {s.backups.filter((b) => b.ready).length} backup{s.backups.filter((b) => b.ready).length === 1 ? '' : 's'} when busy or out of allowance
+          </summary>
+          <ol className="mt-1 flex list-decimal flex-col gap-1 pl-5">
+            {s.backups.map((b) => (
+              <li key={`${b.provider}/${b.model}`} className={b.ready ? '' : 'text-muted'}>
+                {b.provider} · {b.model}
+                {!b.ready && b.keyVar ? ` (skipped: add ${b.keyVar})` : ''}
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
       {result && <Notice tone={result.tone} role={result.tone === 'error' ? 'alert' : 'status'}>{result.text}</Notice>}
       {failed && (
         <button type="button" onClick={() => void put({ ...failed, force: true })} className="self-start text-sm font-semibold text-danger underline-offset-4 hover:underline">
