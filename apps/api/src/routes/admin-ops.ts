@@ -1,8 +1,8 @@
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { completeJson, LLM_PROVIDERS, textOf } from '@thinkmade/ai';
-import { MODEL_STAGES, queryRows, schema, type ModelStage } from '@thinkmade/db';
+import { completeJson, EmbedderUnavailableError, LLM_PROVIDERS, textOf } from '@thinkmade/ai';
+import { defaultStageModel, MODEL_STAGES, queryRows, schema, type ModelStage } from '@thinkmade/db';
 import { DEFAULT_PROMPTS, input, PROMPT_STAGES, stageSystem, STAGE_SCHEMAS, type PromptStage } from '@thinkmade/shared';
 import type { AppContext } from '../create-context';
 import { clientIp } from '../middleware/rate-limit';
@@ -74,12 +74,47 @@ export function adminOpsRoutes(ctx: AppContext) {
   });
 
   // ---------- AI models ----------
+  /**
+   * One tiny request to a model, reported honestly. The recommended search embedder runs on the podcast worker,
+   * so on a server without it the test says so instead of reporting a failure.
+   */
+  const checkModel = async (stage: ModelStage, cfg: { provider: string; model: string; params?: Record<string, unknown> }) => {
+    const t0 = Date.now();
+    try {
+      if (stage === 'embed') {
+        const [v] = await ctx.embedderFor(cfg).embed(['ThinkMade connection test']);
+        return { ok: !!v, latencyMs: Date.now() - t0, sample: `vector of ${v?.length ?? 0} numbers` };
+      }
+      const res = await ctx.llmFor(cfg).chat([{ role: 'user', content: 'Reply with exactly: ok' }], { maxTokens: 10, temperature: 0 });
+      return { ok: true, latencyMs: Date.now() - t0, sample: res.content.slice(0, 200) };
+    } catch (err) {
+      if (stage === 'embed' && cfg.provider === 'local' && err instanceof EmbedderUnavailableError) {
+        return {
+          ok: true,
+          latencyMs: Date.now() - t0,
+          sample: 'Runs on the podcast worker, which indexes public series. Search on this site uses text matching until an embedding server is connected (see docs/worker.md).',
+        };
+      }
+      return { ok: false, latencyMs: Date.now() - t0, error: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
   r.get('/models', async (c) => {
     const rows = await ctx.db.select().from(schema.aiModelConfig);
     return c.json({
       stages: MODEL_STAGES.map((stage) => {
         const row = rows.find((x) => x.stage === stage);
-        return { stage, provider: row?.provider ?? null, model: row?.model ?? null, params: row?.params ?? {}, updatedAt: row?.updatedAt ?? null };
+        const rec = defaultStageModel(stage, null);
+        return {
+          stage,
+          provider: row?.provider ?? null,
+          model: row?.model ?? null,
+          params: row?.params ?? {},
+          updatedAt: row?.updatedAt ?? null,
+          recommended: { provider: rec.provider, model: rec.model },
+          /** An administrator chose this setting (otherwise it follows the recommended one). */
+          custom: !!row?.updatedBy,
+        };
       }),
       providers: { llm: [...LLM_PROVIDERS, ...(ctx.env.NODE_ENV === 'production' ? [] : ['fake'])], embed: EMBED_PROVIDERS },
     });
@@ -89,8 +124,21 @@ export function adminOpsRoutes(ctx: AppContext) {
     const stage = c.req.param('stage') as ModelStage;
     if (!(MODEL_STAGES as readonly string[]).includes(stage)) return c.json({ error: 'not_found' }, 404);
     const allowed = stage === 'embed' ? EMBED_PROVIDERS : [...LLM_PROVIDERS, ...(ctx.env.NODE_ENV === 'production' ? [] : ['fake'])];
-    const body = z.strictObject({ provider: z.string().refine((p) => allowed.includes(p), 'Unknown provider'), model: z.string().min(1).max(200), params: z.record(z.string(), z.unknown()).optional() }).safeParse(await c.req.json().catch(() => null));
+    const body = z
+      .strictObject({
+        provider: z.string().refine((p) => allowed.includes(p), 'Unknown provider'),
+        model: z.string().trim().min(1).max(200),
+        params: z.record(z.string(), z.unknown()).optional(),
+        /** Save even though the test request failed. */
+        force: z.boolean().optional(),
+      })
+      .safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: 'invalid_request', issues: body.error.issues }, 400);
+    // A setting that can't answer a test request would fail every podcast: test it before saving.
+    if (!body.data.force) {
+      const check = await checkModel(stage, { provider: body.data.provider, model: body.data.model, ...(body.data.params ? { params: body.data.params } : {}) });
+      if (!check.ok) return c.json({ error: 'test_failed', message: check.error }, 422);
+    }
     const [before] = await ctx.db.select().from(schema.aiModelConfig).where(eq(schema.aiModelConfig.stage, stage));
     // Keep tuned params (such as reasoning effort) when only the model's other details are re-saved.
     const sameModel = before?.provider === body.data.provider && before.model === body.data.model;
@@ -101,22 +149,25 @@ export function adminOpsRoutes(ctx: AppContext) {
     return c.json({ stage, provider: values.provider, model: values.model });
   });
 
-  /** Test environment for a model change: one tiny request, reported honestly. */
+  /** Puts a stage back on the recommended free model (with its automatic backups); it then follows future defaults. */
+  r.post('/models/:stage/reset', async (c) => {
+    const stage = c.req.param('stage') as ModelStage;
+    if (!(MODEL_STAGES as readonly string[]).includes(stage)) return c.json({ error: 'not_found' }, 404);
+    const [before] = await ctx.db.select().from(schema.aiModelConfig).where(eq(schema.aiModelConfig.stage, stage));
+    const rec = defaultStageModel(stage, null);
+    const values = { provider: rec.provider, model: rec.model, params: rec.params, updatedBy: null, updatedAt: new Date() };
+    await ctx.db.insert(schema.aiModelConfig).values({ stage, ...values }).onConflictDoUpdate({ target: schema.aiModelConfig.stage, set: values });
+    const a = actor(c);
+    await audit(a.id, a.ip, 'model.reset', 'ai_model_config', stage, before ? { provider: before.provider, model: before.model } : null, { provider: rec.provider, model: rec.model });
+    return c.json({ stage, provider: rec.provider, model: rec.model });
+  });
+
+  /** Tests the stage's saved model: one tiny request, reported honestly. */
   r.post('/models/:stage/test', async (c) => {
     const stage = c.req.param('stage') as ModelStage;
     if (!(MODEL_STAGES as readonly string[]).includes(stage)) return c.json({ error: 'not_found' }, 404);
-    const t0 = Date.now();
-    try {
-      if (stage === 'embed') {
-        const [v] = await (await ctx.embedder()).embed(['ThinkMade connection test']);
-        return c.json({ ok: !!v, latencyMs: Date.now() - t0, sample: `vector of ${v?.length ?? 0} numbers` });
-      }
-      const llm = await ctx.llm(stage);
-      const res = await llm.chat([{ role: 'user', content: 'Reply with exactly: ok' }], { maxTokens: 10, temperature: 0 });
-      return c.json({ ok: true, latencyMs: Date.now() - t0, sample: res.content.slice(0, 200) });
-    } catch (err) {
-      return c.json({ ok: false, latencyMs: Date.now() - t0, error: err instanceof Error ? err.message : String(err) });
-    }
+    const [row] = await ctx.db.select().from(schema.aiModelConfig).where(eq(schema.aiModelConfig.stage, stage));
+    return c.json(await checkModel(stage, row ? { provider: row.provider, model: row.model, params: row.params ?? {} } : defaultStageModel(stage, null)));
   });
 
   // ---------- Prompts ----------

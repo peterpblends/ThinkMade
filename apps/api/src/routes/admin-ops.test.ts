@@ -92,12 +92,47 @@ describe('AI model and prompt administration', () => {
     const { app, cookie, h } = await admin();
     const models = (await (await app.request('/api/admin/models', { headers: { cookie } })).json()) as { stages: Array<{ stage: string; provider: string }> };
     expect(models.stages.map((s) => s.stage)).toContain('script');
-    const put = await app.request('/api/admin/models/script', { method: 'PUT', headers: h(cookie), body: JSON.stringify({ provider: 'groq', model: 'openai/gpt-oss-120b' }) });
+    // A setting that can't answer is refused, with the reason, and nothing changes.
+    const refused = await app.request('/api/admin/models/script', { method: 'PUT', headers: h(cookie), body: JSON.stringify({ provider: 'groq', model: 'openai/gpt-oss-120b' }) });
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toMatchObject({ error: 'test_failed', message: expect.stringMatching(/GROQ_API_KEY/) });
+    // "Save anyway" keeps it.
+    const put = await app.request('/api/admin/models/script', { method: 'PUT', headers: h(cookie), body: JSON.stringify({ provider: 'groq', model: 'openai/gpt-oss-120b', force: true }) });
     expect(await put.json()).toMatchObject({ stage: 'script', provider: 'groq', model: 'openai/gpt-oss-120b' });
     const test = (await (await app.request('/api/admin/models/script/test', { method: 'POST', headers: h(cookie), body: '{}' })).json()) as { ok: boolean; error?: string };
     expect(test).toMatchObject({ ok: false, error: expect.stringMatching(/GROQ_API_KEY/) });
     const audits = await ctx!.db.select().from(schema.auditLog).where(eq(schema.auditLog.action, 'model.update'));
     expect(audits).toHaveLength(1);
+    // A working setting saves straight away.
+    const ok = await app.request('/api/admin/models/script', { method: 'PUT', headers: h(cookie), body: JSON.stringify({ provider: 'fake', model: 'fake' }) });
+    expect(ok.status).toBe(200);
+  });
+
+  it('explains that the recommended search embedder runs on the worker, rather than reporting a failure', async () => {
+    process.env.VERCEL = '1';
+    try {
+      const { app, cookie, h } = await admin();
+      await app.request('/api/admin/models/embed/reset', { method: 'POST', headers: h(cookie), body: '{}' });
+      const test = (await (await app.request('/api/admin/models/embed/test', { method: 'POST', headers: h(cookie), body: '{}' })).json()) as { ok: boolean; sample?: string };
+      expect(test).toMatchObject({ ok: true, sample: expect.stringMatching(/runs on the podcast worker/i) });
+    } finally {
+      delete process.env.VERCEL;
+    }
+  });
+
+  it('shows the recommended model for each stage and puts a stage back on it', async () => {
+    const { app, cookie, h } = await admin();
+    await app.request('/api/admin/models/vision', { method: 'PUT', headers: h(cookie), body: JSON.stringify({ provider: 'groq', model: 'gemma-4-31b-it:free', force: true }) });
+    type Row = { stage: string; provider: string; model: string; custom: boolean; recommended: { provider: string; model: string } };
+    const before = ((await (await app.request('/api/admin/models', { headers: { cookie } })).json()) as { stages: Row[] }).stages.find((s) => s.stage === 'vision')!;
+    expect(before).toMatchObject({ provider: 'groq', custom: true, recommended: { provider: 'openrouter', model: 'google/gemma-4-31b-it:free' } });
+    expect((await app.request('/api/admin/models/vision/reset', { method: 'POST', headers: h(cookie), body: '{}' })).status).toBe(200);
+    const after = ((await (await app.request('/api/admin/models', { headers: { cookie } })).json()) as { stages: Row[] }).stages.find((s) => s.stage === 'vision')!;
+    expect(after).toMatchObject({ provider: 'openrouter', model: 'google/gemma-4-31b-it:free', custom: false });
+    // Its free backups come back too.
+    const [row] = await ctx!.db.select().from(schema.aiModelConfig).where(eq(schema.aiModelConfig.stage, 'vision'));
+    expect((row!.params as { tm_fallbacks?: unknown[] }).tm_fallbacks?.length).toBeGreaterThan(0);
+    expect(await ctx!.db.select().from(schema.auditLog).where(eq(schema.auditLog.action, 'model.reset'))).toHaveLength(1);
   });
 
   it('creates a prompt draft, tests it on sample input, activates it, and the worker uses it', async () => {

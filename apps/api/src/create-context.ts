@@ -24,6 +24,9 @@ export interface AppContext {
   llm: (stage: ModelStage) => Promise<LlmClient>;
   /** Text embedder for search vectors, as configured by administrators. */
   embedder: () => Promise<Embedder>;
+  /** A language model or embedder for a given setting, e.g. to test one before saving it. */
+  llmFor: (cfg: { provider: string; model: string; params?: Record<string, unknown> }) => LlmClient;
+  embedderFor: (cfg: { provider: string; model: string }) => Embedder;
   /** The built web app's index.html, for server-rendered share pages. */
   indexHtml: () => Promise<string>;
   worker: InProcessWorker | null;
@@ -157,6 +160,8 @@ export async function createContext(
       return createLlm(cfg, rawEnv);
     },
     embedder: async () => createEmbedder(await getStageModel(handle.db, 'embed'), rawEnv),
+    llmFor: (cfg) => createLlm({ ...cfg, params: cfg.params ?? {} }, rawEnv),
+    embedderFor: (cfg) => createEmbedder(cfg, rawEnv),
     indexHtml: loadIndexHtml,
     worker,
     pokeWorker: () => (loop ? loop.poke() : dispatchWorker(rawEnv)),
