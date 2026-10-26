@@ -116,6 +116,13 @@ const alertsSchema = z.strictObject({
   monthlyEmails: z.number().int().min(0),
 });
 
+/** How the app looks and opens. */
+const appearanceSchema = z.strictObject({
+  /** How long the opening splash shows, in seconds (0 turns it off). */
+  splashSeconds: z.number().min(0).max(10),
+});
+export const DEFAULT_SPLASH_SECONDS = 2.3;
+
 const bugReportsSchema = z.strictObject({
   email: z.union([z.literal(''), z.email()]),
 });
@@ -130,6 +137,7 @@ const settingsShape = {
   player: playerSchema.default({ completionThreshold: 0.95 }),
   costs: costsSchema.default({ llmPerMillionTokensUsd: 0, ttsPerHourUsd: 0, storagePerGbMonthUsd: 0 }),
   alerts: alertsSchema.default({ storageGb: 10, databaseMb: 1024, dailyLlmTokens: 100_000, monthlyEmails: 3000 }),
+  appearance: appearanceSchema.default({ splashSeconds: DEFAULT_SPLASH_SECONDS }),
   bugReports: bugReportsSchema,
 };
 
@@ -163,6 +171,7 @@ export const appSettingsPatchSchema = z.strictObject({
   player: playerSchema.partial().optional(),
   costs: costsSchema.partial().optional(),
   alerts: alertsSchema.partial().optional(),
+  appearance: appearanceSchema.partial().optional(),
   bugReports: bugReportsSchema.partial().optional(),
 });
 
@@ -355,6 +364,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     dailyLlmTokens: 100_000,
     monthlyEmails: 3000,
   },
+  appearance: {
+    splashSeconds: DEFAULT_SPLASH_SECONDS,
+  },
   bugReports: {
     email: '',
   },
@@ -372,6 +384,7 @@ export function applySettingsPatch(current: AppSettings, patch: AppSettingsPatch
     player: { ...current.player, ...patch.player },
     costs: { ...current.costs, ...patch.costs },
     alerts: { ...current.alerts, ...patch.alerts },
+    appearance: { ...current.appearance, ...patch.appearance },
     bugReports: { ...current.bugReports, ...patch.bugReports },
   };
   return appSettingsSchema.parse(merged);

@@ -56,6 +56,23 @@ describe('settings routes', () => {
     expect(res.status).toBe(400);
   });
 
+  it("an admin sets the opening splash's length, which visitors receive", async () => {
+    ctx = await createTestContext();
+    const app = createApp(ctx);
+    const cookie = await signUpVerified(app, ctx, { email: 'root@example.com', role: 'admin', twoFactorEnabled: true });
+    const headers = { cookie, 'content-type': 'application/json', origin: ctx.env.APP_URL };
+    const before = (await (await app.request('/api/settings/public')).json()) as { splash: { seconds: number } };
+    expect(before.splash.seconds).toBe(2.3);
+    const put = await app.request('/api/admin/settings', { method: 'PUT', headers, body: JSON.stringify({ patch: { appearance: { splashSeconds: 4.5 } } }) });
+    expect(put.status).toBe(200);
+    const after = (await (await app.request('/api/settings/public')).json()) as { splash: { seconds: number } };
+    expect(after.splash.seconds).toBe(4.5);
+    for (const bad of [-1, 11]) {
+      const res = await app.request('/api/admin/settings', { method: 'PUT', headers, body: JSON.stringify({ patch: { appearance: { splashSeconds: bad } } }) });
+      expect(res.status).toBe(400);
+    }
+  });
+
   it('a normal user cannot read admin settings', async () => {
     ctx = await createTestContext();
     const app = createApp(ctx);
