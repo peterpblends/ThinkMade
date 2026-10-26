@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, notInArray, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { schema } from '@thinkmade/db';
+import { cancelJob, schema } from '@thinkmade/db';
 import { createGenerationSchema, labelForStage, READY_LABEL, STAGE_LABELS } from '@thinkmade/shared';
 import type { AppContext } from '../create-context';
 import { LimitError, resolveOptions } from '../generation/options';
@@ -151,14 +151,14 @@ export function generationRoutes(ctx: AppContext) {
     });
   });
 
+  // Cancels at once: the job is marked cancelled and its series tidied now, whether or not a worker has it.
   r.post('/generations/:id/cancel', requireVerified(), async (c) => {
-    const updated = await ctx.db
-      .update(schema.generationJob)
-      .set({ cancelRequested: 1 })
-      .where(and(eq(schema.generationJob.id, c.req.param('id')), eq(schema.generationJob.userId, c.var.session!.user.id), inArray(schema.generationJob.status, ['queued', 'running'])))
-      .returning({ id: schema.generationJob.id });
-    if (!updated.length) return c.json({ error: 'not_found' }, 404);
-    return c.json({ ok: true });
+    const [job] = await ctx.db
+      .select({ id: schema.generationJob.id })
+      .from(schema.generationJob)
+      .where(and(eq(schema.generationJob.id, c.req.param('id')), eq(schema.generationJob.userId, c.var.session!.user.id), inArray(schema.generationJob.status, ['queued', 'running'])));
+    if (!job || !(await cancelJob(ctx.db, job.id))) return c.json({ error: 'not_found' }, 404);
+    return c.json({ ok: true, status: 'cancelled' });
   });
 
   // Puts a failed, partial or cancelled job back in the queue. The worker resumes from its saved progress

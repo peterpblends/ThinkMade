@@ -17,6 +17,8 @@ export interface WorkerDeps {
   workDir: string;
   workerId: string;
   leaseSeconds?: number;
+  /** How often a running job checks whether it was cancelled (milliseconds). */
+  cancelPollMs?: number;
   log?: (message: string, extra?: Record<string, unknown>) => void;
 }
 

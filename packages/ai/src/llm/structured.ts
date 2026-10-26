@@ -21,6 +21,8 @@ export interface CompleteJsonOptions {
   retries?: number;
   temperature?: number;
   maxTokens?: number;
+  /** Stops waiting for the model (for example when the listener cancels). */
+  signal?: AbortSignal;
 }
 
 /**
@@ -38,8 +40,10 @@ export async function completeJson<T>(
   const usage = { promptTokens: 0, completionTokens: 0 };
   let lastError = '';
   for (let attempt = 1; attempt <= retries + 1; attempt++) {
+    options.signal?.throwIfAborted();
     const res = await llm.chat(convo, {
       json: true,
+      ...(options.signal ? { signal: options.signal } : {}),
       ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
       ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
     });

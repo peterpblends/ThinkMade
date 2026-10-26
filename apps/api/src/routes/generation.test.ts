@@ -157,9 +157,12 @@ describe('generations', () => {
     const { app, json, cookie } = await setup();
     const { id } = (await (await app.request('/api/generations', { method: 'POST', headers: json, body: JSON.stringify({ topic: 'Cancel this one' }) })).json()) as { id: string };
     expect((await app.request(`/api/generations/${id}/cancel`, { method: 'POST', headers: json })).status).toBe(200);
-    await runNextJob(ctx!.worker!);
+    // Cancelled at once, before any worker runs.
     const res = (await (await app.request(`/api/generations/${id}`, { headers: { cookie } })).json()) as { status: string };
     expect(res.status).toBe('cancelled');
+    expect(await runNextJob(ctx!.worker!)).toBe(false);
+    // Already cancelled: nothing more to cancel.
+    expect((await app.request(`/api/generations/${id}/cancel`, { method: 'POST', headers: json })).status).toBe(404);
   });
 
   it('lets the owner try a failed generation again, resuming the same series', async () => {

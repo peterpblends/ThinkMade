@@ -48,4 +48,14 @@ describe('My Podcasts', () => {
     expect(screen.getByText(/couldn't be finished/i)).toBeInTheDocument();
     expect(screen.getByRole('link')).toHaveAttribute('href', '/generations/g9');
   });
+
+  it('says a podcast was cancelled rather than failed', () => {
+    render(
+      <MemoryRouter>
+        <PodcastList series={[series({ status: 'failed', readyCount: 0, episodeCount: 0 })]} generations={[{ id: 'g2', status: 'cancelled', label: 'Building your podcasts', topic: 'x', seriesId: 's1' }]} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/cancelled/i)).toBeInTheDocument();
+    expect(screen.queryByText(/couldn't be finished/i)).toBeNull();
+  });
 });

@@ -10,7 +10,7 @@ import {
   type BookVerification,
   type ChatMessage,
 } from '@thinkmade/ai';
-import { getActivePrompts, indexSeriesEmbedding, queryRows, schema, type Db, type ModelStage } from '@thinkmade/db';
+import { getActivePrompts, indexSeriesEmbedding, queryRows, schema, settleCancelledSeries, type Db, type ModelStage } from '@thinkmade/db';
 import { chooseHosts, DEFAULT_APP_SETTINGS, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences } from '@thinkmade/shared';
 import { JobCancelledError, LostLeaseError, PermanentJobError, type WorkerDeps } from './deps';
 import { input, PLAN_TASK, RESEARCH_TASK, SCRIPT_TASK, SELECT_MODELS_TASK, stageSystem, UNDERSTAND_TASK } from './prompts';
@@ -242,13 +242,27 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
   let seriesId = job.series_id;
 
   const overrides = await getActivePrompts(db);
+  // Cancelling marks the job cancelled (and clears our lease) at once. Notice within seconds and interrupt
+  // whatever is in progress: a model request, a rate-limit wait or voicing.
+  const stop = new AbortController();
+  const watch = setInterval(() => {
+    void db
+      .select({ status: schema.generationJob.status, lockedBy: schema.generationJob.lockedBy })
+      .from(schema.generationJob)
+      .where(eq(schema.generationJob.id, job.id))
+      .then(([j]) => {
+        if (!j || j.status === 'cancelled' || j.lockedBy !== deps.workerId) stop.abort();
+      })
+      .catch(() => {});
+  }, deps.cancelPollMs ?? 2000);
+  watch.unref?.();
   const chat = async <T>(stage: ModelStage, task: string, data: unknown, zschema: Parameters<typeof completeJson<T>>[2], maxTokens = 4096) => {
     const llm = await deps.llm(stage);
     const messages: ChatMessage[] = [
       { role: 'system', content: stageSystem(stage, overrides.get(stage) ?? task) },
       { role: 'user', content: input(data) },
     ];
-    const res = await completeJson(llm, messages, zschema, { temperature: stage === 'script' ? 0.8 : 0.4, maxTokens });
+    const res = await completeJson(llm, messages, zschema, { temperature: stage === 'script' ? 0.8 : 0.4, maxTokens, signal: stop.signal });
     state.tokens! += res.usage.promptTokens + res.usage.completionTokens;
     if (options.maxTokens && state.tokens! > options.maxTokens) {
       throw new PermanentJobError(`This series hit its language-model budget (${options.maxTokens} tokens).`);
@@ -550,7 +564,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     }
     delete state.extendTo;
 
-    // Episode rows (idempotent).
+    // Episode rows (idempotent). Never add rows to a series whose job was just cancelled.
+    await runner.checkOwnership();
     const existing = await db.select().from(schema.episode).where(eq(schema.episode.seriesId, seriesId));
     for (const ep of state.plan.episodes) {
       if (existing.some((e) => e.number === ep.number)) continue;
@@ -772,6 +787,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       const outFile = join(workDir, `${episodeId}.mp3`);
       const audio = await runner.run('synthesize', () =>
         assembleEpisode({
+          signal: stop.signal,
           turns: segments.map((s) => ({ voice: voiceOf(s.speaker), text: s.text })),
           tts: deps.tts,
           outFile,
@@ -824,7 +840,14 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       .where(and(eq(schema.generationJob.id, job.id), eq(schema.generationJob.lockedBy, deps.workerId)));
     return 'succeeded';
   } catch (err) {
-    if (err instanceof LostLeaseError) {
+    if (err instanceof LostLeaseError || stop.signal.aborted) {
+      const [now] = await db.select({ status: schema.generationJob.status }).from(schema.generationJob).where(eq(schema.generationJob.id, job.id));
+      if (now?.status === 'cancelled') {
+        // The listener cancelled. Tidy again in case anything was written while we stopped.
+        if (seriesId) await settleCancelledSeries(db, seriesId);
+        log('job cancelled', { jobId: job.id });
+        return 'cancelled';
+      }
       log('lost lease; another worker owns this job', { jobId: job.id });
       return 'lost_lease';
     }
@@ -857,11 +880,15 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     const outcome = await finalise('failed', userFacingError(err));
     log('job failed', { jobId: job.id, message });
     return outcome;
+  } finally {
+    clearInterval(watch);
   }
 
   async function finalise(status: 'failed' | 'cancelled', error: string): Promise<'failed' | 'partial' | 'cancelled'> {
     let final: 'failed' | 'partial' | 'cancelled' = status;
-    if (seriesId) {
+    if (seriesId && status === 'cancelled') {
+      await settleCancelledSeries(db, seriesId);
+    } else if (seriesId) {
       const ready = await db
         .select({ id: schema.episode.id })
         .from(schema.episode)
@@ -871,7 +898,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         .update(schema.episode)
         .set({ status: 'failed' })
         .where(and(eq(schema.episode.seriesId, seriesId), inArray(schema.episode.status, ['pending', 'scripting', 'validating', 'synthesizing'])));
-      await db.update(schema.podcastSeries).set({ status: final === 'cancelled' ? (ready.length ? 'partial' : 'failed') : final }).where(eq(schema.podcastSeries.id, seriesId));
+      await db.update(schema.podcastSeries).set({ status: final }).where(eq(schema.podcastSeries.id, seriesId));
     }
     await db
       .update(schema.generationJob)

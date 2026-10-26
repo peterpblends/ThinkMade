@@ -129,6 +129,8 @@ export function PodcastList({ series, generations }: { series: SeriesListItem[];
             {s.episodeCount > 0 && <span>· {s.readyCount} of {s.episodeCount} ready</span>}
           </>
         );
+      } else if (s.status === 'failed' && s.readyCount === 0 && gen?.status === 'cancelled') {
+        status = <span>Cancelled. Tap to start it again.</span>;
       } else if (s.status === 'failed' && s.readyCount === 0) {
         status = <span className="font-semibold text-danger">Couldn't be finished. Tap to try again.</span>;
       } else if (s.readyCount < s.episodeCount) {

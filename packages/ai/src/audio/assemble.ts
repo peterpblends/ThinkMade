@@ -17,6 +17,8 @@ export interface AssembleOptions {
   workDir: string;
   pauseMs?: number;
   bitrateKbps?: number;
+  /** Stops between speech chunks (for example when the listener cancels). */
+  signal?: AbortSignal;
   /** Called after each turn is synthesised with (turnsDone, totalTurns). */
   onProgress?: (done: number, total: number) => void | Promise<void>;
 }
@@ -55,6 +57,7 @@ export async function assembleEpisode(opts: AssembleOptions): Promise<AssembleRe
       const turn = opts.turns[t]!;
       const chunks = splitForSpeech(turn.text);
       for (let c = 0; c < chunks.length; c++) {
+        opts.signal?.throwIfAborted();
         const audio = await opts.tts.synthesize(chunks[c]!, turn.voice);
         if (audio.sampleRate !== rate) throw new Error(`TTS returned ${audio.sampleRate} Hz, expected ${rate} Hz`);
         speechSamples += audio.samples.length;
@@ -66,6 +69,7 @@ export async function assembleEpisode(opts: AssembleOptions): Promise<AssembleRe
     }
     out.end();
     await once(out, 'finish');
+    opts.signal?.throwIfAborted();
     await runFfmpeg([
       '-y', '-f', 's16le', '-ar', String(rate), '-ac', '1', '-i', raw,
       '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11',
