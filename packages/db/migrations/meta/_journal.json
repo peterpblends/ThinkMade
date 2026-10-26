@@ -29,6 +29,13 @@
       "when": 1792793435062,
       "tag": "0003_embedding_gemma",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792970000000,
+      "tag": "0004_rejected_episodes",
+      "breakpoints": true
     }
   ]
 }

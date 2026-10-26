@@ -23,6 +23,20 @@ export function steps(status: string, current: string | null, doneStages: Set<st
   });
 }
 
+/**
+ * The message to show when the listener has used today's allowance, or null. Failed or cancelled attempts
+ * don't use it up, and administrators have none.
+ */
+export async function dailyLimitMessage(ctx: AppContext, user: { id: string; role?: string | null }, perDay: number): Promise<string | null> {
+  if ((user.role ?? '').split(',').map((r: string) => r.trim()).includes('admin')) return null;
+  const since = new Date(ctx.now().getTime() - 24 * 3600 * 1000);
+  const [recent] = await ctx.db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.generationJob)
+    .where(and(eq(schema.generationJob.userId, user.id), gte(schema.generationJob.createdAt, since), notInArray(schema.generationJob.status, ['failed', 'cancelled'])));
+  return (recent?.n ?? 0) >= perDay ? `You can create ${perDay} series a day. Please try again tomorrow.` : null;
+}
+
 export function generationRoutes(ctx: AppContext) {
   const r = new Hono<{ Variables: AppVariables }>();
 
@@ -32,18 +46,8 @@ export function generationRoutes(ctx: AppContext) {
     if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
     const { settings } = await ctx.settings.getActive();
 
-    // Failed or cancelled attempts don't use up the daily allowance, and administrators have none.
-    const since = new Date(ctx.now().getTime() - 24 * 3600 * 1000);
-    const isAdmin = (user.role ?? '').split(',').map((r: string) => r.trim()).includes('admin');
-    const [recent] = isAdmin
-      ? [{ n: 0 }]
-      : await ctx.db
-          .select({ n: sql<number>`count(*)::int` })
-          .from(schema.generationJob)
-          .where(and(eq(schema.generationJob.userId, user.id), gte(schema.generationJob.createdAt, since), notInArray(schema.generationJob.status, ['failed', 'cancelled'])));
-    if ((recent?.n ?? 0) >= settings.limits.perUserDailyJobs) {
-      return c.json({ error: 'daily_limit', message: `You can create ${settings.limits.perUserDailyJobs} series a day. Please try again tomorrow.` }, 429);
-    }
+    const limited = await dailyLimitMessage(ctx, user, settings.limits.perUserDailyJobs);
+    if (limited) return c.json({ error: 'daily_limit', message: limited }, 429);
 
     let options;
     try {
@@ -130,7 +134,7 @@ export function generationRoutes(ctx: AppContext) {
       ? await ctx.db
           .select({ id: schema.episode.id, number: schema.episode.number, title: schema.episode.title, status: schema.episode.status })
           .from(schema.episode)
-          .where(eq(schema.episode.seriesId, job.seriesId))
+          .where(and(eq(schema.episode.seriesId, job.seriesId), sql`${schema.episode.status} <> 'rejected'`))
           .orderBy(schema.episode.number)
       : [];
     return c.json({

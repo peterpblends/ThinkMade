@@ -1,14 +1,14 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router';
-import { BookOpen, Lightbulb, MessageCircleQuestion, Pause, Play } from 'lucide-react';
+import { BookOpen, Lightbulb, LoaderCircle, MessageCircleQuestion, Pause, Play, Plus, RefreshCw } from 'lucide-react';
 import { usePlayer, type PlayableEpisode } from '../player/player-context';
 import { DownloadButton } from '../offline/download-button';
 import { startPositionFor } from '../offline/player-adapters';
-import { api } from '../lib/api';
+import { api, type ApiError } from '../lib/api';
 import { formatDuration } from '../lib/format';
 import type { EpisodeSummary, SeriesDetail } from '../lib/types';
-import { Button, Notice, PageHeader } from '../components/ui';
+import { Button, Card, Notice, PageHeader } from '../components/ui';
 import { SeriesOwnerActions, shareLink } from './series-actions';
 import { useSession } from '../lib/auth-client';
 import { useNavigate } from 'react-router';
@@ -183,11 +183,61 @@ export function SeriesScreen() {
   const q = useQuery({
     queryKey: ['series', id],
     queryFn: () => api<SeriesDetail>(`/api/series/${id}`),
-    refetchInterval: (query) => (query.state.data?.status === 'generating' ? 4000 : false),
+    refetchInterval: (query) => (query.state.data?.status === 'generating' || query.state.data?.activeGenerationId ? 4000 : false),
   });
   if (q.isError) return <Notice tone="error" role="alert">This series doesn't exist or isn't shared with you.</Notice>;
   if (!q.data) return <p role="status" className="text-muted">Loading…</p>;
   return <SeriesView s={q.data} />;
+}
+
+/** Where a reviewer removed an episode: nothing of it is shown, but the owner can ask for a new one. */
+function RemovedEpisode({ seriesId, ep, disabled }: { seriesId: string; ep: { id: string; number: number }; disabled: boolean }) {
+  const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
+  const replace = useMutation({
+    mutationFn: () => api<{ id: string }>(`/api/series/${seriesId}/episodes/${ep.id}/replace`, { method: 'POST', body: '{}' }),
+    onSuccess: (r) => navigate(`/generations/${r.id}`),
+    onError: (err) => setError(((err as ApiError).body as { message?: string } | null)?.message ?? 'Could not start a replacement. Please try again.'),
+  });
+  return (
+    <section aria-label={`Episode ${ep.number} was removed`} className="flex flex-col gap-3 rounded-[var(--radius-card)] border border-dashed border-line p-5">
+      <p className="text-sm font-semibold text-muted">Episode {ep.number}</p>
+      <p className="text-[0.98rem]">This episode didn't pass our review, so we removed it.</p>
+      <div>
+        <Button variant="secondary" onClick={() => replace.mutate()} busy={replace.isPending} disabled={disabled}>
+          <RefreshCw aria-hidden size={18} /> Create a replacement
+        </Button>
+      </div>
+      {error && <Notice tone="error" role="alert">{error}</Notice>}
+    </section>
+  );
+}
+
+/** More episodes at the end of the series, up to the most a series may have. */
+function AddEpisodes({ s }: { s: SeriesDetail }) {
+  const navigate = useNavigate();
+  const [error, setError] = useState<string | null>(null);
+  const room = (s.maxEpisodes ?? 0) - s.episodes.length - (s.removedEpisodes?.length ?? 0);
+  const add = useMutation({
+    mutationFn: (count: number) => api<{ id: string }>(`/api/series/${s.id}/episodes`, { method: 'POST', body: JSON.stringify({ count }) }),
+    onSuccess: (r) => navigate(`/generations/${r.id}`),
+    onError: (err) => setError(((err as ApiError).body as { message?: string } | null)?.message ?? 'Could not add episodes. Please try again.'),
+  });
+  if (room <= 0) return null;
+  return (
+    <Card className="flex flex-col gap-3">
+      <h2 className="text-xl">Add more episodes</h2>
+      <p className="text-sm text-muted">New episodes continue this series with the same hosts, after episode {s.episodes.length + (s.removedEpisodes?.length ?? 0)}.</p>
+      <div className="flex flex-wrap gap-2">
+        {[1, 2, 3, 5].filter((n) => n <= room).map((n) => (
+          <Button key={n} variant="secondary" onClick={() => add.mutate(n)} busy={add.isPending && add.variables === n} disabled={add.isPending}>
+            <Plus aria-hidden size={18} /> {n === 1 ? '1 episode' : `${n} episodes`}
+          </Button>
+        ))}
+      </div>
+      {error && <Notice tone="error" role="alert">{error}</Notice>}
+    </Card>
+  );
 }
 
 function SeriesView({ s }: { s: SeriesDetail }) {
@@ -195,17 +245,30 @@ function SeriesView({ s }: { s: SeriesDetail }) {
   useEffect(() => {
     if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
   }, [s.id, location.hash]);
+  const busy = !!s.activeGenerationId;
+  const queue = s.episodes.filter((e) => e.status === 'ready').map((e) => toPlayable(e, s.title));
+  const items = [
+    ...s.episodes.map((ep) => ({ number: ep.number, node: <EpisodeCard key={ep.id} ep={ep} seriesTitle={s.title} queue={queue} /> })),
+    ...(s.removedEpisodes ?? []).map((ep) => ({ number: ep.number, node: <RemovedEpisode key={ep.id} seriesId={s.id} ep={ep} disabled={busy} /> })),
+  ].sort((a, b) => a.number - b.number);
   return (
     <div>
       <PageHeader title={s.title} subtitle={s.description} />
       {!s.isOwner && s.visibility === 'public' && <PublicActions s={s} />}
-      <div className="flex flex-col gap-5">
-        {s.episodes.map((ep) => (
-          <EpisodeCard key={ep.id} ep={ep} seriesTitle={s.title} queue={s.episodes.filter((e) => e.status === 'ready').map((e) => toPlayable(e, s.title))} />
-        ))}
-      </div>
+      {busy && (
+        <div className="mb-5">
+          <Notice>
+            <span className="inline-flex items-center gap-2">
+              <LoaderCircle aria-hidden size={18} className="animate-spin" /> We're working on this series.{' '}
+              <Link to={`/generations/${s.activeGenerationId}`} className="font-semibold underline underline-offset-4">See progress</Link>
+            </span>
+          </Notice>
+        </div>
+      )}
+      <div className="flex flex-col gap-5">{items.map((x) => x.node)}</div>
       {s.isOwner && (
-        <div className="mt-8">
+        <div className="mt-8 flex flex-col gap-4">
+          {!busy && (s.status === 'ready' || s.status === 'partial') && <AddEpisodes s={s} />}
           <SeriesOwnerActions series={s} />
         </div>
       )}

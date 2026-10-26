@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Compass, Globe, Layers, Lock, RefreshCw, Repeat, Share2, Trash2 } from 'lucide-react';
 import { api, type ApiError } from '../lib/api';
@@ -50,13 +50,6 @@ export function SeriesOwnerActions({ series }: { series: { id: string; title: st
       setNote({ tone: 'error', text: ((err as ApiError).body as { message?: string } | null)?.message ?? 'Could not start. Please try again.' });
     }
   };
-  const remove = async () => {
-    if (!window.confirm('Delete this series and its audio? This cannot be undone.')) return;
-    await api(`/api/series/${series.id}`, { method: 'DELETE', body: '{}' });
-    await qc.invalidateQueries({ queryKey: ['library'] });
-    await qc.invalidateQueries({ queryKey: ['series', 'mine'] });
-    navigate('/library');
-  };
   const ready = series.status === 'ready' || series.status === 'partial';
   const btn = 'inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line px-4 text-sm font-semibold hover:bg-surface-2';
   return (
@@ -100,9 +93,69 @@ export function SeriesOwnerActions({ series }: { series: { id: string; title: st
         </div>
       </Card>
       {note && <Notice tone={note.tone} role={note.tone === 'error' ? 'alert' : 'status'}>{note.text}</Notice>}
-      <button type="button" onClick={() => void remove()} className="inline-flex items-center gap-1.5 self-start text-sm font-semibold text-danger underline-offset-4 hover:underline">
+      <DeleteSeries id={series.id} title={series.title} />
+    </div>
+  );
+}
+
+/** Compares a typed title with the real one, ignoring letter case, punctuation and extra spaces. */
+export function sameTitle(typed: string, title: string): boolean {
+  const norm = (x: string) => x.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  return norm(typed) !== '' && norm(typed) === norm(title);
+}
+
+/** Deleting can't be undone, so the listener confirms by typing the series title. */
+export function DeleteSeries({ id, title }: { id: string; title: string }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const inputId = useId();
+  const del = useMutation({
+    mutationFn: () => api(`/api/series/${id}`, { method: 'DELETE', body: '{}' }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['library'] });
+      await qc.invalidateQueries({ queryKey: ['series', 'mine'] });
+      navigate('/library');
+    },
+    onError: () => setError('Could not delete this series. Please try again.'),
+  });
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="inline-flex min-h-11 items-center gap-1.5 self-start text-sm font-semibold text-danger underline-offset-4 hover:underline">
         <Trash2 aria-hidden size={16} /> Delete this series
       </button>
-    </div>
+    );
+  }
+  const matches = sameTitle(typed, title);
+  return (
+    <Card className="flex flex-col gap-3 border-danger/40">
+      <h2 className="text-xl">Delete this series?</h2>
+      <p className="text-[0.95rem]">
+        This permanently deletes every episode, its audio and your listening history for it. It can't be undone.
+      </p>
+      <label htmlFor={inputId} className="text-sm">
+        To confirm, type the series title: <span className="font-semibold">{title}</span>
+      </label>
+      <input
+        id={inputId}
+        value={typed}
+        onChange={(e) => setTyped(e.target.value)}
+        autoComplete="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        className="min-h-12 rounded-xl border border-line bg-surface px-3 text-ink"
+      />
+      {error && <Notice tone="error" role="alert">{error}</Notice>}
+      <div className="flex flex-wrap gap-2">
+        <Button variant="danger" disabled={!matches} busy={del.isPending} onClick={() => del.mutate()}>
+          Delete forever
+        </Button>
+        <Button variant="ghost" onClick={() => { setOpen(false); setTyped(''); setError(null); }}>
+          Keep it
+        </Button>
+      </div>
+    </Card>
   );
 }

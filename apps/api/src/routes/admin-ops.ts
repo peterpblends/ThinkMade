@@ -232,6 +232,25 @@ export function adminOpsRoutes(ctx: AppContext) {
     });
   });
 
+  /**
+   * After a rejection: when every episode left is ready, the series and its job are complete (no "some
+   * episodes could not be finished"). When none is left, the series is failed and hidden from the listener.
+   */
+  async function settleAfterRejection(seriesId: string) {
+    const eps = await ctx.db.select({ status: schema.episode.status }).from(schema.episode).where(eq(schema.episode.seriesId, seriesId));
+    const left = eps.filter((x) => x.status !== 'rejected');
+    if (left.length === 0) {
+      await ctx.db.update(schema.podcastSeries).set({ status: 'failed' }).where(eq(schema.podcastSeries.id, seriesId));
+      return;
+    }
+    if (!left.every((x) => x.status === 'ready')) return;
+    await ctx.db.update(schema.podcastSeries).set({ status: 'ready' }).where(eq(schema.podcastSeries.id, seriesId));
+    await ctx.db
+      .update(schema.generationJob)
+      .set({ status: 'succeeded', error: null })
+      .where(and(eq(schema.generationJob.seriesId, seriesId), inArray(schema.generationJob.status, ['partial', 'failed'])));
+  }
+
   r.post('/quality/:episodeId', async (c) => {
     const body = z.strictObject({ decision: z.enum(['approve', 'reject']), note: z.string().trim().min(3).max(2000) }).safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: 'invalid_request', message: 'Choose approve or reject and add a short note.' }, 400);
@@ -254,10 +273,12 @@ export function adminOpsRoutes(ctx: AppContext) {
         ctx.pokeWorker();
       }
     } else {
-      await ctx.db.update(schema.episode).set({ status: 'failed' }).where(eq(schema.episode.id, e.id));
+      // A rejected episode is taken off the listener's series; the rest of the series stands on its own.
+      await ctx.db.update(schema.episode).set({ status: 'rejected' }).where(eq(schema.episode.id, e.id));
+      await settleAfterRejection(e.seriesId);
     }
     const a = actor(c);
-    await audit(a.id, a.ip, approve ? 'quality.approve' : 'quality.reject', 'episode', e.id, { status: 'needs_review' }, { status: approve ? 'pending' : 'failed', note: body.data.note });
+    await audit(a.id, a.ip, approve ? 'quality.approve' : 'quality.reject', 'episode', e.id, { status: 'needs_review' }, { status: approve ? 'pending' : 'rejected', note: body.data.note });
     return c.json({ id: e.id, decision: body.data.decision });
   });
 
