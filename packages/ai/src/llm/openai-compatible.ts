@@ -69,7 +69,8 @@ export function createOpenAiCompatibleLlm(cfg: OpenAiCompatibleConfig): LlmClien
         body.max_tokens = Math.min(options.maxTokens ?? room, room);
       }
       if (options.json) body.response_format = { type: 'json_object' };
-      const signal = options.signal ?? AbortSignal.timeout(cfg.timeoutMs ?? 180_000);
+      const timeout = AbortSignal.timeout(cfg.timeoutMs ?? 180_000);
+      const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
       let res: Response;
       for (let attempt = 0; ; attempt++) {
         try {
@@ -87,7 +88,8 @@ export function createOpenAiCompatibleLlm(cfg: OpenAiCompatibleConfig): LlmClien
         const wait = res.status === 429 ? retryAfterMs(res.headers) : null;
         if (wait === null || wait > MAX_INLINE_WAIT_MS || attempt >= MAX_INLINE_RETRIES) break;
         await res.body?.cancel().catch(() => {});
-        await (cfg.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))))(wait + 250);
+        await (cfg.sleep ?? ((ms) => abortableSleep(ms, options.signal)))(wait + 250);
+        options.signal?.throwIfAborted();
       }
       if (!res.ok) {
         const detail = (await res.text().catch(() => '')).slice(0, 300);
@@ -105,4 +107,17 @@ export function createOpenAiCompatibleLlm(cfg: OpenAiCompatibleConfig): LlmClien
       };
     },
   };
+}
+
+/** Waits, but ends early when the signal aborts (for example when the listener cancels). */
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    }
+    signal?.addEventListener('abort', done, { once: true });
+  });
 }

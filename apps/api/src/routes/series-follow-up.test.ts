@@ -72,6 +72,14 @@ describe('episodes a reviewer rejects', () => {
     expect(stages).toHaveLength(1);
   });
 
+  it('goes back to removed when its replacement is cancelled', async () => {
+    const { app, user, h, rejectedId, seriesId } = await seriesWithRejectedEpisode();
+    const { id } = (await (await app.request(`/api/series/${seriesId}/episodes/${rejectedId}/replace`, { method: 'POST', headers: h(user), body: '{}' })).json()) as { id: string };
+    expect((await app.request(`/api/generations/${id}/cancel`, { method: 'POST', headers: h(user), body: '{}' })).status).toBe(200);
+    const detail = (await (await app.request(`/api/series/${seriesId}`, { headers: { cookie: user } })).json()) as { status: string; removedEpisodes: Array<{ id: string }>; activeGenerationId: string | null };
+    expect(detail).toMatchObject({ status: 'ready', activeGenerationId: null, removedEpisodes: [{ id: rejectedId, number: 2 }] });
+  });
+
   it('cannot be replaced by someone else, and a kept episode cannot be "replaced"', async () => {
     const { app, admin, user, h, rejectedId, seriesId } = await seriesWithRejectedEpisode();
     expect((await app.request(`/api/series/${seriesId}/episodes/${rejectedId}/replace`, { method: 'POST', headers: h(admin), body: '{}' })).status).toBe(404);
