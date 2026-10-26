@@ -56,6 +56,33 @@ const qualitySchema = z.strictObject({
   maxRevisions: z.number().int().min(0).max(5),
 });
 
+/** How podcasts are produced: show format, host style and delivery. */
+export const showFormatSchema = z.enum(['storytelling', 'conversation', 'interview']);
+export type ShowFormat = z.infer<typeof showFormatSchema>;
+const productionSchema = z.strictObject({
+  /** "auto" lets each topic (and the listener's request) decide. */
+  showFormat: z.enum(['auto', 'storytelling', 'conversation', 'interview']),
+  /** Interviews may feature a simulated expert guest, always introduced as simulated. */
+  allowSimulatedGuests: z.boolean(),
+  /** Extra direction for every host, e.g. "warm and plain-spoken, with dry humour". */
+  hostStyle: z.string().max(400),
+  /** Pauses between lines and speakers. */
+  pacing: z.enum(['relaxed', 'natural', 'brisk']),
+  /** How much the voices vary their delivery. */
+  expressiveness: z.enum(['steady', 'natural', 'expressive']),
+  /** A very quiet room tone under the audio so silences don't sound like dead air. */
+  roomTone: z.boolean(),
+});
+export type ProductionSettings = z.infer<typeof productionSchema>;
+export const DEFAULT_PRODUCTION: ProductionSettings = {
+  showFormat: 'auto',
+  allowSimulatedGuests: true,
+  hostStyle: '',
+  pacing: 'natural',
+  expressiveness: 'natural',
+  roomTone: true,
+};
+
 const playerSchema = z.strictObject({
   /** Fraction of an episode after which it counts as completed. */
   completionThreshold: z.number().min(0.5).max(1),
@@ -86,6 +113,7 @@ const settingsShape = {
   media: mediaSchema,
   limits: limitsSchema,
   quality: qualitySchema.default({ minScore: 4, maxRevisions: 2 }),
+  production: productionSchema.default(DEFAULT_PRODUCTION),
   player: playerSchema.default({ completionThreshold: 0.95 }),
   costs: costsSchema.default({ llmPerMillionTokensUsd: 0, ttsPerHourUsd: 0, storagePerGbMonthUsd: 0 }),
   alerts: alertsSchema.default({ storageGb: 10, databaseMb: 1024, dailyLlmTokens: 100_000, monthlyEmails: 3000 }),
@@ -118,6 +146,7 @@ export const appSettingsPatchSchema = z.strictObject({
   media: mediaSchema.partial().optional(),
   limits: limitsSchema.partial().optional(),
   quality: qualitySchema.partial().optional(),
+  production: productionSchema.partial().optional(),
   player: playerSchema.partial().optional(),
   costs: costsSchema.partial().optional(),
   alerts: alertsSchema.partial().optional(),
@@ -283,6 +312,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     minScore: 4,
     maxRevisions: 2,
   },
+  production: DEFAULT_PRODUCTION,
   player: {
     completionThreshold: 0.95,
   },
@@ -310,6 +340,7 @@ export function applySettingsPatch(current: AppSettings, patch: AppSettingsPatch
     media: { ...current.media, ...patch.media },
     limits: { ...current.limits, ...patch.limits },
     quality: { ...current.quality, ...patch.quality },
+    production: { ...current.production, ...patch.production },
     player: { ...current.player, ...patch.player },
     costs: { ...current.costs, ...patch.costs },
     alerts: { ...current.alerts, ...patch.alerts },

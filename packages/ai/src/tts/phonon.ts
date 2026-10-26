@@ -95,11 +95,15 @@ export function createPhononTts(options: PhononOptions = {}): TtsEngine {
   return {
     name: 'phonon',
     sampleRate: 24_000,
-    synthesize: (text, voice) =>
+    synthesize: (text, voice, speak) =>
       run(async () => {
         const model = await load();
         const index = await voiceIndex(model, voice);
-        model.start_generation(index, text, options.temperature ?? 0.3, 4242424242424242n);
+        // Each line gets its own seed so delivery varies from sentence to sentence (a fixed seed made every
+        // line sound alike). Expressiveness maps to temperature: 0 is flat (0.2), 1 is lively (0.55).
+        const temperature = speak?.expressiveness !== undefined ? 0.2 + 0.35 * speak.expressiveness : (options.temperature ?? 0.3);
+        const seed = BigInt.asUintN(64, BigInt(speak?.variation ?? 4242424242) * 2654435761n + 4242424242424242n);
+        model.start_generation(index, text, temperature, seed);
         const parts: Float32Array[] = [];
         try {
           while (model.next_chunk() !== undefined) {
@@ -140,17 +144,17 @@ export function createVoiceRouterTts(engines: { phonon?: TtsEngine | undefined; 
   return {
     name: 'phonon+kokoro',
     sampleRate: 24_000,
-    async synthesize(text, voice) {
-      if (!phononVoice(voice)) return engines.kokoro.synthesize(text, voice);
+    async synthesize(text, voice, speak) {
+      if (!phononVoice(voice)) return engines.kokoro.synthesize(text, voice, speak);
       if (engines.phonon && !phononBroken) {
         try {
-          return await engines.phonon.synthesize(text, voice);
+          return await engines.phonon.synthesize(text, voice, speak);
         } catch (err) {
           phononBroken = true;
           log(`Phonon failed, using Kokoro instead: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
-      return engines.kokoro.synthesize(text, kokoroFallbackVoice(voice));
+      return engines.kokoro.synthesize(text, kokoroFallbackVoice(voice), speak);
     },
   };
 }

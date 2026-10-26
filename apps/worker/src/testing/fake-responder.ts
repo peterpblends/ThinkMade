@@ -119,7 +119,8 @@ export function fakeResponder(messages: ChatMessage[]): string {
       const turns = Math.max(2, Math.round(total / 40));
       const per = Math.max(8, Math.round(total / turns));
       return JSON.stringify({
-        segments: Array.from({ length: Math.max(turns, ids.length) }, (_, i) => ({ speaker: ids[i % ids.length], text: words(per) })),
+        // Like a real conversation, turns vary: longer stories between quick reactions (same total length).
+        segments: Array.from({ length: Math.max(turns, ids.length) }, (_, i) => ({ speaker: ids[i % ids.length], text: words(Math.max(4, Math.round(per * [1.5, 0.5, 1.2, 0.8][i % 4]!))) })),
         summary: `Covered ${inp.section?.heading ?? 'a section'}.`,
       });
     }

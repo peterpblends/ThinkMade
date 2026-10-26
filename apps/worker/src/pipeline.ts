@@ -11,7 +11,7 @@ import {
   type ChatMessage,
 } from '@thinkmade/ai';
 import { getActivePrompts, indexSeriesEmbedding, queryRows, schema, settleCancelledSeries, type Db, type ModelStage } from '@thinkmade/db';
-import { chooseHosts, DEFAULT_APP_SETTINGS, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences } from '@thinkmade/shared';
+import { castHosts, chooseHosts, chooseShowFormat, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowFormat } from '@thinkmade/shared';
 import { JobCancelledError, LostLeaseError, PermanentJobError, type WorkerDeps } from './deps';
 import { input, PLAN_TASK, RESEARCH_TASK, SCRIPT_TASK, SELECT_MODELS_TASK, stageSystem, UNDERSTAND_TASK } from './prompts';
 import type { ClaimedJob } from './queue';
@@ -64,6 +64,8 @@ export interface JobState {
   adjusted?: Partial<Pick<GenerationOptions, 'episodes' | 'lengthMinutes' | 'speakerFormat'>>;
   /** This series' hosts and their voices. */
   hosts?: Host[];
+  /** The series' show format: storytelling, conversation or interview. */
+  showFormat?: ShowFormat;
   /** Episodes (by number) to plan again because a reviewer rejected them. */
   replan?: number[];
   /** The series' episode count once the episodes the listener added are planned. */
@@ -358,6 +360,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     // What the listener asked for in their own words: length, episodes, format and hosts.
     if (!state.plan && !state.adjusted) state.adjusted = listenerAdjustments(options, prefs);
     Object.assign(options, state.adjusted ?? {});
+    const production = { ...DEFAULT_PRODUCTION, ...options.production };
+    state.showFormat ??= chooseShowFormat({ speakerFormat: options.speakerFormat, production, requested: prefs.showFormat, suggested: u.suggestedFormat });
     if (!state.hosts) {
       const described = prefs.hosts.filter((h) => h.name || h.role || h.gender);
       const count = options.speakerFormat === 'single' ? 1 : Math.max(2, described.length, options.chosenVoices?.length ?? 0);
@@ -368,10 +372,19 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         pool: options.voicePool ?? DEFAULT_APP_SETTINGS.voices.available,
         recent: await recentVoices(db, job.user_id, seriesId),
       });
+      // Every host gets a distinct part: the listener's description, or a complementary default.
+      state.hosts = castHosts(state.hosts, state.showFormat, production.hostStyle);
       await saveState(db, job.id, state);
     }
-    const hostsForPrompt = (hosts: Array<{ id: string; name: string; age?: number; role?: string }>) =>
-      hosts.map((h) => ({ speaker: h.id, name: h.name, ...(h.age ? { age: h.age } : {}), ...(h.role ? { role: h.role } : {}) }));
+    const hostsForPrompt = (hosts: Array<{ id: string; name: string; age?: number; role?: string; kind?: 'host' | 'guest'; simulated?: boolean }>) =>
+      hosts.map((h) => ({
+        speaker: h.id,
+        name: h.name,
+        ...(h.age ? { age: h.age } : {}),
+        ...(h.role ? { role: h.role } : {}),
+        ...(h.kind ? { kind: h.kind } : {}),
+        ...(h.simulated ? { simulated: true } : {}),
+      }));
     const listener = { audience: u.audience, listenerRequests: prefs.requests };
 
     if (!seriesId) {
@@ -481,6 +494,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           teachingStyle: options.teachingStyle,
           lengthMinutes: options.lengthMinutes,
           ...listener,
+          showFormat: state.showFormat,
           hosts: hostsForPrompt(state.hosts!),
           totalEpisodes: options.episodes,
           ...(earlier.length ? { earlierEpisodes: earlier.map((e) => ({ number: e.number, title: e.title, primaryModelSlug: e.primaryModelSlug, learningObjective: e.learningObjective })) } : {}),
@@ -676,11 +690,16 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       const quality = options.quality ?? { minScore: 4, maxRevisions: 2 };
       await db.update(schema.episode).set({ status: 'scripting' }).where(eq(schema.episode.id, episodeId));
 
+      const showFormat = episodeShowFormat(state.showFormat ?? 'conversation', hosts.length);
+      const nameFor = (id: string) => hosts.find((h) => h.id === id)?.name ?? id;
       const writeSection = async (i: number, revision?: { notes: string; problems: string[]; previous: string }) => {
+        // The exact end of the section before, so the conversation carries on rather than restarting.
+        const previousLines = i > 0 ? (done[i - 1]?.segments ?? []).slice(-4).map((x) => `${nameFor(x.speaker)}: ${x.text}`) : [];
         const section = await runner.run('script', () =>
           chat('script', SCRIPT_TASK, {
             seriesTitle: state.understanding!.seriesTitle,
-            episode: { number: ep.number, title: ep.title, learningObjective: ep.learningObjective, outcomes: ep.outcomes, keyTakeaways: ep.keyTakeaways, examples: ep.examples },
+            showFormat,
+            episode: { number: ep.number, title: ep.title, learningObjective: ep.learningObjective, outcomes: ep.outcomes, keyTakeaways: ep.keyTakeaways, examples: ep.examples, hook: ep.hook, throughline: ep.throughline },
             primaryModel: state.models!.find((m) => m.slug === ep.primaryModelSlug),
             supportingModels: ep.supportingModelSlugs.map((s) => state.models!.find((m) => m.slug === s)?.name).filter(Boolean),
             verifiedBooks: [ep.primaryModelSlug, ...ep.supportingModelSlugs].flatMap((s) => state.research![s]?.books ?? []).map((b) => ({ title: b.title, author: b.authors.join(', ') })),
@@ -691,6 +710,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
             isFirstSection: i === 0,
             isLastSection: i === ep.sections.length - 1,
             earlierSections: done.slice(0, i).map((d) => d.summary),
+            ...(previousLines.length ? { previousLines } : {}),
             targetWords: perSection,
             listenerObjective: state.understanding!.objective,
             ...(revision ? { revision: { instruction: 'Rewrite this section to fix the reviewer\'s problems. Keep what works.', reviewerNotes: revision.notes, problems: revision.problems, previousText: revision.previous } } : {}),
@@ -709,6 +729,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
               episode: { number: ep.number, title: ep.title, outcomes: ep.outcomes },
               hosts: hostsForPrompt(hosts),
               format,
+              showFormat,
               ...listener,
               section: { index: i + 1, of: ep.sections.length, heading: ep.sections[i]!.heading, goal: ep.sections[i]!.goal },
               isLastSection: i === ep.sections.length - 1,
@@ -744,7 +765,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           for (const w of windows) {
             judgements.push(
               await chat('validate', VALIDATE_TASK, {
-                episode: { title: ep.title, learningObjective: ep.learningObjective, outcomes: ep.outcomes, primaryModel: state.models!.find((m) => m.slug === ep.primaryModelSlug)?.name },
+                episode: { title: ep.title, learningObjective: ep.learningObjective, outcomes: ep.outcomes, hook: ep.hook, throughline: ep.throughline, primaryModel: state.models!.find((m) => m.slug === ep.primaryModelSlug)?.name },
+                showFormat,
                 verifiedBooks: [ep.primaryModelSlug, ...ep.supportingModelSlugs].flatMap((s) => state.research![s]?.books ?? []).map((b) => ({ title: b.title, author: b.authors.join(', ') })),
                 format,
                 hosts: hostsForPrompt(hosts),
@@ -788,7 +810,11 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       const audio = await runner.run('synthesize', () =>
         assembleEpisode({
           signal: stop.signal,
-          turns: segments.map((s) => ({ voice: voiceOf(s.speaker), text: s.text })),
+          // Section boundaries get a longer breath; the rest of the pacing follows the lines themselves.
+          turns: done.flatMap((d, si) => d.segments.map((s, k) => ({ voice: voiceOf(s.speaker), text: s.text, ...(si > 0 && k === 0 ? { sectionBreak: true } : {}) }))),
+          pacing: production.pacing,
+          expressiveness: production.expressiveness,
+          roomTone: production.roomTone,
           tts: deps.tts,
           outFile,
           workDir,
@@ -813,7 +839,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         .update(schema.generationJob)
         .set({ audioSecondsGenerated: sql`${schema.generationJob.audioSecondsGenerated} + ${audio.durationSeconds}` })
         .where(eq(schema.generationJob.id, job.id));
-      log('episode ready', { jobId: job.id, episode: ep.number, seconds: Math.round(audio.durationSeconds) });
+      log('episode ready', { jobId: job.id, episode: ep.number, seconds: Math.round(audio.durationSeconds), audioChecks: audio.checks });
       if (options.maxAudioMinutes && audioSeconds / 60 > options.maxAudioMinutes) {
         throw new PermanentJobError(`This series hit its audio budget (${options.maxAudioMinutes} minutes).`);
       }

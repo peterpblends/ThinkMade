@@ -25,9 +25,9 @@ export function createKokoroTts(options: KokoroOptions = {}): TtsEngine {
   return {
     name: 'kokoro',
     sampleRate: 24_000,
-    async synthesize(text, voice) {
+    async synthesize(text, voice, speak) {
       const model = await load();
-      const out = await model.generate(text, { voice, speed: options.speed ?? 1 });
+      const out = await model.generate(text, { voice, speed: (options.speed ?? 1) * (speak?.speed ?? 1) });
       return { samples: out.audio, sampleRate: out.sampling_rate };
     },
   };

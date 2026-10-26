@@ -30,5 +30,6 @@ export function resolveOptions(settings: AppSettings, input: Pick<CreateGenerati
     maxTokens: settings.limits.maxTokensPerJob,
     maxAudioMinutes: settings.limits.maxAudioMinutesPerJob,
     quality: { minScore: settings.quality.minScore, maxRevisions: settings.quality.maxRevisions },
+    production: settings.production,
   };
 }

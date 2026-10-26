@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { learningModeSchema, speakerFormatSchema, visibilitySchema } from './settings.ts';
+import { learningModeSchema, speakerFormatSchema, visibilitySchema, type ProductionSettings } from './settings.ts';
 
 /** Internal pipeline stages, in order. */
 export const GENERATION_STAGES = ['analyze_media', 'understand', 'select_models', 'research', 'plan', 'script', 'validate', 'synthesize', 'publish'] as const;
@@ -67,5 +67,7 @@ export interface GenerationOptions {
   maxTokens: number;
   maxAudioMinutes: number;
   quality?: { minScore: number; maxRevisions: number };
+  /** How the podcast is produced (format, host style, delivery). Jobs from before this was added use the defaults. */
+  production?: ProductionSettings;
 }
 

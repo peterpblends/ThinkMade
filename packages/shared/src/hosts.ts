@@ -11,6 +11,10 @@ export interface Host {
   age?: number;
   /** The persona the listener described, e.g. "a warm mentor who gives biblical guidance". */
   role?: string;
+  /** In an interview: the interviewer(s) or the guest(s). */
+  kind?: 'host' | 'guest';
+  /** A guest voiced from research rather than a real person; always introduced as simulated. */
+  simulated?: boolean;
 }
 
 /** A host as the listener described them; any part may be missing. */

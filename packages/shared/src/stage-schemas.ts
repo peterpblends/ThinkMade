@@ -36,8 +36,11 @@ export const understandingSchema = z.object({
       episodes: z.number().int().min(1).max(50).nullish().catch(null),
       lengthMinutes: z.number().int().min(1).max(60).nullish().catch(null),
       speakerFormat: z.enum(['single', 'conversation']).nullish().catch(null),
+      showFormat: z.enum(['storytelling', 'conversation', 'interview']).nullish().catch(null),
     })
     .default({ hosts: [], requests: [] }),
+  /** The show format that would make this topic most engaging. */
+  suggestedFormat: z.enum(['storytelling', 'conversation', 'interview']).nullish().catch(null),
 });
 export type Understanding = z.infer<typeof understandingSchema>;
 export type ListenerPreferences = Understanding['preferences'];
@@ -101,6 +104,10 @@ export const planSchema = z.object({
           )
           .min(1)
           .max(5),
+        /** How the episode opens: a story, surprising fact, scene or question. */
+        hook: z.string().max(600).default(''),
+        /** The question or tension the episode keeps returning to. */
+        throughline: z.string().max(400).default(''),
         // Models sometimes split a section into a heading-only and a goal-only item; accept that and
         // fill the gap rather than failing the whole plan.
         sections: z
@@ -163,10 +170,11 @@ You are the quality reviewer. Grade this podcast script before it is turned into
 - thinking: the listener will understand what the model is, why it works, its assumptions and limits.
 - seeing: the listener learns the signals and situations where it applies, and where it does not.
 - doing: the listener sees step-by-step practical application with concrete examples.
-- flow: it sounds like a natural, engaging conversation, not a lecture with announced sections; hosts have real roles.
+- flow: it sounds like real people, not a reading: it opens with a hook, not a welcome; turns build on and react to the previous line; hosts have distinct personalities and real roles (in interviews, follow-up questions build on answers); there is genuine curiosity and some disagreement or discovery; turn lengths vary; no stock phrases ("great question", "absolutely", "let's dive in"), constant agreement, hype or recaps; storytelling is a narrative, not a summary.
 - accuracy: claims are accurate; nothing invented (books, quotes, studies, statistics, cases); hypotheticals are labelled.
 - sources: only books from the verified list are named, with correct authors; no quotations from them. Scripture or other texts the listener asked for are fine when cited accurately.
 - repetition: no needless repetition within the script or of earlier sections.
+- (In an interview, a simulated guest must be introduced as simulated and never claim personal experiences; score accuracy 1 if not.)
 - instructions: the script follows the listener's requests (listenerRequests and audience) and the hosts' descriptions (names, ages, roles) wherever they apply to this window. Score 5 when there are none.
 You are reviewing a window of the script (sections listed). Judge coverage criteria on what you can see; the full episode outcomes are given for context.
 List concrete problems, the section numbers that must be rewritten, and specific revision notes the writer can act on.

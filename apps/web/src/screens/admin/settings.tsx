@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import { DEFAULT_APP_SETTINGS, voiceLabel } from '@thinkmade/shared';
+import { DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, voiceLabel, type ProductionSettings } from '@thinkmade/shared';
 import { api, ApiError } from '../../lib/api';
 import { Button, Card, Field, Notice, PageHeader } from '../../components/ui';
 
@@ -13,6 +13,7 @@ interface AdminSettings {
     media: Record<string, number>;
     limits: Record<string, number>;
     quality: Record<string, number>;
+    production?: ProductionSettings;
     bugReports: { email: string };
   };
 }
@@ -39,6 +40,12 @@ const NUMBER_FIELDS: Array<[section: 'podcast' | 'media' | 'limits' | 'quality',
   ['limits', 'maxAudioMinutesPerJob', 'Audio minutes per generation'],
   ['quality', 'minScore', 'Minimum quality score to record (1–5)'],
   ['quality', 'maxRevisions', 'Script rewrites before holding for human review'],
+];
+
+const PRODUCTION_SELECTS: Array<[key: 'showFormat' | 'pacing' | 'expressiveness', label: string, options: Array<[string, string]>, hint: string]> = [
+  ['showFormat', 'Show format', [['auto', 'Choose for each topic'], ['storytelling', 'Storytelling'], ['conversation', 'Conversation'], ['interview', 'Interview']], "Single-host episodes are always storytelling. A listener's own request comes first."],
+  ['pacing', 'Pacing', [['relaxed', 'Relaxed'], ['natural', 'Natural'], ['brisk', 'Brisk']], 'Pauses between lines and speakers, and speaking speed.'],
+  ['expressiveness', 'Voice expressiveness', [['steady', 'Steady'], ['natural', 'Natural'], ['expressive', 'Expressive']], 'How much delivery varies from line to line.'],
 ];
 
 const SELECTS: Array<[key: string, label: string, options: Array<[string, string]>]> = [
@@ -78,6 +85,7 @@ export function AdminSettingsScreen() {
   }
   if (!current.data) return <p role="status">Loading…</p>;
   const s = current.data.settings;
+  const production = { ...DEFAULT_PRODUCTION, ...s.production };
 
   const save = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -92,6 +100,12 @@ export function AdminSettingsScreen() {
       limits: Object.fromEntries(NUMBER_FIELDS.filter(([sec]) => sec === 'limits').map(([, k]) => [k, num(`limits.${k}`)])),
       quality: Object.fromEntries(NUMBER_FIELDS.filter(([sec]) => sec === 'quality').map(([, k]) => [k, num(`quality.${k}`)])),
       voices: { single: String(f.get('voices.single')), hostA: String(f.get('voices.hostA')), hostB: String(f.get('voices.hostB')) },
+      production: {
+        ...Object.fromEntries(PRODUCTION_SELECTS.map(([k]) => [k, String(f.get(`production.${k}`))])),
+        hostStyle: String(f.get('production.hostStyle') ?? '').trim(),
+        allowSimulatedGuests: f.get('production.allowSimulatedGuests') === 'on',
+        roomTone: f.get('production.roomTone') === 'on',
+      },
       bugReports: { email: String(f.get('bugReports.email') ?? '').trim() },
     };
     setBusy(true);
@@ -150,6 +164,36 @@ export function AdminSettingsScreen() {
               </select>
             </label>
           ))}
+        </Card>
+        <Card className="flex flex-col gap-4">
+          <h2 className="text-xl">Production</h2>
+          <p className="text-sm text-muted">How podcasts sound: the kind of show, the hosts' style and the delivery.</p>
+          {PRODUCTION_SELECTS.map(([k, label, options, hint]) => (
+            <label key={k} className="flex flex-col gap-1.5 text-sm font-medium">
+              {label}
+              <select name={`production.${k}`} defaultValue={production[k]} className={select}>
+                {options.map(([v, l]) => (
+                  <option key={v} value={v}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs font-normal text-muted">{hint}</span>
+            </label>
+          ))}
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            Host style
+            <textarea name="production.hostStyle" defaultValue={production.hostStyle} maxLength={400} rows={2} placeholder="For example: warm and plain-spoken, with dry humour." className="rounded-xl border border-line bg-surface px-3 py-2 text-ink" />
+            <span className="text-xs font-normal text-muted">Added to every host the listener didn't describe themselves.</span>
+          </label>
+          <label className="flex min-h-11 items-center gap-3 text-sm font-medium">
+            <input type="checkbox" name="production.allowSimulatedGuests" defaultChecked={production.allowSimulatedGuests} className="h-5 w-5" />
+            Allow interviews with simulated expert guests (always introduced as simulated)
+          </label>
+          <label className="flex min-h-11 items-center gap-3 text-sm font-medium">
+            <input type="checkbox" name="production.roomTone" defaultChecked={production.roomTone} className="h-5 w-5" />
+            Quiet room tone under the audio, so pauses don't sound like dead air
+          </label>
         </Card>
         <Card className="flex flex-col gap-4">
           <h2 className="text-xl">Media, usage and quality limits</h2>

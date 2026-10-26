@@ -176,7 +176,7 @@ describe('short plans', () => {
       const plan = JSON.parse(out) as { episodes: unknown[] };
       return JSON.stringify({ ...plan, episodes: plan.episodes.slice(0, 3) }); // never more than 3 per reply
     });
-    const job = await world.enqueue('Ten episodes', { episodes: 10, lengthMinutes: 5 });
+    const job = await world.enqueue('Ten episodes', { episodes: 10, lengthMinutes: 1 });
     await runNextJob(world.deps);
     const [j] = await world.db.select().from(schema.generationJob).where(eq(schema.generationJob.id, job.id));
     expect(j!.status).toBe('succeeded');
