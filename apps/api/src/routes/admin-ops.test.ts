@@ -210,6 +210,31 @@ describe('usage dashboard, moderation and audit', () => {
     expect(u.bandwidth.measured).toBe(false);
   });
 
+  it('reports what each person generated, what went wrong and what they rated', async () => {
+    const { app, cookie, user, h } = await admin();
+    await app.request('/api/generations', { method: 'POST', headers: h(user), body: JSON.stringify({ topic: 'How do habits form?', customization: ONE }) });
+    await runNextJob(ctx!.worker!);
+    const [ep] = await ctx!.db.select().from(schema.episode);
+    expect((await app.request(`/api/ratings/${ep!.id}`, { method: 'PUT', headers: h(user), body: JSON.stringify({ stars: 4 }) })).status).toBe(200);
+    const [u] = await ctx!.db.select().from(schema.user).where(eq(schema.user.email, 'user@example.com'));
+    const [req] = await ctx!.db.insert(schema.learningRequest).values({ userId: u!.id, inputText: 'Broken topic' }).returning();
+    await ctx!.db.insert(schema.generationJob).values({ userId: u!.id, learningRequestId: req!.id, status: 'failed', currentStage: 'script', error: 'The language model service failed repeatedly.' });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose shape for assertions
+    const r = (await (await app.request('/api/admin/report?days=30', { headers: { cookie } })).json()) as Record<string, any>;
+    expect(r.totals).toMatchObject({ people: 1, requests: 2, episodes: 1, errors: 1, ratings: 1, averageStars: 4 });
+    const person = r.people.find((p: { email: string }) => p.email === 'user@example.com');
+    expect(person).toMatchObject({ requests: 2, series: 1, episodes: 1, failed: 1, ratings: 1, averageStars: 4 });
+    expect(r.generation.map((g: { topic: string; status: string }) => [g.topic, g.status])).toEqual(
+      expect.arrayContaining([['How do habits form?', 'succeeded'], ['Broken topic', 'failed']]),
+    );
+    expect(r.errors).toEqual([expect.objectContaining({ email: 'user@example.com', topic: 'Broken topic', stage: 'script', error: 'The language model service failed repeatedly.' })]);
+    expect(r.ratings).toEqual([expect.objectContaining({ email: 'user@example.com', episodeId: ep!.id, stars: 4 })]);
+
+    expect((await app.request('/api/admin/report?days=12', { headers: { cookie } })).status).toBe(400);
+    expect((await app.request('/api/admin/report', { headers: { cookie: user } })).status).toBe(403);
+  });
+
   it('lets an admin unpublish a public series, with an audit trail', async () => {
     const { app, cookie, user, h } = await admin();
     await app.request('/api/generations', { method: 'POST', headers: h(user), body: JSON.stringify({ topic: 'Public thing', customization: ONE }) });

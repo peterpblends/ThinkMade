@@ -404,6 +404,82 @@ export function adminOpsRoutes(ctx: AppContext) {
     });
   });
 
+  // ---------- Activity report: what each person generated, what went wrong, what they rated ----------
+  r.get('/report', async (c) => {
+    const days = Number(c.req.query('days') ?? 30);
+    if (![7, 30, 90, 365].includes(days)) return c.json({ error: 'invalid_request', message: 'days must be 7, 30, 90 or 365' }, 400);
+    const since = new Date(Date.now() - days * 86400_000).toISOString();
+    const people = await queryRows<{
+      id: string; name: string; email: string; created_at: string; requests: number; series: number; episodes: number; minutes: number;
+      failed: number; partial: number; cancelled: number; ratings: number; avg_stars: number | null; last_request: string | null;
+    }>(
+      ctx.db,
+      sql`select u.id, u.name, u.email, u.created_at,
+            (select count(*)::int from generation_job j where j.user_id = u.id and j.created_at > ${since}::timestamptz) as requests,
+            (select count(distinct j.series_id)::int from generation_job j where j.user_id = u.id and j.series_id is not null and j.created_at > ${since}::timestamptz) as series,
+            (select count(*)::int from episode e join podcast_series s on s.id = e.series_id where s.user_id = u.id and e.status = 'ready' and e.created_at > ${since}::timestamptz) as episodes,
+            (select coalesce(sum(e.duration_seconds), 0)::float / 60 from episode e join podcast_series s on s.id = e.series_id where s.user_id = u.id and e.status = 'ready' and e.created_at > ${since}::timestamptz) as minutes,
+            (select count(*)::int from generation_job j where j.user_id = u.id and j.status = 'failed' and j.created_at > ${since}::timestamptz) as failed,
+            (select count(*)::int from generation_job j where j.user_id = u.id and j.status = 'partial' and j.created_at > ${since}::timestamptz) as partial,
+            (select count(*)::int from generation_job j where j.user_id = u.id and j.status = 'cancelled' and j.created_at > ${since}::timestamptz) as cancelled,
+            (select count(*)::int from rating r where r.user_id = u.id and r.updated_at > ${since}::timestamptz) as ratings,
+            (select avg(r.stars)::float from rating r where r.user_id = u.id and r.updated_at > ${since}::timestamptz) as avg_stars,
+            (select max(j.created_at) from generation_job j where j.user_id = u.id) as last_request
+          from "user" u
+          order by last_request desc nulls last, u.created_at desc`,
+    );
+    const jobs = await queryRows<{
+      id: string; user_id: string; email: string; topic: string | null; series_id: string | null; series_title: string | null; status: string;
+      current_stage: string | null; error: string | null; episodes: number | null; ready: number; rejected: number; tokens: number; created_at: string; finished_at: string | null;
+    }>(
+      ctx.db,
+      sql`select j.id, j.user_id, u.email, coalesce(lr.input_text, lr.input_transcript) as topic, j.series_id, s.title as series_title, j.status,
+            j.current_stage, j.error, (j.options->>'episodes')::int as episodes,
+            (select count(*)::int from episode e where e.series_id = j.series_id and e.status = 'ready') as ready,
+            (select count(*)::int from episode e where e.series_id = j.series_id and e.status = 'rejected') as rejected,
+            j.tokens_used as tokens, j.created_at, j.finished_at
+          from generation_job j
+          join "user" u on u.id = j.user_id
+          left join learning_request lr on lr.id = j.learning_request_id
+          left join podcast_series s on s.id = j.series_id
+          where j.created_at > ${since}::timestamptz
+          order by j.created_at desc limit 500`,
+    );
+    const ratings = await queryRows<{ user_id: string; email: string; episode_id: string; episode_title: string; series_title: string; stars: number; rated_at: string }>(
+      ctx.db,
+      sql`select r.user_id, u.email, e.id as episode_id, e.title as episode_title, s.title as series_title, r.stars, r.updated_at as rated_at
+          from rating r join "user" u on u.id = r.user_id join episode e on e.id = r.episode_id join podcast_series s on s.id = e.series_id
+          where r.updated_at > ${since}::timestamptz
+          order by r.updated_at desc limit 500`,
+    );
+    const generation = jobs.map((j) => ({
+      id: j.id, userId: j.user_id, email: j.email, topic: (j.topic ?? '').slice(0, 300), seriesId: j.series_id, seriesTitle: j.series_title, status: j.status,
+      stage: j.current_stage, episodesRequested: j.episodes, episodesReady: j.ready, episodesRejected: j.rejected, tokens: j.tokens, createdAt: j.created_at, finishedAt: j.finished_at,
+    }));
+    // Errors: jobs that failed, finished only partly, or are waiting after a problem (rate limits, retries).
+    const errors = jobs
+      .filter((j) => j.status === 'failed' || j.status === 'partial' || (j.error && (j.status === 'queued' || j.status === 'running')))
+      .map((j) => ({ jobId: j.id, userId: j.user_id, email: j.email, seriesTitle: j.series_title, topic: (j.topic ?? '').slice(0, 300), status: j.status, stage: j.current_stage, error: j.error ?? 'No message was recorded.', createdAt: j.created_at }));
+    return c.json({
+      days,
+      totals: {
+        people: people.filter((p) => p.requests > 0).length,
+        requests: jobs.length,
+        episodes: people.reduce((n, p) => n + p.episodes, 0),
+        errors: errors.length,
+        ratings: ratings.length,
+        averageStars: ratings.length ? Number((ratings.reduce((n, r) => n + r.stars, 0) / ratings.length).toFixed(2)) : null,
+      },
+      people: people.map((p) => ({
+        id: p.id, name: p.name, email: p.email, joinedAt: p.created_at, requests: p.requests, series: p.series, episodes: p.episodes, minutes: Math.round(p.minutes),
+        failed: p.failed, partial: p.partial, cancelled: p.cancelled, ratings: p.ratings, averageStars: p.avg_stars === null ? null : Number(Number(p.avg_stars).toFixed(2)), lastRequestAt: p.last_request,
+      })),
+      generation,
+      errors,
+      ratings: ratings.map((r) => ({ userId: r.user_id, email: r.email, episodeId: r.episode_id, episodeTitle: r.episode_title, seriesTitle: r.series_title, stars: r.stars, ratedAt: r.rated_at })),
+    });
+  });
+
   // ---------- Public content moderation ----------
   r.get('/public', async (c) => {
     const rows = await ctx.db

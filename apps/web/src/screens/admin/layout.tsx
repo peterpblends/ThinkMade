@@ -6,6 +6,7 @@ import { Link } from 'react-router';
 
 const TABS = [
   ['/admin', 'Overview', true],
+  ['/admin/report', 'Activity', false],
   ['/admin/settings', 'Defaults', false],
   ['/admin/models', 'AI models', false],
   ['/admin/prompts', 'Prompts', false],
