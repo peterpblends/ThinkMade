@@ -108,6 +108,16 @@ export const planSchema = z.object({
         hook: z.string().max(600).default(''),
         /** The question or tension the episode keeps returning to. */
         throughline: z.string().max(400).default(''),
+        /** In an interview series with a different guest each episode: who this episode's guest is. */
+        guest: z
+          .object({
+            expertise: z.string().max(200),
+            perspective: z.string().max(300).default(''),
+            gender: z.enum(['female', 'male']).nullish().catch(null),
+            age: z.number().int().min(18).max(100).nullish().catch(null),
+          })
+          .nullish()
+          .catch(null),
         // Models sometimes split a section into a heading-only and a goal-only item; accept that and
         // fill the gap rather than failing the whole plan.
         sections: z

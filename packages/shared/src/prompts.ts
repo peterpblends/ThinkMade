@@ -60,11 +60,12 @@ Write the three outcomes as what the listener will be able to do afterwards.
 Plan each episode as a show people want to listen to, in the given showFormat, not a lecture:
 - hook: how the episode opens: a specific story, a surprising fact, a vivid scene or a provocative question that pulls the listener in (never "welcome to the show" or a summary of what is coming).
 - throughline: the one question or tension the episode keeps returning to and resolves by the end.
+- guest (only when rotatingGuests is true): this episode's simulated expert guest, chosen for this episode's subject: "expertise" (what they know, for example "a researcher who studies decision fatigue"), "perspective" (their angle or where they might disagree), and "gender" or "age" only if it matters for the episode. Make each episode's guest different.
 - sections are beats of discovery (a story, a twist, a debate, a worked example, a realisation), each with a heading and a goal saying what the listener discovers. Weave thinking, seeing and doing through them; never three labelled blocks.
 Only cite books from the verified list for that model. Examples marked "real" must be well documented and accurately described; otherwise mark them "hypothetical".
 Follow listenerRequests: cover the topics and emphases they ask for across the series, and write for their audience.
 Use exactly the requested number of episodes and roughly one section per 4 minutes of target length.
-Shape: {"episodes": [{"number": number, "title": string, "description": string, "primaryModelSlug": string, "supportingModelSlugs": string[], "learningObjective": string, "outcomes": {"thinking": string, "seeing": string, "doing": string}, "keyTakeaways": string[], "examples": [{"title": string, "kind": "real" | "hypothetical", "summary": string}], "hook": string, "throughline": string, "sections": [{"heading": string, "goal": string}]}]}`;
+Shape: {"episodes": [{"number": number, "title": string, "description": string, "primaryModelSlug": string, "supportingModelSlugs": string[], "learningObjective": string, "outcomes": {"thinking": string, "seeing": string, "doing": string}, "keyTakeaways": string[], "examples": [{"title": string, "kind": "real" | "hypothetical", "summary": string}], "hook": string, "throughline": string, "guest": {"expertise": string, "perspective": string, "gender": "female" | "male" | null, "age": number | null} | null, "sections": [{"heading": string, "goal": string}]}]}`;
 
 export const SCRIPT_TASK = `
 Write the spoken script for ONE section of a podcast episode. It must sound like real, thoughtful people talking, not someone reading an article aloud.

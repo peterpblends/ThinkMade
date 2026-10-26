@@ -23,6 +23,7 @@ export function resolveOptions(settings: AppSettings, input: Pick<CreateGenerati
     teachingStyle: p.teachingStyle,
     voices: { single: settings.voices.single, hostA: settings.voices.hostA, hostB: settings.voices.hostB },
     voicePool: settings.voices.available,
+    voiceProfiles: settings.voices.profiles,
     ...(input.voices?.length ? { chosenVoices: input.voices } : {}),
     customized: !!c,
     limits: { maxEpisodes: p.maxEpisodesPerSeries, maxMinutes: p.maxEpisodeMinutes },

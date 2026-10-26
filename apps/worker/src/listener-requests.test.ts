@@ -124,4 +124,31 @@ describe("the listener's requests", () => {
     expect(second!.previousLines.at(-1)).toMatch(new RegExp(`^${ep!.hosts![1]!.name}: |^${ep!.hosts![0]!.name}: `));
     expect(seen.validate![0]!.showFormat).toBe('interview');
   });
+
+  it('keeps one interviewer for the series and brings a different guest, suited to the episode, each time', async () => {
+    const guests = ['a historian of failed expeditions', 'a surgeon who studies when to stop operating', 'a venture investor who kills projects early'];
+    world = await makeWorld((messages) => {
+      const stage = textOf(messages[0]!.content).match(/^STAGE: (\w+)/)?.[1] ?? '';
+      const out = fakeResponder(messages);
+      if (stage === 'understand') return JSON.stringify({ ...JSON.parse(out), suggestedFormat: 'interview' });
+      if (stage === 'plan') {
+        const plan = JSON.parse(out) as { episodes: Array<{ number: number }> };
+        return JSON.stringify({ episodes: plan.episodes.map((e) => ({ ...e, guest: { expertise: guests[e.number - 1], perspective: 'Sceptical of sunk-cost thinking.', gender: e.number === 2 ? 'female' : null } })) });
+      }
+      return out;
+    });
+    await world.enqueue('When should I quit a project?', { episodes: 3, lengthMinutes: 1, speakerFormat: 'two_hosts' });
+    await runNextJob(world.deps);
+    const eps = await world.db.select().from(schema.episode).orderBy(schema.episode.number);
+    expect(eps.map((e) => e.status)).toEqual(['ready', 'ready', 'ready']);
+    const interviewers = eps.map((e) => e.hosts![0]!);
+    expect(new Set(interviewers.map((h) => h.voice)).size).toBe(1);
+    expect(interviewers.every((h) => h.kind === 'host')).toBe(true);
+    const episodeGuests = eps.map((e) => e.hosts![1]!);
+    expect(new Set(episodeGuests.map((h) => h.voice)).size).toBe(3);
+    expect(new Set(episodeGuests.map((h) => h.name)).size).toBe(3);
+    expect(episodeGuests.every((g) => g.kind === 'guest' && g.simulated)).toBe(true);
+    episodeGuests.forEach((g, i) => expect(g.role).toContain(guests[i]));
+    expect(voiceInfo(episodeGuests[1]!.voice)!.gender).toBe('female');
+  });
 });
