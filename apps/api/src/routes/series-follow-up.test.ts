@@ -91,6 +91,18 @@ describe('episodes a reviewer rejects', () => {
   });
 });
 
+describe('My Podcasts', () => {
+  it("lists only the listener's own series", async () => {
+    const { app, admin, user, h } = await setup();
+    await app.request('/api/generations', { method: 'POST', headers: h(user), body: JSON.stringify({ topic: 'Mine', customization: TWO }) });
+    await runNextJob(ctx!.worker!);
+    const theirs = (await (await app.request('/api/series', { headers: { cookie: admin } })).json()) as { series: unknown[] };
+    expect(theirs.series).toEqual([]);
+    const mine = (await (await app.request('/api/series', { headers: { cookie: user } })).json()) as { series: unknown[] };
+    expect(mine.series).toHaveLength(1);
+  });
+});
+
 describe('adding episodes to a series', () => {
   it('plans and records new episodes after the last one, with the same hosts', async () => {
     const { app, user, h } = await setup();

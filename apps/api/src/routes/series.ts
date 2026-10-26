@@ -105,8 +105,9 @@ export function seriesRoutes(ctx: AppContext) {
         and(
           eq(schema.podcastSeries.userId, userId),
           // A series whose every episode was rejected has nothing to show.
-          sql`not exists (select 1 from episode e where e.series_id = "podcast_series"."id" and e.status = 'rejected')
-              or exists (select 1 from episode e where e.series_id = "podcast_series"."id" and e.status <> 'rejected')`,
+          // Parenthesised so the OR never escapes the owner condition above.
+          sql`(not exists (select 1 from episode e where e.series_id = "podcast_series"."id" and e.status = 'rejected')
+              or exists (select 1 from episode e where e.series_id = "podcast_series"."id" and e.status <> 'rejected'))`,
         ),
       )
       .orderBy(desc(schema.podcastSeries.createdAt));
