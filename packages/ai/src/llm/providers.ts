@@ -27,6 +27,17 @@ const PROVIDERS: Record<string, { baseUrl: (env: Env) => string; keyVar?: string
 
 export const LLM_PROVIDERS = Object.keys(PROVIDERS);
 
+/** Whether a provider can be used: it exists and its API key (if it needs one) is set. */
+export function providerConfigured(provider: string, env: Env): boolean {
+  const p = PROVIDERS[provider];
+  return !!p && (!p.keyVar || !!env[p.keyVar]);
+}
+
+/** The environment variable holding a provider's API key, if it needs one. */
+export function providerKeyVar(provider: string): string | undefined {
+  return PROVIDERS[provider]?.keyVar;
+}
+
 /** A scripted responder used by `provider: 'fake'` (tests and local demos only). */
 let fakeResponder: ((messages: ChatMessage[]) => string) | null = null;
 export function setFakeResponder(fn: ((messages: ChatMessage[]) => string) | null) {

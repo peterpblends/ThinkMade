@@ -24,17 +24,18 @@ echo "ThinkMade worker settings. Paste each value and press Enter."
 ask DATABASE_URL         "1. Neon connection string (postgresql://...)" 1
 ask GROQ_API_KEY         "2. Groq API key" 1
 ask OPENROUTER_API_KEY   "3. OpenRouter API key" 1
-ask S3_ENDPOINT          "4. Backblaze endpoint" 0 "https://s3.us-east-005.backblazeb2.com"
-ask S3_BUCKET            "5. Backblaze bucket name" 0
-ask S3_ACCESS_KEY_ID     "6. Backblaze keyID" 0
-ask S3_SECRET_ACCESS_KEY "7. Backblaze applicationKey" 1
-ask RESEND_API_KEY       "8. Resend API key (optional)" 1
-ask EMAIL_FROM           "9. Email sender (optional)" 0 "ThinkMade <hello@thinkmade.zicaworld.com>"
+ask GEMINI_API_KEY       "4. Google Gemini API key (backup models; recommended)" 1
+ask S3_ENDPOINT          "5. Backblaze endpoint" 0 "https://s3.us-east-005.backblazeb2.com"
+ask S3_BUCKET            "6. Backblaze bucket name" 0
+ask S3_ACCESS_KEY_ID     "7. Backblaze keyID" 0
+ask S3_SECRET_ACCESS_KEY "8. Backblaze applicationKey" 1
+ask RESEND_API_KEY       "9. Resend API key (optional)" 1
+ask EMAIL_FROM           "10. Email sender (optional)" 0 "ThinkMade <hello@thinkmade.zicaworld.com>"
 
 {
   echo "# Written by npm run worker:setup. Git-ignored; never commit it."
   echo "NODE_ENV=production"
-  for k in DATABASE_URL GROQ_API_KEY OPENROUTER_API_KEY S3_ENDPOINT S3_BUCKET S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY RESEND_API_KEY EMAIL_FROM; do
+  for k in DATABASE_URL GROQ_API_KEY OPENROUTER_API_KEY GEMINI_API_KEY S3_ENDPOINT S3_BUCKET S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY RESEND_API_KEY EMAIL_FROM; do
     v="V_$k"; echo "$k=${(P)v}"
   done
 } > "$FILE"

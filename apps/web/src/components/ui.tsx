@@ -89,7 +89,7 @@ export function Notice({
     error: 'bg-surface text-danger border-danger/40',
   }[tone];
   return (
-    <div role={role} className={`rounded-xl border px-4 py-3 text-[0.95rem] ${styles}`}>
+    <div role={role} className={`rounded-xl border px-4 py-3 text-[0.95rem] [overflow-wrap:anywhere] ${styles}`}>
       {children}
     </div>
   );
