@@ -77,7 +77,7 @@ for (let [j] = await h.db.select().from(schema.generationJob); j?.status === 'qu
 const [j] = await h.db.select().from(schema.generationJob);
 const eps = await h.db.select().from(schema.episode);
 const report = {
-  format, topic, provider, model, audioChecks, hosts: eps[0]?.hosts?.map((h) => ({ name: h.name, voice: h.voice, kind: h.kind, simulated: h.simulated, role: h.role })), minutesTaken: Number(((Date.now() - t0) / 60000).toFixed(1)), status: j!.status, error: j!.error, tokens: j!.tokensUsed,
+  format, topic, provider, model: stages ? 'per stage (production defaults)' : model, audioChecks, hosts: eps[0]?.hosts?.map((h) => ({ name: h.name, voice: h.voice, kind: h.kind, simulated: h.simulated, role: h.role })), minutesTaken: Number(((Date.now() - t0) / 60000).toFixed(1)), status: j!.status, error: j!.error, tokens: j!.tokensUsed,
   mentalModels: (await h.db.select().from(schema.mentalModel)).map((m) => m.name),
   verifiedSources: (await h.db.select().from(schema.source)).map((x) => x.title),
   episodes: eps.map((e) => ({ title: e.title, status: e.status, measuredSeconds: e.durationSeconds, plannedMinutes: e.plannedMinutes, words: (e.transcript ?? '').split(/\s+/).length, outcomes: e.outcomes })),
@@ -89,3 +89,8 @@ if (ep?.transcript) writeFileSync(join(out, 'transcript.txt'), ep.transcript);
 if (ep?.audioKey) writeFileSync(join(out, 'episode.mp3'), await buffer((await storage.get(ep.audioKey)).stream));
 console.info(JSON.stringify(report, null, 2));
 await h.close();
+// A job that didn't finish (still queued behind a rate limit, or failed) is a failed check, not a pass.
+if (j!.status !== 'succeeded' || !ep?.audioKey) {
+  console.error(`Live check did not finish: job ${j!.status}${j!.error ? ` (${j!.error})` : ''}`);
+  process.exit(1);
+}
