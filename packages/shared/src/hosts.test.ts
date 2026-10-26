@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { chooseHosts } from './hosts';
-import { DEFAULT_APP_SETTINGS, upgradeAppSettings, voiceInfo, VOICE_CATALOG } from './settings';
+import { castableByDefault, DEFAULT_APP_SETTINGS, upgradeAppSettings, voiceInfo, VOICE_CATALOG } from './settings';
 
 const pool = DEFAULT_APP_SETTINGS.voices.available;
 const seq = (...xs: number[]) => {
@@ -58,6 +58,41 @@ describe('chooseHosts', () => {
     // Only one voice is called Emma; the listener's Emma keeps her name and the other host gets a different one.
     const hosts = chooseHosts({ count: 2, pool: ['bf_emma', 'bf_alice'], requested: [{ name: 'Emma' }, {}], random: () => 0 });
     expect(hosts.map((h) => h.name)).toEqual(['Emma', 'Alice']);
+  });
+});
+
+describe('casting voices for a professional show', () => {
+  const many = (input: Partial<Parameters<typeof chooseHosts>[0]>, n = 300) =>
+    Array.from({ length: n }, (_, i) => chooseHosts({ count: 1, pool, random: seq(i / n), ...input })[0]!.voice);
+
+  it('never casts poorly graded or whispered voices automatically', () => {
+    const cast = new Set(many({}));
+    for (const bad of ['am_adam', 'af_jessica', 'bm_daniel', 'af_nicole']) expect(cast.has(bad), bad).toBe(false);
+    expect([...cast].every((v) => castableByDefault(voiceInfo(v)!))).toBe(true);
+  });
+
+  it('lets an administrator switch a voice in or out of casting', () => {
+    const only = Object.fromEntries(pool.filter((v) => v !== 'am_adam').map((v) => [v, { autoCast: false }]));
+    expect(new Set(many({ profiles: { ...only, am_adam: { autoCast: true } } }, 20))).toEqual(new Set(['am_adam']));
+  });
+
+  it('uses the age an administrator tagged to suit the host', () => {
+    const profiles = { 'phonon:zoey': { age: 'young' as const }, 'phonon:delia': { age: 'mature' as const } };
+    const young = many({ profiles, requested: [{ name: 'Emma', gender: 'female', age: 19 }] }, 50);
+    const mentor = many({ profiles, requested: [{ name: 'Sarah', gender: 'female', age: 58 }] }, 50);
+    expect(new Set(young)).toEqual(new Set(['phonon:zoey']));
+    expect(new Set(mentor)).toEqual(new Set(['phonon:delia']));
+  });
+
+  it('gives a British audience British voices', () => {
+    expect(many({ preferAccent: 'UK' }).every((v) => voiceInfo(v)!.accent === 'UK')).toBe(true);
+  });
+
+  it('keeps clear of voices and names already in the show', () => {
+    const main = chooseHosts({ count: 1, pool, random: () => 0 })[0]!;
+    const guests = many({ exclude: [main.voice], takenNames: [main.name], ids: ['B'] }, 50);
+    expect(guests).not.toContain(main.voice);
+    expect(guests.map((v) => voiceInfo(v)!.name)).not.toContain(main.name);
   });
 });
 

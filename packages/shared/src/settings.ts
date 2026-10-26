@@ -26,11 +26,21 @@ const podcastSchema = z.strictObject({
   audioQuality: z.enum(['compact', 'balanced', 'high']),
 });
 
+/** What an administrator noted about a voice after listening: how old it sounds, and whether to cast it. */
+export const voiceProfileSchema = z.strictObject({
+  age: z.enum(['young', 'adult', 'mature']).optional(),
+  note: z.string().max(200).optional(),
+  /** Cast automatically. Unset: Phonon voices and well-graded Kokoro voices are. */
+  autoCast: z.boolean().optional(),
+});
+export type VoiceProfile = z.infer<typeof voiceProfileSchema>;
+
 const voicesSchema = z.strictObject({
   single: z.string().min(1),
   hostA: z.string().min(1),
   hostB: z.string().min(1),
   available: z.array(z.string().min(1)).min(1),
+  profiles: z.record(z.string(), voiceProfileSchema).default({}),
 });
 
 const mediaSchema = z.strictObject({
@@ -55,6 +65,36 @@ const qualitySchema = z.strictObject({
   /** Rewrites allowed after the first review before an episode is held for human review. */
   maxRevisions: z.number().int().min(0).max(5),
 });
+
+/** How podcasts are produced: show format, host style and delivery. */
+export const showFormatSchema = z.enum(['storytelling', 'conversation', 'interview']);
+export type ShowFormat = z.infer<typeof showFormatSchema>;
+const productionSchema = z.strictObject({
+  /** "auto" lets each topic (and the listener's request) decide. */
+  showFormat: z.enum(['auto', 'storytelling', 'conversation', 'interview']),
+  /** Interviews may feature a simulated expert guest, always introduced as simulated. */
+  allowSimulatedGuests: z.boolean(),
+  /** In an interview series, one host throughout and a different guest, suited to the topic, each episode. */
+  rotateGuests: z.boolean().default(true),
+  /** Extra direction for every host, e.g. "warm and plain-spoken, with dry humour". */
+  hostStyle: z.string().max(400),
+  /** Pauses between lines and speakers. */
+  pacing: z.enum(['relaxed', 'natural', 'brisk']),
+  /** How much the voices vary their delivery. */
+  expressiveness: z.enum(['steady', 'natural', 'expressive']),
+  /** A very quiet room tone under the audio so silences don't sound like dead air. */
+  roomTone: z.boolean(),
+});
+export type ProductionSettings = z.infer<typeof productionSchema>;
+export const DEFAULT_PRODUCTION: ProductionSettings = {
+  showFormat: 'auto',
+  allowSimulatedGuests: true,
+  rotateGuests: true,
+  hostStyle: '',
+  pacing: 'natural',
+  expressiveness: 'natural',
+  roomTone: true,
+};
 
 const playerSchema = z.strictObject({
   /** Fraction of an episode after which it counts as completed. */
@@ -86,6 +126,7 @@ const settingsShape = {
   media: mediaSchema,
   limits: limitsSchema,
   quality: qualitySchema.default({ minScore: 4, maxRevisions: 2 }),
+  production: productionSchema.default(DEFAULT_PRODUCTION),
   player: playerSchema.default({ completionThreshold: 0.95 }),
   costs: costsSchema.default({ llmPerMillionTokensUsd: 0, ttsPerHourUsd: 0, storagePerGbMonthUsd: 0 }),
   alerts: alertsSchema.default({ storageGb: 10, databaseMb: 1024, dailyLlmTokens: 100_000, monthlyEmails: 3000 }),
@@ -118,6 +159,7 @@ export const appSettingsPatchSchema = z.strictObject({
   media: mediaSchema.partial().optional(),
   limits: limitsSchema.partial().optional(),
   quality: qualitySchema.partial().optional(),
+  production: productionSchema.partial().optional(),
   player: playerSchema.partial().optional(),
   costs: costsSchema.partial().optional(),
   alerts: alertsSchema.partial().optional(),
@@ -166,36 +208,37 @@ export function phononVoice(voice: string): PhononVoice | undefined {
 
 /**
  * Kokoro's English voices (bundled with kokoro-js, Apache-2.0), stored by their ids. `name` is the host name
- * used when a listener doesn't name their hosts; am_santa is left out as a novelty voice.
+ * used when a listener doesn't name their hosts; am_santa is left out as a novelty voice. `grade` is the
+ * overall grade from the Kokoro model card (VOICES.md); af_nicole is a whispered "headphones" voice.
  */
 export const KOKORO_VOICE_INFO = [
-  { id: 'af_heart', name: 'Hannah', accent: 'US', gender: 'female' },
-  { id: 'af_alloy', name: 'Allison', accent: 'US', gender: 'female' },
-  { id: 'af_aoede', name: 'Audrey', accent: 'US', gender: 'female' },
-  { id: 'af_bella', name: 'Bella', accent: 'US', gender: 'female' },
-  { id: 'af_jessica', name: 'Jessica', accent: 'US', gender: 'female' },
-  { id: 'af_kore', name: 'Cora', accent: 'US', gender: 'female' },
-  { id: 'af_nicole', name: 'Nicole', accent: 'US', gender: 'female' },
-  { id: 'af_nova', name: 'Nova', accent: 'US', gender: 'female' },
-  { id: 'af_river', name: 'River', accent: 'US', gender: 'female' },
-  { id: 'af_sarah', name: 'Sarah', accent: 'US', gender: 'female' },
-  { id: 'af_sky', name: 'Skye', accent: 'US', gender: 'female' },
-  { id: 'am_adam', name: 'Adam', accent: 'US', gender: 'male' },
-  { id: 'am_echo', name: 'Ethan', accent: 'US', gender: 'male' },
-  { id: 'am_eric', name: 'Eric', accent: 'US', gender: 'male' },
-  { id: 'am_fenrir', name: 'Finn', accent: 'US', gender: 'male' },
-  { id: 'am_liam', name: 'Liam', accent: 'US', gender: 'male' },
-  { id: 'am_michael', name: 'Michael', accent: 'US', gender: 'male' },
-  { id: 'am_onyx', name: 'Owen', accent: 'US', gender: 'male' },
-  { id: 'am_puck', name: 'Parker', accent: 'US', gender: 'male' },
-  { id: 'bf_emma', name: 'Emma', accent: 'UK', gender: 'female' },
-  { id: 'bf_alice', name: 'Alice', accent: 'UK', gender: 'female' },
-  { id: 'bf_isabella', name: 'Isabella', accent: 'UK', gender: 'female' },
-  { id: 'bf_lily', name: 'Lily', accent: 'UK', gender: 'female' },
-  { id: 'bm_george', name: 'George', accent: 'UK', gender: 'male' },
-  { id: 'bm_daniel', name: 'Daniel', accent: 'UK', gender: 'male' },
-  { id: 'bm_fable', name: 'Felix', accent: 'UK', gender: 'male' },
-  { id: 'bm_lewis', name: 'Lewis', accent: 'UK', gender: 'male' },
+  { id: 'af_heart', name: 'Hannah', accent: 'US', gender: 'female', grade: 'A' },
+  { id: 'af_alloy', name: 'Allison', accent: 'US', gender: 'female', grade: 'C' },
+  { id: 'af_aoede', name: 'Audrey', accent: 'US', gender: 'female', grade: 'C+' },
+  { id: 'af_bella', name: 'Bella', accent: 'US', gender: 'female', grade: 'A-' },
+  { id: 'af_jessica', name: 'Jessica', accent: 'US', gender: 'female', grade: 'D' },
+  { id: 'af_kore', name: 'Cora', accent: 'US', gender: 'female', grade: 'C+' },
+  { id: 'af_nicole', name: 'Nicole', accent: 'US', gender: 'female', grade: 'B-', style: 'whisper' },
+  { id: 'af_nova', name: 'Nova', accent: 'US', gender: 'female', grade: 'C' },
+  { id: 'af_river', name: 'River', accent: 'US', gender: 'female', grade: 'D' },
+  { id: 'af_sarah', name: 'Sarah', accent: 'US', gender: 'female', grade: 'C+' },
+  { id: 'af_sky', name: 'Skye', accent: 'US', gender: 'female', grade: 'C-' },
+  { id: 'am_adam', name: 'Adam', accent: 'US', gender: 'male', grade: 'F+' },
+  { id: 'am_echo', name: 'Ethan', accent: 'US', gender: 'male', grade: 'D' },
+  { id: 'am_eric', name: 'Eric', accent: 'US', gender: 'male', grade: 'D' },
+  { id: 'am_fenrir', name: 'Finn', accent: 'US', gender: 'male', grade: 'C+' },
+  { id: 'am_liam', name: 'Liam', accent: 'US', gender: 'male', grade: 'D' },
+  { id: 'am_michael', name: 'Michael', accent: 'US', gender: 'male', grade: 'C+' },
+  { id: 'am_onyx', name: 'Owen', accent: 'US', gender: 'male', grade: 'D' },
+  { id: 'am_puck', name: 'Parker', accent: 'US', gender: 'male', grade: 'C+' },
+  { id: 'bf_emma', name: 'Emma', accent: 'UK', gender: 'female', grade: 'B-' },
+  { id: 'bf_alice', name: 'Alice', accent: 'UK', gender: 'female', grade: 'D' },
+  { id: 'bf_isabella', name: 'Isabella', accent: 'UK', gender: 'female', grade: 'C' },
+  { id: 'bf_lily', name: 'Lily', accent: 'UK', gender: 'female', grade: 'D' },
+  { id: 'bm_george', name: 'George', accent: 'UK', gender: 'male', grade: 'C' },
+  { id: 'bm_daniel', name: 'Daniel', accent: 'UK', gender: 'male', grade: 'D' },
+  { id: 'bm_fable', name: 'Felix', accent: 'UK', gender: 'male', grade: 'C' },
+  { id: 'bm_lewis', name: 'Lewis', accent: 'UK', gender: 'male', grade: 'D+' },
 ] as const;
 
 /** Kokoro voice ids. af_heart is the highest-rated voice in the Kokoro model card. */
@@ -209,12 +252,25 @@ export interface VoiceInfo {
   engine: 'Phonon' | 'Kokoro';
   accent: 'US' | 'UK';
   gender: 'female' | 'male';
+  /** Kokoro model card grade, where the engine publishes one. */
+  grade?: string;
+  /** A voice made for a special style (e.g. whispering), unsuited to most podcasts. */
+  style?: 'whisper';
+}
+
+/**
+ * Whether a voice is good enough to be cast automatically for a professional podcast: Phonon voices, and
+ * Kokoro voices graded C- or better that aren't a special style. Anything can still be picked by hand.
+ */
+export function castableByDefault(v: VoiceInfo): boolean {
+  if (v.style) return false;
+  return !v.grade || /^[ABC]/.test(v.grade);
 }
 
 /** Every voice ThinkMade can speak with. */
 export const VOICE_CATALOG: readonly VoiceInfo[] = [
   ...PHONON_VOICES.map((v) => ({ id: `phonon:${v.key}`, name: v.name, engine: 'Phonon' as const, accent: v.accent, gender: v.gender })),
-  ...KOKORO_VOICE_INFO.map((v) => ({ id: v.id, name: v.name, engine: 'Kokoro' as const, accent: v.accent, gender: v.gender })),
+  ...KOKORO_VOICE_INFO.map((v) => ({ id: v.id, name: v.name, engine: 'Kokoro' as const, accent: v.accent, gender: v.gender, grade: v.grade, ...('style' in v ? { style: v.style } : {}) })),
 ];
 
 export function voiceInfo(voice: string): VoiceInfo | undefined {
@@ -265,6 +321,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     hostA: 'phonon:zoey',
     hostB: 'phonon:easton',
     available: VOICE_CATALOG.map((v) => v.id),
+    profiles: {},
   },
   media: {
     maxImages: 4,
@@ -283,6 +340,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     minScore: 4,
     maxRevisions: 2,
   },
+  production: DEFAULT_PRODUCTION,
   player: {
     completionThreshold: 0.95,
   },
@@ -310,6 +368,7 @@ export function applySettingsPatch(current: AppSettings, patch: AppSettingsPatch
     media: { ...current.media, ...patch.media },
     limits: { ...current.limits, ...patch.limits },
     quality: { ...current.quality, ...patch.quality },
+    production: { ...current.production, ...patch.production },
     player: { ...current.player, ...patch.player },
     costs: { ...current.costs, ...patch.costs },
     alerts: { ...current.alerts, ...patch.alerts },

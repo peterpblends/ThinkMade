@@ -1,0 +1,67 @@
+# Renders sample episodes with the real language model and voices (Phonon, Kokoro as backup), one per show
+# format, so changes to scripts and audio can be judged by ear. Run it from Actions → Samples → Run workflow,
+# then download the "sample-<format>" artifacts: episode.mp3, transcript.txt and report.json (with the
+# automatic script and audio checks). Uses the worker's free model keys and production's per-stage models.
+name: Samples
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: What the sample podcasts are about
+        default: 'Why do smart people make bad decisions, and how can I avoid the same mistakes?'
+      minutes:
+        description: Length of each sample in minutes
+        default: '5'
+
+permissions:
+  contents: read
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      # One at a time, to stay inside the free language-model allowance.
+      max-parallel: 1
+      matrix:
+        format: [storytelling, conversation, interview]
+    env:
+      # Production's model for each stage, with its free fallbacks.
+      LIVE_PROVIDER: stages
+      LIVE_FORMAT: ${{ matrix.format }}
+      LIVE_TOPIC: ${{ inputs.topic }}
+      LIVE_MINUTES: ${{ inputs.minutes }}
+      LIVE_OUT: ${{ github.workspace }}/sample
+      MODEL_CACHE_DIR: ${{ github.workspace }}/.models
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Cache speech models
+        uses: actions/cache@v4
+        with:
+          path: .models
+          key: thinkmade-models-v1
+      - run: npm ci
+        env:
+          SKIP_SPEECH_MODEL: '1'
+      - name: Render the sample
+        run: npm run live-check -w apps/worker
+      - name: Show the transcript
+        if: always()
+        run: cat "$LIVE_OUT/transcript.txt" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sample-${{ matrix.format }}
+          path: |
+            sample/episode.mp3
+            sample/transcript.txt
+            sample/report.json
+          retention-days: 14

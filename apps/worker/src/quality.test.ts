@@ -4,6 +4,37 @@ import { aggregateJudgements, judgeWindows, scriptChecks } from './quality';
 const seg = (text: string, speaker: 'A' | 'B' | 'C' = 'A') => ({ speaker, text });
 const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(' ') + '.';
 
+describe('naturalness checks', () => {
+  const codes = (sections: Array<Array<{ speaker: 'A' | 'B' | 'C'; text: string }>>, format: 'single' | 'two_hosts' = 'two_hosts') =>
+    scriptChecks(sections, { targetWords: sections.flat().reduce((n, x) => n + x.text.split(' ').length, 0), format }).map((p) => [p.code, p.section]);
+
+  it('flags stock phrases in the section they appear in', () => {
+    const problems = scriptChecks([[seg(words(70))], [seg(`That's a great question. Let's dive in. ${words(70)}`)]], { targetWords: 150, format: 'single' });
+    const stock = problems.find((p) => p.code === 'stock_phrases');
+    expect(stock).toMatchObject({ section: 2 });
+    expect(stock!.message).toContain('"great question"');
+    expect(stock!.message).toContain('"let\'s dive in"');
+  });
+
+  it('flags hosts who keep opening by agreeing', () => {
+    const agree = Array.from({ length: 8 }, (_, i) => seg(`${i % 2 ? 'Exactly.' : 'Absolutely!'} ${words(15 + (i % 3) * 10)}`, i % 2 ? 'B' : 'A'));
+    expect(codes([agree])).toContainEqual(['echo_openers', 1]);
+  });
+
+  it('flags turns that are all the same length, but not a varied conversation', () => {
+    const same = Array.from({ length: 12 }, (_, i) => seg(words(40), i % 2 ? 'B' : 'A'));
+    expect(codes([same])).toContainEqual(['monotone_turns', null]);
+    const varied = [60, 5, 45, 12, 70, 3, 38, 20, 55, 8, 40, 15].map((n, i) => seg(words(n), i % 2 ? 'B' : 'A'));
+    expect(codes([varied]).map(([c]) => c)).not.toContain('monotone_turns');
+  });
+
+  it('flags a monologue in a conversation, but not in a solo story', () => {
+    const monologue = [seg(words(250), 'A'), ...Array.from({ length: 6 }, (_, i) => seg(words(20 + i * 7), i % 2 ? 'A' : 'B'))];
+    expect(codes([monologue])).toContainEqual(['monologue', 1]);
+    expect(codes([[seg(words(250))]], 'single').map(([c]) => c)).not.toContain('monologue');
+  });
+});
+
 describe('scriptChecks', () => {
   it('passes a script of the right length with no problems', () => {
     expect(scriptChecks([[seg(words(140))]], { targetWords: 150, format: 'single' })).toEqual([]);

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { learningModeSchema, speakerFormatSchema, visibilitySchema } from './settings.ts';
+import { learningModeSchema, speakerFormatSchema, visibilitySchema, type ProductionSettings, type VoiceProfile } from './settings.ts';
 
 /** Internal pipeline stages, in order. */
 export const GENERATION_STAGES = ['analyze_media', 'understand', 'select_models', 'research', 'plan', 'script', 'validate', 'synthesize', 'publish'] as const;
@@ -57,6 +57,8 @@ export interface GenerationOptions {
   voices: { single: string; hostA: string; hostB: string };
   /** Voices a series may use. Each series picks its own from these. */
   voicePool?: string[];
+  /** What administrators noted about voices (age, whether to cast automatically). */
+  voiceProfiles?: Record<string, VoiceProfile>;
   /** Voices the listener picked for their hosts, in order. */
   chosenVoices?: string[];
   /** True when the listener set length, episodes and format themselves; otherwise requests in their words apply. */
@@ -67,5 +69,7 @@ export interface GenerationOptions {
   maxTokens: number;
   maxAudioMinutes: number;
   quality?: { minScore: number; maxRevisions: number };
+  /** How the podcast is produced (format, host style, delivery). Jobs from before this was added use the defaults. */
+  production?: ProductionSettings;
 }
 

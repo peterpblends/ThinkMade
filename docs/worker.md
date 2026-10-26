@@ -117,3 +117,7 @@ To try a real end-to-end episode with a local model:
 ```bash
 LIVE_PROVIDER=ollama LIVE_MODEL=qwen2.5:7b npm run live-check -w apps/worker
 ```
+
+## Listening to sample episodes
+
+**Actions → Samples → Run workflow** renders one short episode per show format (storytelling, conversation and interview) with the real language models and voices, using the worker's secrets. Choose a topic and length, then download the `sample-<format>` artifacts from the finished run. Each has `episode.mp3`, `transcript.txt` and `report.json`, which includes the hosts, the automatic script reviews and the audio checks (lines re-rendered or still suspect). Use it to judge changes to prompts, voices or **Admin → Podcast defaults → Production** by ear.
