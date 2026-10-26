@@ -128,6 +128,8 @@ const SPEAKERS = [
   { value: 'mixed', label: 'Mixed', hint: 'Episodes vary the format.' },
 ] as const;
 
+const HOST_TAG: Record<Customization['speakerFormat'], string> = { single: '1', two_hosts: '2', mixed: 'Mixed' };
+
 const MODES = [
   { value: 'explore', label: 'Explore', hint: 'Meet new mental models.' },
   { value: 'deepen', label: 'Deepen', hint: 'Go further with models you know.' },
@@ -175,6 +177,29 @@ function ChoiceGroup<T extends string | number>({
         })}
       </div>
     </fieldset>
+  );
+}
+
+/** One setting at a glance: a quiet label and its value. Changed settings take the accent colour. */
+function SettingTag({ label, value, changed, onClick }: { label: string; value: string; changed: boolean; onClick: () => void }) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        className={`inline-flex min-h-9 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[0.85rem] transition hover:bg-surface-2 ${changed ? 'border-accent-strong bg-surface text-ink' : 'border-line bg-surface text-ink'}`}
+      >
+        {/* The spoken name is the visible text, plus "customized" for screen readers when it was changed. */}
+        <span className="text-muted">{label}</span>{' '}
+        <span className={`font-semibold ${changed ? 'text-accent-ink' : ''}`}>{value}</span>
+        {changed && (
+          <>
+            {' '}
+            <span className="sr-only">(customized)</span>
+          </>
+        )}
+      </button>
+    </li>
   );
 }
 
@@ -429,6 +454,21 @@ export function CreateForm({
       <Button type="submit" block busy={busy} className="min-h-14 text-[1.05rem]">
         Create My Podcasts
       </Button>
+
+      <ul aria-label="Podcast settings" className="grid grid-cols-2 gap-2">
+        {[
+          { label: 'Episode Length', value: `${custom.lengthMinutes} min`, changed: custom.lengthMinutes !== defaults.defaultLengthMinutes },
+          { label: 'Episodes', value: String(custom.episodes), changed: custom.episodes !== defaults.defaultEpisodes },
+          {
+            label: 'Hosts',
+            value: chosenVoices ? String(chosenVoices.length) : HOST_TAG[custom.speakerFormat],
+            changed: custom.speakerFormat !== defaults.speakerFormat || chosenVoices !== null,
+          },
+          { label: 'Learning Mode', value: MODES.find((o) => o.value === custom.learningMode)!.label, changed: custom.learningMode !== defaults.learningMode },
+        ].map((t) => (
+          <SettingTag key={t.label} {...t} onClick={() => setCustomOpen(true)} />
+        ))}
+      </ul>
 
       <div className="flex justify-center">
         <button
