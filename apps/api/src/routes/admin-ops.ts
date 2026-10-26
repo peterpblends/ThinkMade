@@ -5,6 +5,7 @@ import { completeJson, EmbedderUnavailableError, LLM_PROVIDERS, providerConfigur
 import { defaultStageModel, MODEL_STAGES, queryRows, schema, withRecommendedFallbacks, type ModelStage } from '@thinkmade/db';
 import { DEFAULT_PROMPTS, input, PROMPT_STAGES, stageSystem, STAGE_SCHEMAS, type PromptStage } from '@thinkmade/shared';
 import type { AppContext } from '../create-context';
+import { restartJob } from '../generation/restart';
 import { clientIp } from '../middleware/rate-limit';
 import type { AppVariables } from '../middleware/session';
 
@@ -478,6 +479,18 @@ export function adminOpsRoutes(ctx: AppContext) {
       errors,
       ratings: ratings.map((r) => ({ userId: r.user_id, email: r.email, episodeId: r.episode_id, episodeTitle: r.episode_title, seriesTitle: r.series_title, stars: r.stars, ratedAt: r.rated_at })),
     });
+  });
+
+  // A podcast that errored out (failed or only partly finished) is put back in the queue for its owner. The
+  // worker resumes from the saved progress; finished episodes are kept.
+  r.post('/generations/:id/restart', async (c) => {
+    const [job] = await ctx.db.select().from(schema.generationJob).where(eq(schema.generationJob.id, c.req.param('id')));
+    if (!job) return c.json({ error: 'not_found' }, 404);
+    const result = await restartJob(ctx, job, ['failed', 'partial']);
+    if (!result.ok) return c.json({ error: 'not_restartable', message: job.status === 'queued' || job.status === 'running' ? 'This podcast is already in the queue.' : job.status === 'succeeded' ? 'This podcast finished; there is nothing to restart.' : result.message }, result.status);
+    const a = actor(c);
+    await audit(a.id, a.ip, 'generation.restart', 'generation_job', job.id, { status: job.status, error: job.error }, { status: 'queued' });
+    return c.json({ id: job.id, status: 'queued' }, 202);
   });
 
   // ---------- Public content moderation ----------

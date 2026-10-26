@@ -1,7 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api } from '../../lib/api';
-import { Card, PageHeader } from '../../components/ui';
+import { api, ApiError } from '../../lib/api';
+import { Button, Card, Notice, PageHeader } from '../../components/ui';
 
 interface Person {
   id: string; name: string; email: string; requests: number; series: number; episodes: number; minutes: number;
@@ -58,6 +58,33 @@ function Stat({ label, value, hint }: { label: string; value: string | number; h
   );
 }
 
+/** Statuses an administrator can restart: the podcast errored out. */
+const RESTARTABLE = new Set(['failed', 'partial']);
+
+/** Puts an errored podcast back in the queue; the worker resumes where it stopped and keeps finished episodes. */
+function RestartButton({ jobId, title, onDone }: { jobId: string; title: string; onDone: (message: { tone: 'info' | 'error'; text: string }) => void }) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const restart = async () => {
+    setBusy(true);
+    try {
+      await api(`/api/admin/generations/${jobId}/restart`, { method: 'POST' });
+      onDone({ tone: 'info', text: `Restarted “${title}”. It is back in the queue and picks up where it stopped.` });
+      await qc.invalidateQueries({ queryKey: ['admin', 'report'] });
+    } catch (err) {
+      const body = err instanceof ApiError ? (err.body as { message?: string } | null) : null;
+      onDone({ tone: 'error', text: body?.message ?? `Could not restart “${title}”. Please try again.` });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Button variant="secondary" busy={busy} onClick={() => void restart()} className="min-h-10 self-start px-4 text-sm" aria-label={`Restart ${title}`}>
+      Restart
+    </Button>
+  );
+}
+
 const empty = (text: string) => <p className="py-3 text-muted">{text}</p>;
 
 /** Admin report: what each person generated, which runs went wrong and why, and how episodes were rated. */
@@ -65,6 +92,7 @@ export function AdminReport() {
   const [days, setDays] = useState<number>(30);
   const [who, setWho] = useState('');
   const [view, setView] = useState<View>('people');
+  const [message, setMessage] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
   const q = useQuery({ queryKey: ['admin', 'report', days], queryFn: () => api<Report>(`/api/admin/report?days=${days}`) });
   const r = q.data;
   const mine = <T extends { userId: string }>(rows: T[]) => (who ? rows.filter((x) => x.userId === who) : rows);
@@ -73,7 +101,7 @@ export function AdminReport() {
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Activity report" subtitle="What each person generated, what went wrong, and what they rated." />
+      <PageHeader title="Activity report" subtitle="What each person generated, what went wrong, and what they rated. Podcasts that errored out can be restarted." />
 
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm font-medium">
@@ -91,6 +119,11 @@ export function AdminReport() {
         </label>
       </div>
 
+      {message && (
+        <Notice tone={message.tone} role={message.tone === 'error' ? 'alert' : 'status'}>
+          {message.text}
+        </Notice>
+      )}
       {q.isError && <p role="alert" className="text-danger">The report could not be loaded. Please try again.</p>}
       {!r && !q.isError && <p role="status" className="text-muted">Loading…</p>}
 
@@ -159,6 +192,7 @@ export function AdminReport() {
                       {g.episodesRejected > 0 && ` · ${g.episodesRejected} rejected`} · {g.tokens.toLocaleString()} tokens
                     </p>
                     <p className="text-xs text-muted [overflow-wrap:anywhere]">{g.email} · {when(g.createdAt)}</p>
+                    {RESTARTABLE.has(g.status) && <RestartButton jobId={g.id} title={g.seriesTitle ?? (g.topic || 'Untitled request')} onDone={setMessage} />}
                   </li>
                 ))}
               </ul>
@@ -179,6 +213,7 @@ export function AdminReport() {
                     <p className="text-xs text-muted [overflow-wrap:anywhere]">
                       {e.stage ? `Stopped at: ${e.stage.replace(/_/g, ' ')} · ` : ''}{e.email} · {when(e.createdAt)}
                     </p>
+                    {RESTARTABLE.has(e.status) && <RestartButton jobId={e.jobId} title={e.seriesTitle ?? (e.topic || 'Untitled request')} onDone={setMessage} />}
                   </li>
                 ))}
               </ul>
