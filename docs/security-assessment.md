@@ -61,7 +61,7 @@ Not performed: dynamic scanning against a deployed instance (for example OWASP Z
 | `sharp` (transitive through Transformers.js) had High advisories in bundled libvips, libheif and librsvg | High | Fixed: overridden to 0.35.5. ThinkMade never passes user images to it. |
 | Content security policy would block direct R2 uploads and downloads | Important | Fixed: R2 origin added to `connect-src` at build time |
 | A worker that lost its lease could still write results | Important | Fixed: lease checked before each stage and before final writes |
-| Rate-limited jobs retried forever | Important | Fixed: capped with backoff |
+| Rate-limited jobs retried forever | Important | Fixed: backoff, and a job gives up after 36 hours of waiting |
 | "Team notified" claimed without a notification | Important | Fixed: admins are emailed and delivery logged; the claim appears only if sent |
 | `$` patterns in titles corrupted the share page (not XSS) | Minor | Fixed |
 

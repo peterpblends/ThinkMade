@@ -32,7 +32,7 @@ export async function startFollowUp(ctx: AppContext, seriesId: string, userId: s
   if (!base || !baseState.plan) throw new FollowUpError(409, 'not_ready', 'This series has to finish before it can be added to.');
   const episodes = await ctx.db.select().from(schema.episode).where(eq(schema.episode.seriesId, seriesId));
 
-  const { tokens: _t, rateLimitRetries: _r, planDraft: _p, ...state } = baseState;
+  const { tokens: _t, rateLimitRetries: _r, rateLimitedSince: _s, planDraft: _p, ...state } = baseState;
   // Series made before hosts were saved keep the hosts their episodes already have.
   if (!state.hosts) {
     const hosts = [...episodes].sort((a, b) => (b.hosts?.length ?? 0) - (a.hosts?.length ?? 0))[0]?.hosts;

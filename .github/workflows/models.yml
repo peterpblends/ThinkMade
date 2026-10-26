@@ -1,0 +1,30 @@
+# Lists the language models each provider offers this account (Groq, Gemini and OpenRouter's free
+# models), so ThinkMade's fallback chains are built from names that exist. Run it from Actions → Models,
+# or it runs on a pull request that changes the script.
+name: Models
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - scripts/list-models.ts
+      - .github/workflows/models.yml
+
+permissions:
+  contents: read
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: List models
+        run: npx --yes tsx@4 scripts/list-models.ts
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

@@ -61,12 +61,26 @@ describe('createFallbackLlm', () => {
     await expect(llm.chat([{ role: 'user', content: 'hi' }])).rejects.toMatchObject({ status: 429, retryAfterMs: 1_800_000 });
   });
 
-  it("otherwise throws the first provider's error", async () => {
+  it('waits rather than fails when one provider is limited and another is broken', async () => {
+    const llm = createFallbackLlm([
+      client('a', () => {
+        throw new LlmError('502 upstream error', 502);
+      }),
+      client('b', limited(1_800_000)),
+    ]);
+    const err = await llm.chat([{ role: 'user', content: 'hi' }]).catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 429, retryAfterMs: 1_800_000 });
+    expect((err as Error).message).toContain('502 upstream error');
+  });
+
+  it("throws the first provider's error when none is merely limited", async () => {
     const llm = createFallbackLlm([
       client('a', () => {
         throw new LlmError('401 bad key', 401);
       }),
-      client('b', limited()),
+      client('b', () => {
+        throw new LlmError('500 boom', 500);
+      }),
     ]);
     await expect(llm.chat([{ role: 'user', content: 'hi' }])).rejects.toMatchObject({ status: 401 });
   });
