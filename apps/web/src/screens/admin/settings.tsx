@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import { castableByDefault, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, voiceInfo, voiceLabel, type ProductionSettings, type VoiceProfile } from '@thinkmade/shared';
+import { castableByDefault, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, DEFAULT_SPLASH_SECONDS, voiceInfo, voiceLabel, type ProductionSettings, type VoiceProfile } from '@thinkmade/shared';
 import { api, ApiError } from '../../lib/api';
 import { Button, Card, Field, Notice, PageHeader } from '../../components/ui';
 
@@ -14,6 +14,7 @@ interface AdminSettings {
     limits: Record<string, number>;
     quality: Record<string, number>;
     production?: ProductionSettings;
+    appearance?: { splashSeconds: number };
     bugReports: { email: string };
   };
 }
@@ -126,6 +127,7 @@ export function AdminSettingsScreen() {
         rotateGuests: f.get('production.rotateGuests') === 'on',
         roomTone: f.get('production.roomTone') === 'on',
       },
+      appearance: { splashSeconds: num('appearance.splashSeconds') },
       bugReports: { email: String(f.get('bugReports.email') ?? '').trim() },
     };
     setBusy(true);
@@ -266,6 +268,21 @@ export function AdminSettingsScreen() {
           {NUMBER_FIELDS.filter(([sec]) => sec !== 'podcast').map(([sec, k, label]) => (
             <Field key={k} label={label} name={`${sec}.${k}`} type="number" inputMode="numeric" defaultValue={s[sec][k]} min={0} required />
           ))}
+        </Card>
+        <Card className="flex flex-col gap-4">
+          <h2 className="text-xl">Opening splash</h2>
+          <Field
+            label="Splash duration (seconds)"
+            name="appearance.splashSeconds"
+            type="number"
+            inputMode="decimal"
+            step={0.1}
+            min={0}
+            max={10}
+            defaultValue={s.appearance?.splashSeconds ?? DEFAULT_SPLASH_SECONDS}
+            required
+            hint={`How long the animated logo shows when the app opens, once per visit. The full animation takes about 2 seconds; 0 turns the splash off. Default ${DEFAULT_SPLASH_SECONDS}.`}
+          />
         </Card>
         <Card className="flex flex-col gap-4">
           <h2 className="text-xl">Bug reports</h2>

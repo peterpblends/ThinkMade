@@ -20,6 +20,7 @@ export function publicSettingsRoutes(ctx: AppContext) {
         episodeChoices: EPISODE_COUNT_CHOICES.filter((n) => n <= p.maxEpisodesPerSeries),
       },
       media: settings.media,
+      splash: { seconds: settings.appearance.splashSeconds },
       // Voices listeners may pick for their hosts.
       voices: settings.voices.available.flatMap((id) => {
         const v = voiceInfo(id);

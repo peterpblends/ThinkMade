@@ -1,11 +1,33 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { SYMBOL_GEOMETRY as G } from '@thinkmade/brand';
-import { BRAND } from '@thinkmade/shared';
+import { BRAND, DEFAULT_SPLASH_SECONDS } from '@thinkmade/shared';
+import { api, type PublicSettings } from '../lib/api';
 
 const SEEN_KEY = 'tm-splash-seen';
-/** How long the splash shows before fading out, and how long the fade takes (milliseconds). */
-export const SPLASH_MS = 2300;
+/** The administrator's splash length from the last visit, so it applies before the settings arrive. */
+const SECONDS_KEY = 'tm-splash-seconds';
+/** How long the splash shows by default before fading out, and how long the fade takes (milliseconds). */
+export const SPLASH_MS = DEFAULT_SPLASH_SECONDS * 1000;
 export const SPLASH_FADE_MS = 400;
+
+function rememberedSeconds(): number | null {
+  try {
+    const v = localStorage.getItem(SECONDS_KEY);
+    const n = v === null ? NaN : Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberSeconds(n: number) {
+  try {
+    localStorage.setItem(SECONDS_KEY, String(n));
+  } catch {
+    /* private mode: the default length is used next time */
+  }
+}
 
 /**
  * Whether to open with the splash: once per visit (browser session). Automated browsers skip it unless the
@@ -15,6 +37,8 @@ export function shouldShowSplash(): boolean {
   try {
     if (new URLSearchParams(window.location.search).get('splash') === '1') return true;
     if (navigator.webdriver) return false;
+    // An administrator set the length to 0: no splash.
+    if (rememberedSeconds() === 0) return false;
     return sessionStorage.getItem(SEEN_KEY) !== '1';
   } catch {
     return false;
@@ -36,13 +60,24 @@ function markSeen() {
  */
 export function Splash() {
   const [phase, setPhase] = useState<'show' | 'leaving' | 'gone'>(() => (shouldShowSplash() ? 'show' : 'gone'));
+  const startedAt = useRef(Date.now());
+  // The length is set in Admin → Defaults. Until the settings arrive, use last visit's length (or the default).
+  const settings = useQuery({ queryKey: ['settings', 'public'], queryFn: () => api<PublicSettings>('/api/settings/public'), enabled: phase === 'show', staleTime: 60_000 });
+  const seconds = settings.data?.splash?.seconds ?? rememberedSeconds() ?? DEFAULT_SPLASH_SECONDS;
+  useEffect(() => {
+    const fetched = settings.data?.splash?.seconds;
+    if (typeof fetched === 'number') rememberSeconds(fetched);
+  }, [settings.data]);
+  useEffect(() => {
+    if (phase === 'show') markSeen();
+  }, [phase]);
   useEffect(() => {
     if (phase !== 'show') return;
-    markSeen();
     const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const t = setTimeout(() => setPhase('leaving'), reduced ? 900 : SPLASH_MS);
+    const total = reduced ? Math.min(900, seconds * 1000) : seconds * 1000;
+    const t = setTimeout(() => setPhase('leaving'), Math.max(0, startedAt.current + total - Date.now()));
     return () => clearTimeout(t);
-  }, [phase]);
+  }, [phase, seconds]);
   useEffect(() => {
     if (phase !== 'leaving') return;
     const t = setTimeout(() => setPhase('gone'), SPLASH_FADE_MS);
