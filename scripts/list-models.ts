@@ -15,8 +15,44 @@ const providers: Lister[] = [
   { name: 'gemini', key: process.env.GEMINI_API_KEY, url: 'https://generativelanguage.googleapis.com/v1beta/openai/models', pick: ids },
   // Only OpenRouter's free models: they need no credit.
   { name: 'openrouter (free)', key: process.env.OPENROUTER_API_KEY, url: 'https://openrouter.ai/api/v1/models', pick: (b) => ids(b).filter((id) => id.endsWith(':free')) },
-  { name: 'github', key: process.env.GITHUB_MODELS_TOKEN, url: 'https://models.github.ai/catalog/models', pick: ids },
 ];
+
+// GitHub Models: list the catalog, then send one tiny request to prove the token can use it.
+const gh = process.env.GITHUB_MODELS_TOKEN;
+if (gh) {
+  const headers = { authorization: `Bearer ${gh}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2026-03-10', 'content-type': 'application/json' };
+  try {
+    const res = await fetch('https://models.github.ai/catalog/models', { headers, signal: AbortSignal.timeout(20_000) });
+    const text = await res.text();
+    let list: string[] = [];
+    try {
+      list = ids(JSON.parse(text)).sort();
+    } catch {
+      console.info(`\n## github catalog: ${res.status} ${text.slice(0, 200)}`);
+    }
+    if (list.length) {
+      console.info(`\n## github: ${list.length} models`);
+      for (const id of list) console.info(`- ${id}`);
+    }
+  } catch (err) {
+    console.info(`\n## github catalog: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  for (const model of (process.env.GITHUB_PROBE_MODELS ?? 'openai/gpt-4.1,openai/gpt-4.1-mini,meta/llama-4-maverick-17b-128e-instruct-fp8,deepseek/deepseek-v3-0324').split(',')) {
+    try {
+      const res = await fetch('https://models.github.ai/inference/chat/completions', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ model, messages: [{ role: 'user', content: 'Reply with the word ready.' }], max_tokens: 10 }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      const text = await res.text();
+      const limit = ['x-ratelimit-limit-requests', 'x-ratelimit-remaining-requests', 'x-ratelimit-limit-tokens'].map((h) => `${h}=${res.headers.get(h) ?? '-'}`).join(' ');
+      console.info(`github probe ${model}: ${res.status} ${limit} ${text.slice(0, 160).replace(/\s+/g, ' ')}`);
+    } catch (err) {
+      console.info(`github probe ${model}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+}
 
 for (const p of providers) {
   if (!p.key) {

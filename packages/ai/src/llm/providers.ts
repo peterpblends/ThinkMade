@@ -23,6 +23,9 @@ const PROVIDERS: Record<string, { baseUrl: (env: Env) => string; keyVar?: string
   openrouter: { label: 'OpenRouter', baseUrl: () => 'https://openrouter.ai/api/v1', keyVar: 'OPENROUTER_API_KEY' },
   gemini: { label: 'Gemini', baseUrl: () => 'https://generativelanguage.googleapis.com/v1beta/openai', keyVar: 'GEMINI_API_KEY' },
   ollama: { label: 'Ollama', baseUrl: (env) => env.OLLAMA_BASE_URL ?? 'http://localhost:11434/v1' },
+  // GitHub Models: free with a GitHub account. In GitHub Actions the workflow's own token works (permission
+  // models: read), so the worker gets it without any sign-up; elsewhere use a token with models access.
+  github: { label: 'GitHub Models', baseUrl: () => 'https://models.github.ai/inference', keyVar: 'GITHUB_MODELS_TOKEN' },
 };
 
 export const LLM_PROVIDERS = Object.keys(PROVIDERS);
@@ -89,6 +92,7 @@ function createSingleLlm(cfg: ModelConfig, env: Env): LlmClient {
     model: cfg.model,
     ...(cfg.params ? { params: cfg.params } : {}),
     ...(typeof cfg.params?.tm_request_token_limit === 'number' ? { requestTokenLimit: cfg.params.tm_request_token_limit } : {}),
+    ...(typeof cfg.params?.tm_max_output_tokens === 'number' ? { maxOutputTokens: cfg.params.tm_max_output_tokens } : {}),
     ...(cfg.provider === 'openrouter'
       ? { headers: { 'HTTP-Referer': 'https://thinkmade.zicaworld.com', 'X-Title': 'ThinkMade' } }
       : {}),
