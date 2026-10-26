@@ -187,11 +187,17 @@ function SettingTag({ label, value, changed, onClick }: { label: string; value: 
       <button
         type="button"
         onClick={onClick}
-        aria-label={`${label}: ${value}${changed ? ' (customized)' : ''}`}
         className={`inline-flex min-h-9 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[0.85rem] transition hover:bg-surface-2 ${changed ? 'border-accent-strong bg-surface text-ink' : 'border-line bg-surface text-ink'}`}
       >
-        <span className="text-muted">{label}</span>
+        {/* The spoken name is the visible text, plus "customized" for screen readers when it was changed. */}
+        <span className="text-muted">{label}</span>{' '}
         <span className={`font-semibold ${changed ? 'text-accent-ink' : ''}`}>{value}</span>
+        {changed && (
+          <>
+            {' '}
+            <span className="sr-only">(customized)</span>
+          </>
+        )}
       </button>
     </li>
   );
