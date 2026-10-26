@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { act, fireEvent } from '@testing-library/react';
+import { act, fireEvent, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CreateForm } from './create-form';
 import { CREATE_EXAMPLES, EXAMPLE_INTERVAL_MS } from './create-examples';
@@ -138,6 +138,24 @@ describe('CreateForm', () => {
       customization: { lengthMinutes: 30, episodes: 3, speakerFormat: 'two_hosts', learningMode: 'explore' },
       attachments: [],
     });
+  });
+
+  it('shows the four settings as tags, marks changed ones, and opens Customize from a tag', async () => {
+    render(<CreateForm defaults={defaults} onCreate={vi.fn()} />);
+    const tags = screen.getByRole('list', { name: 'Podcast settings' });
+    expect(within(tags).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Episode Length: 15 min',
+      'Episodes: 3',
+      'Hosts: Mixed',
+      'Learning Mode: Explore',
+    ]);
+    await userEvent.click(within(tags).getByRole('button', { name: 'Hosts: Mixed' }));
+    expect(screen.getByRole('button', { name: 'Customize' })).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(screen.getByRole('radio', { name: 'Two Hosts' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Deepen' }));
+    expect(within(tags).getByRole('button', { name: 'Hosts: 2 (customized)' })).toBeInTheDocument();
+    expect(within(tags).getByRole('button', { name: 'Learning Mode: Deepen (customized)' })).toBeInTheDocument();
+    expect(within(tags).getByRole('button', { name: 'Episode Length: 15 min' })).toBeInTheDocument();
   });
 
   it('accepts a photo, shows it, and lets the photo stand in for typed text', async () => {
