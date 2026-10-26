@@ -1,8 +1,6 @@
 import { LlmError, textOf, type ChatMessage, type ChatOptions, type ChatResult, type LlmClient } from './types';
 
 export interface OpenAiCompatibleConfig {
-  /** The most a single reply may contain, for providers that cap it. */
-  maxOutputTokens?: number;
   provider: string;
   baseUrl: string;
   apiKey?: string | undefined;
@@ -70,8 +68,6 @@ export function createOpenAiCompatibleLlm(cfg: OpenAiCompatibleConfig): LlmClien
         if (room < 512) throw new LlmError(`This request is too large for ${cfg.model}'s per-minute token limit.`, 413);
         body.max_tokens = Math.min(options.maxTokens ?? room, room);
       }
-      // Some free tiers cap each reply (GitHub Models: about 4,000 tokens).
-      if (cfg.maxOutputTokens) body.max_tokens = Math.min(Number(body.max_tokens ?? cfg.maxOutputTokens), cfg.maxOutputTokens);
       if (options.json) body.response_format = { type: 'json_object' };
       const timeout = AbortSignal.timeout(cfg.timeoutMs ?? 180_000);
       const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;

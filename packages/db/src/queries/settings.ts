@@ -38,6 +38,9 @@ const GEMINI_FREE = [
 const OPENROUTER_FREE = [
   { provider: 'openrouter', model: 'nvidia/nemotron-3-ultra-550b-a55b:free' },
   { provider: 'openrouter', model: 'nvidia/nemotron-3.5-lightning:free' },
+  // Listed on 2026-10-26 (Models workflow); a last resort if the two above are busy upstream.
+  { provider: 'openrouter', model: 'nvidia/nemotron-3-super-120b-a12b:free' },
+  { provider: 'openrouter', model: 'thinkingmachines/inkling:free' },
 ];
 const GPT_OSS_120B = {
   provider: 'groq',

@@ -16,20 +16,6 @@ afterEach(async () => {
 });
 
 describe('review fixes', () => {
-  it('stops retrying a rate-limited job after a bounded number of tries', async () => {
-    world = await makeWorld(() => {
-      throw new LlmError('groq returned 429: daily quota', 429);
-    });
-    const job = await world.enqueue('Rate limited', { episodes: 1 });
-    for (let i = 0; i < 12; i++) {
-      await world.db.update(schema.generationJob).set({ runAfter: new Date(0) }).where(eq(schema.generationJob.id, job.id));
-      if (!(await runNextJob(world.deps))) break;
-    }
-    const [j] = await world.db.select().from(schema.generationJob).where(eq(schema.generationJob.id, job.id));
-    expect(j!.status).toBe('failed');
-    expect(j!.error).toMatch(/busy|limit/i);
-  });
-
   it('a public series whose search indexing fails is still ready', async () => {
     world = await makeWorld();
     world.deps.embedder = { name: 'broken', embed: async () => { throw new Error('embedding service down'); } };
@@ -198,5 +184,22 @@ describe('daily allowance used up', () => {
     const waitHours = (j!.runAfter.getTime() - Date.now()) / 3600_000;
     expect(waitHours).toBeGreaterThan(1.9);
     expect(waitHours).toBeLessThan(2.2);
+  });
+
+  it('keeps waiting through many short limits, and gives up only after a day and a half', async () => {
+    const w = (world = await makeWorld(() => {
+      throw new LlmError('All providers at their limits', 429);
+    }));
+    const job = await w.enqueue('Busy day', { episodes: 1 });
+    const t = schema.generationJob;
+    const run = async (sinceHoursAgo: number) => {
+      await w.db.update(t).set({ runAfter: new Date(0), state: { rateLimitRetries: 20, rateLimitedSince: Date.now() - sinceHoursAgo * 3600_000 } }).where(eq(t.id, job.id));
+      await runNextJob(w.deps);
+      return (await w.db.select().from(t).where(eq(t.id, job.id)))[0]!;
+    };
+    expect((await run(10)).status).toBe('queued');
+    const late = await run(37);
+    expect(late.status).toBe('failed');
+    expect(late.error).toMatch(/usage limit/);
   });
 });

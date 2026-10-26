@@ -77,9 +77,15 @@ export interface JobState {
   scripts?: ScriptState;
   tokens?: number;
   rateLimitRetries?: number;
+  /** When the job first found every AI provider at its limit (ms since epoch); cleared once one answers. */
+  rateLimitedSince?: number;
 }
 
-const MAX_RATE_LIMIT_RETRIES = 8;
+/**
+ * How long a job keeps waiting for a free AI allowance to come back before it gives up. Daily allowances
+ * reset within 24 hours, so a podcast waits through a full day rather than failing.
+ */
+const RATE_LIMIT_PATIENCE_MS = 36 * 3600_000;
 /** Episodes planned per request. */
 const PLAN_BATCH = 3;
 
@@ -270,6 +276,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     ];
     const res = await completeJson(llm, messages, zschema, { temperature: stage === 'script' ? 0.8 : 0.4, maxTokens, signal: stop.signal });
     state.tokens! += res.usage.promptTokens + res.usage.completionTokens;
+    // An answer means the allowance is back: a later limit starts a fresh wait.
+    delete state.rateLimitedSince;
     if (options.maxTokens && state.tokens! > options.maxTokens) {
       throw new PermanentJobError(`This series hit its language-model budget (${options.maxTokens} tokens).`);
     }
@@ -928,14 +936,17 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       return 'lost_lease';
     }
     const rateLimitedNow = err instanceof LlmError && err.status === 429;
-    if (rateLimitedNow) state.rateLimitRetries = (state.rateLimitRetries ?? 0) + 1;
+    if (rateLimitedNow) {
+      state.rateLimitRetries = (state.rateLimitRetries ?? 0) + 1;
+      state.rateLimitedSince ??= Date.now();
+    }
     await saveState(db, job.id, state).catch(() => {});
     const message = err instanceof Error ? err.message : String(err);
     if (err instanceof JobCancelledError) {
       await finalise('cancelled', 'Cancelled.');
       return 'cancelled';
     }
-    const rateLimited = rateLimitedNow && (state.rateLimitRetries ?? 0) <= MAX_RATE_LIMIT_RETRIES;
+    const rateLimited = rateLimitedNow && Date.now() - (state.rateLimitedSince ?? Date.now()) < RATE_LIMIT_PATIENCE_MS;
     if (rateLimitedNow && !rateLimited) {
       const outcome = await finalise('failed', 'The AI service is busy right now (its usage limit was reached). Please try again later.');
       return outcome;
