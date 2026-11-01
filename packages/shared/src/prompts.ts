@@ -36,17 +36,21 @@ Also suggest the show format that would make this topic most engaging, as "sugge
 Shape: {"objective": string, "context": string, "audience": string, "keyQuestions": string[], "evidence": string[], "assumptions": string[], "seriesTitle": string, "seriesDescription": string, "preferences": {"hosts": [{"name": string, "gender": "female" | "male" | null, "accent": "US" | "UK" | null, "age": number | null, "role": string}], "requests": string[], "episodes": number | null, "lengthMinutes": number | null, "speakerFormat": "single" | "conversation" | null, "showFormat": "storytelling" | "conversation" | "interview" | null}, "suggestedFormat": "storytelling" | "conversation" | "interview"}`;
 
 export const SELECT_MODELS_TASK = `
-Choose the mental models (reusable ways of thinking) that would most help this person, ranked by usefulness for their objective.
-Prefer well-established models with a clear body of credible writing behind them. Use the common name of each model.
+Choose the mental models (reusable ways of thinking) that would most help this person with THEIR topic, ranked by usefulness for their objective.
+There are thousands of mental models across every field: psychology, relationships, faith and ethics, parenting, medicine and health, negotiation, leadership, design, economics, history, science, sport, writing and more. Look first in the fields and books that specialise in this person's topic, and choose the models those books are known for (for example, for dating: attachment styles from "Attached"; for a negotiation: BATNA from "Getting to Yes"). Name each model the way its book does.
+- Every model must come from a real, well-known book about this topic or its field: give that book as sourceBook (title and the author's full name exactly as published). Do not choose a model you cannot tie to a book.
+- Avoid general-purpose models that fit any question (first principles, inversion, second-order thinking, opportunity cost, circle of competence, the map is not the territory, Occam's razor, Pareto principle, sunk cost and the like) and anything in overusedModels. Use one only if it is unusually and specifically the best fit, and say why in relevance.
+- Each model must be clearly different from the others: no near-synonyms or two names for one idea.
+- relevance says specifically how the model helps with this person's situation, not in general.
 Respect the learning mode:
 - explore: introduce models the person has NOT covered before (see coveredModels); never include a covered one.
 - deepen: prioritise models in coveredModels that are relevant, to study them more thoroughly.
 - reinforce: prioritise relevant models in coveredModels, to be taught again through different books, cases and examples.
 Return at least the requested count.
-Shape: {"models": [{"name": string, "slug": string, "summary": string, "category": string, "relevance": string, "score": number between 0 and 1}]}`;
+Shape: {"models": [{"name": string, "slug": string, "summary": string, "category": string, "relevance": string, "score": number between 0 and 1, "sourceBook": {"title": string, "author": string}}]}`;
 
 export const RESEARCH_TASK = `
-For each mental model, list real, well-known books that teach or are strongly associated with it, with the author's full name exactly as published. Only list books you are confident exist; every book will be checked against library catalogues and anything that does not match will be discarded.
+For each mental model, list real, well-known books that teach or are strongly associated with it, with the author's full name exactly as published. When a model has a sourceBook, list it first if it is real. Prefer books about the person's topic (see objective) over general books on thinking. Only list books you are confident exist; every book will be checked against library catalogues and anything that does not match will be discarded.
 Also name related mental models and how they relate.
 Shape: {"models": [{"slug": string, "books": [{"title": string, "author": string, "why": string}], "related": [{"name": string, "relation": "complementary" | "contrasting" | "prerequisite" | "related"}]}]}`;
 

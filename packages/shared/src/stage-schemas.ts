@@ -55,10 +55,12 @@ export const modelSelectionSchema = z.object({
         category: z.string().max(60).default('general'),
         relevance: z.string().min(5).max(500),
         score: z.number().min(0).max(1),
+        /** The book the model comes from; checked with the other books in research. */
+        sourceBook: z.object({ title: z.string().min(1).max(200), author: z.string().min(2).max(120) }).nullish(),
       }),
     )
     .min(1)
-    .max(20),
+    .max(24),
 });
 export type ModelSelection = z.infer<typeof modelSelectionSchema>;
 
