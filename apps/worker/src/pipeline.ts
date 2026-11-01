@@ -13,6 +13,7 @@ import {
 import { getActivePrompts, indexSeriesEmbedding, queryRows, schema, settleCancelledSeries, type Db, type ModelStage } from '@thinkmade/db';
 import { castHosts, chooseHosts, chooseShowFormat, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, HOST_IDS, voiceInfo, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowFormat } from '@thinkmade/shared';
 import { JobCancelledError, LostLeaseError, PermanentJobError, type WorkerDeps } from './deps';
+import { overusedModels, rankForVariety } from './model-variety';
 import { input, PLAN_TASK, RESEARCH_TASK, SCRIPT_TASK, SELECT_MODELS_TASK, stageSystem, UNDERSTAND_TASK } from './prompts';
 import type { ClaimedJob } from './queue';
 import { analyseUploads, type MediaAnalysis } from './media';
@@ -274,7 +275,9 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       { role: 'system', content: stageSystem(stage, overrides.get(stage) ?? task) },
       { role: 'user', content: input(data) },
     ];
-    const res = await completeJson(llm, messages, zschema, { temperature: stage === 'script' ? 0.8 : 0.4, maxTokens, signal: stop.signal });
+    // Model selection runs warmer, so series don't keep landing on the same few models.
+    const temperature = stage === 'script' ? 0.8 : stage === 'select_models' ? 0.7 : 0.4;
+    const res = await completeJson(llm, messages, zschema, { temperature, maxTokens, signal: stop.signal });
     state.tokens! += res.usage.promptTokens + res.usage.completionTokens;
     // An answer means the allowance is back: a later limit starts a fresh wait.
     delete state.rateLimitedSince;
@@ -455,24 +458,32 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     const covered = await coveredModelSlugs(db, job.user_id, seriesId);
     if (coachingModelSlug && !covered.includes(coachingModelSlug)) covered.push(coachingModelSlug);
     if (!state.models) {
-      const want = options.episodes + 2;
+      // Ask for more candidates than episodes, so models without a verified book can be dropped and the
+      // AI's usual favourites set aside, and still leave enough topic-specific models to fill the series.
+      const candidates = Math.min(24, options.episodes + 6);
+      // In deepen and reinforce the person's own models are the point, so they are never treated as overused.
+      const focus = new Set(options.learningMode === 'explore' ? [] : [...covered, ...(parent?.modelSlugs ?? [])]);
+      const overused = (await overusedModels(db)).filter((m) => !focus.has(m.slug));
       const sel = await runner.run('select_models', () =>
         chat<ModelSelection>('select_models', SELECT_MODELS_TASK, {
+          question: request.inputText ?? request.inputTranscript ?? undefined,
           objective: u.objective,
           context: u.context,
+          audience: u.audience,
           keyQuestions: u.keyQuestions,
           learningMode: options.learningMode,
           coveredModels: covered,
+          ...(overused.length ? { overusedModels: overused.map((m) => m.name) } : {}),
           ...(parent && options.learningMode !== 'explore' ? { focusModels: parent.modelSlugs } : {}),
-          count: want,
-        }, modelSelectionSchema),
+          count: candidates,
+        }, modelSelectionSchema, 6144),
       );
-      let models = [...sel.models].sort((a, b) => b.score - a.score);
+      let models = sel.models;
       if (options.learningMode === 'explore') models = models.filter((m) => !covered.includes(m.slug));
-      const seen = new Set<string>();
-      models = models.filter((m) => (seen.has(m.slug) ? false : (seen.add(m.slug), true)));
+      models = rankForVariety(models, { overused: overused.map((m) => m.slug), keep: focus });
       if (models.length === 0) throw new PermanentJobError('No new mental models were found for this topic. Try Deepen or Reinforce instead.');
-      state.models = models.slice(0, want);
+      // Research (and book checks) for a few more than needed, not every candidate.
+      state.models = models.slice(0, options.episodes + 4);
       await saveState(db, job.id, state);
     }
 
@@ -480,7 +491,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     if (!state.research) {
       state.research = await runner.run('research', async () => {
         const r = await chat('research', RESEARCH_TASK, {
-          models: state.models!.map((m) => ({ slug: m.slug, name: m.name, summary: m.summary })),
+          objective: u.objective,
+          models: state.models!.map((m) => ({ slug: m.slug, name: m.name, summary: m.summary, ...(m.sourceBook ? { sourceBook: m.sourceBook } : {}) })),
           note: 'Return the models in the same order, keeping each slug exactly as given.',
           ...(parent && options.learningMode === 'reinforce' ? { avoidBooks: parent.books, instruction: 'Prefer different books from those in avoidBooks.' } : {}),
           ...(parent && request.updateMode ? { publishedAfterYear: parent.year - 1, instruction: 'Prefer books published after publishedAfterYear.' } : {}),
@@ -513,8 +525,11 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         }
         return out;
       });
-      // Prefer models that have at least one verified book behind them.
-      state.models = [...state.models!].sort((a, b) => Number((state.research![b.slug]?.books.length ?? 0) > 0) - Number((state.research![a.slug]?.books.length ?? 0) > 0));
+      // Every episode is taught from real books: models without a verified book are dropped, as long as
+      // enough remain for the series (otherwise they go last, behind the ones with books).
+      const booked = (m: { slug: string }) => (state.research![m.slug]?.books.length ?? 0) > 0;
+      const withBooks = state.models!.filter(booked);
+      state.models = (withBooks.length >= options.episodes ? withBooks : [...withBooks, ...state.models!.filter((m) => !booked(m))]).slice(0, options.episodes + 2);
       await saveState(db, job.id, state);
     }
 
