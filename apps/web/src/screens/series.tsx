@@ -13,6 +13,7 @@ import { SeriesOwnerActions, shareLink } from './series-actions';
 import { useSession } from '../lib/auth-client';
 import { useNavigate } from 'react-router';
 import { useFeatures } from '../lib/features';
+import { ShowArt } from '../components/show-art';
 
 export function toPlayable(ep: EpisodeSummary, seriesTitle: string): PlayableEpisode {
   return {
@@ -257,6 +258,7 @@ function SeriesView({ s }: { s: SeriesDetail }) {
   ].sort((a, b) => a.number - b.number);
   return (
     <div>
+      <ShowArt seriesId={s.id} title={s.title} decorative className="mb-4 w-40 rounded-2xl shadow-card sm:w-48" />
       <PageHeader title={s.title} subtitle={s.description} />
       {!s.isOwner && s.visibility === 'public' && <PublicActions s={s} />}
       {busy && (

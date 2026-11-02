@@ -13,6 +13,7 @@ import { getDownload } from '../offline/downloads';
 import { db } from '../offline/db';
 import { flushOutbox, queueFavorite, queueRating } from '../offline/sync';
 import { useFeatures } from '../lib/features';
+import { ShowArt } from '../components/show-art';
 
 interface PlaybackInfo {
   positionMs: number;
@@ -124,9 +125,17 @@ export function PlayerScreen() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col items-center gap-4 pt-2 text-center">
-        <div className="flex h-44 w-44 items-center justify-center rounded-[2rem] bg-accent-strong text-[#F7F4EE] shadow-card">
-          <LogoSymbol size={110} decorative />
-        </div>
+        <ShowArt
+          seriesId={ep.seriesId}
+          title={ep.seriesTitle}
+          decorative
+          className="w-56 rounded-[2rem] shadow-card"
+          fallback={
+            <div className="flex h-44 w-44 items-center justify-center rounded-[2rem] bg-accent-strong text-[#F7F4EE] shadow-card">
+              <LogoSymbol size={110} decorative />
+            </div>
+          }
+        />
         {ep.primaryModelName && (
           <p className="rounded-full bg-sage-soft px-4 py-1.5 text-sm font-semibold text-sage-ink">
             Mental model: {ep.primaryModelName}

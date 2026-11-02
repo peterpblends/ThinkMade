@@ -150,3 +150,18 @@ describe('reading a saved position', () => {
     expect(await (await app.request(`/api/playback/${ep.id}`, { headers: { cookie } })).json()).toMatchObject({ positionMs: 12_000, status: 'in_progress' });
   });
 });
+
+describe('show artwork', () => {
+  it("serves each show's cover to whoever can see the show, and not while switched off", async () => {
+    const { app, cookie, ep } = await withEpisode();
+    const res = await app.request(`/api/series/${ep.seriesId}/cover.svg`, { headers: { cookie } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/^image\/svg\+xml/);
+    const [series] = await ctx!.db.select().from(schema.podcastSeries).where(eq(schema.podcastSeries.id, ep.seriesId));
+    expect(await res.text()).toContain(`aria-label="${series!.title}"`);
+    // A private show is not shown to others.
+    expect((await app.request(`/api/series/${ep.seriesId}/cover.svg`)).status).toBe(404);
+    await ctx!.settings.update({ features: { showArtwork: false } }, { id: series!.userId });
+    expect((await app.request(`/api/series/${ep.seriesId}/cover.svg`, { headers: { cookie } })).status).toBe(404);
+  });
+});
