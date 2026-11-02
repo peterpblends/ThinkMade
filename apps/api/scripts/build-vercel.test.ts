@@ -16,7 +16,10 @@ describe('buildRoutes', () => {
 
   it('sends /api requests and shared links to the api function', () => {
     expect(routes).toContainEqual({ src: '^/api(?:/.*)?$', dest: '/api' });
-    expect(routes).toContainEqual({ src: '^/p/[^/]+/?$', dest: '/api' });
+    const share = routes.find((r) => r.dest === '/api' && r.src?.startsWith('^/p/'))!;
+    // A shared podcast and a shared episode are both rendered by the API (for link previews).
+    for (const path of ['/p/heart-and-faith', '/p/heart-and-faith/', '/p/heart-and-faith/e/3']) expect(new RegExp(share.src!).test(path), path).toBe(true);
+    expect(new RegExp(share.src!).test('/p/heart-and-faith/e/x')).toBe(false);
   });
 
   it('allows exactly the inline scripts in index.html by hash', () => {

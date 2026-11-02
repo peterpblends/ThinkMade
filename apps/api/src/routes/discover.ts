@@ -179,5 +179,21 @@ export function sharePageRoutes(ctx: AppContext) {
     if (!s) return c.html(withPreviewTags(html, { title: `${BRAND.name}`, description: BRAND.shortDescription, url, noindex: true }), 404);
     return c.html(withPreviewTags(html, { title: `${s.title} — ${BRAND.name}`, description: s.description, url }));
   });
+  // A shared episode: its own title and description in link previews.
+  r.get('/p/:slug/e/:number', async (c) => {
+    const html = await ctx.indexHtml();
+    const slug = c.req.param('slug');
+    const number = Number(c.req.param('number'));
+    const url = `${ctx.env.APP_URL}/p/${encodeURIComponent(slug)}/e/${number}`;
+    const [row] = Number.isInteger(number)
+      ? await ctx.db
+          .select({ title: schema.episode.title, description: schema.episode.description, seriesTitle: schema.podcastSeries.title })
+          .from(schema.episode)
+          .innerJoin(schema.podcastSeries, eq(schema.podcastSeries.id, schema.episode.seriesId))
+          .where(and(eq(schema.podcastSeries.publicSlug, slug), eq(schema.podcastSeries.visibility, 'public'), eq(schema.episode.number, number), eq(schema.episode.status, 'ready')))
+      : [];
+    if (!row) return c.html(withPreviewTags(html, { title: `${BRAND.name}`, description: BRAND.shortDescription, url, noindex: true }), 404);
+    return c.html(withPreviewTags(html, { title: `${row.title} — ${row.seriesTitle}`, description: row.description, url }));
+  });
   return r;
 }

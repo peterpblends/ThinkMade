@@ -1,7 +1,7 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router';
-import { BookOpen, Lightbulb, LoaderCircle, MessageCircleQuestion, Pause, Play, Plus, RefreshCw } from 'lucide-react';
+import { BookOpen, Lightbulb, LoaderCircle, MessageCircleQuestion, Pause, Play, Plus, RefreshCw, Share2 } from 'lucide-react';
 import { usePlayer, type PlayableEpisode } from '../player/player-context';
 import { DownloadButton } from '../offline/download-button';
 import { startPositionFor } from '../offline/player-adapters';
@@ -14,6 +14,7 @@ import { useSession } from '../lib/auth-client';
 import { useNavigate } from 'react-router';
 import { useFeatures } from '../lib/features';
 import { ShowArt } from '../components/show-art';
+import { publicSlugFor, SHARE_NOTE, shareTarget } from '../lib/share';
 
 export function toPlayable(ep: EpisodeSummary, seriesTitle: string): PlayableEpisode {
   return {
@@ -47,7 +48,7 @@ function PlayButton({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTitl
   );
 }
 
-function EpisodeCard({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTitle: string; queue: PlayableEpisode[] }) {
+function EpisodeCard({ ep, seriesTitle, queue, onShare }: { ep: EpisodeSummary; seriesTitle: string; queue: PlayableEpisode[]; onShare?: ((ep: EpisodeSummary) => void) | undefined }) {
   const features = useFeatures();
   return (
     <article id={ep.id} aria-labelledby={`${ep.id}-title`} className="scroll-mt-20 rounded-[var(--radius-card)] border border-line bg-surface p-5 shadow-card">
@@ -73,6 +74,16 @@ function EpisodeCard({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTit
             <Link to={`/coach/${ep.id}`} className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line px-4 text-sm font-semibold">
               <MessageCircleQuestion aria-hidden size={18} /> Coach Me
             </Link>
+          )}
+          {onShare && (
+            <button
+              type="button"
+              onClick={() => onShare(ep)}
+              aria-label={`Share episode ${ep.number}: ${ep.title}`}
+              className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line px-4 text-sm font-semibold"
+            >
+              <Share2 aria-hidden size={18} /> Share
+            </button>
           )}
           <span className="mt-4">
             <DownloadButton ep={toPlayable(ep, seriesTitle)} compact loadDetail={() => fetch(`/api/episodes/${ep.id}`, { credentials: 'same-origin' }).then((r) => r.json())} />
@@ -183,6 +194,40 @@ export function PublicSeriesScreen() {
   return <SeriesView s={q.data} />;
 }
 
+/** A shared episode's own page: that episode, with a way to the rest of the podcast. */
+export function PublicEpisodeScreen() {
+  const { slug = '', number = '' } = useParams();
+  const q = useQuery({ queryKey: ['public', slug], queryFn: () => api<SeriesDetail>(`/api/public/${slug}`) });
+  if (q.isError) return <Notice tone="error" role="alert">This episode is not shared, or the link has changed.</Notice>;
+  if (!q.data) return <p role="status" className="text-muted">Loading…</p>;
+  const s = q.data;
+  const ep = s.episodes.find((e) => e.number === Number(number));
+  if (!ep) {
+    return (
+      <Notice tone="error" role="alert">
+        This episode isn't available. <Link className="font-semibold underline" to={`/p/${slug}`}>See the whole podcast</Link>
+      </Notice>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center gap-4">
+        <ShowArt seriesId={s.id} title={s.title} decorative className="w-24 rounded-2xl shadow-card sm:w-28" />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-muted">From the podcast</p>
+          <Link to={`/p/${slug}`} className="font-serif text-xl font-semibold leading-snug underline-offset-4 hover:underline">
+            {s.title}
+          </Link>
+        </div>
+      </div>
+      <EpisodeCard ep={ep} seriesTitle={s.title} queue={[toPlayable(ep, s.title)]} />
+      <Link to={`/p/${slug}`} className="self-start font-semibold text-accent-ink underline underline-offset-4">
+        All {s.episodes.length} episode{s.episodes.length === 1 ? '' : 's'} of {s.title}
+      </Link>
+    </div>
+  );
+}
+
 export function SeriesScreen() {
   const { id = '' } = useParams();
   const q = useQuery({
@@ -247,13 +292,29 @@ function AddEpisodes({ s }: { s: SeriesDetail }) {
 
 function SeriesView({ s }: { s: SeriesDetail }) {
   const location = useLocation();
+  const qc = useQueryClient();
+  const [shareNote, setShareNote] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
+  // An episode's own link: the owner can share any finished episode (the podcast becomes public if they agree).
+  const canShare = s.isOwner || s.visibility === 'public';
+  const shareEpisode = async (ep: EpisodeSummary) => {
+    setShareNote(null);
+    try {
+      const slug = await publicSlugFor(s);
+      if (!slug) return;
+      if (s.visibility !== 'public') await qc.invalidateQueries({ queryKey: ['series', s.id] });
+      const r = await shareTarget({ kind: 'episode', title: ep.title, seriesTitle: s.title, slug, number: ep.number });
+      if (SHARE_NOTE[r]) setShareNote({ tone: r === 'failed' ? 'error' : 'info', text: SHARE_NOTE[r]! });
+    } catch {
+      setShareNote({ tone: 'error', text: 'Could not share this episode. Please try again.' });
+    }
+  };
   useEffect(() => {
     if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
   }, [s.id, location.hash]);
   const busy = !!s.activeGenerationId;
   const queue = s.episodes.filter((e) => e.status === 'ready').map((e) => toPlayable(e, s.title));
   const items = [
-    ...s.episodes.map((ep) => ({ number: ep.number, node: <EpisodeCard key={ep.id} ep={ep} seriesTitle={s.title} queue={queue} /> })),
+    ...s.episodes.map((ep) => ({ number: ep.number, node: <EpisodeCard key={ep.id} ep={ep} seriesTitle={s.title} queue={queue} onShare={canShare ? (e) => void shareEpisode(e) : undefined} /> })),
     ...(s.removedEpisodes ?? []).map((ep) => ({ number: ep.number, node: <RemovedEpisode key={ep.id} seriesId={s.id} ep={ep} disabled={busy} /> })),
   ].sort((a, b) => a.number - b.number);
   return (
@@ -268,6 +329,13 @@ function SeriesView({ s }: { s: SeriesDetail }) {
               <LoaderCircle aria-hidden size={18} className="animate-spin" /> We're working on this series.{' '}
               <Link to={`/generations/${s.activeGenerationId}`} className="font-semibold underline underline-offset-4">See progress</Link>
             </span>
+          </Notice>
+        </div>
+      )}
+      {shareNote && (
+        <div className="mb-4">
+          <Notice tone={shareNote.tone} role={shareNote.tone === 'error' ? 'alert' : 'status'}>
+            {shareNote.text}
           </Notice>
         </div>
       )}

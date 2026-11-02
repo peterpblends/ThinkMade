@@ -22,10 +22,11 @@ async function readManifest(deps: Pick<WorkerDeps, 'storage'>): Promise<string[]
  * hear a voice before choosing it. The manifest lists the voices with a sample (the API reads it). Stops
  * after `budgetMs` and carries on next time.
  */
-export async function ensureVoiceSamples(deps: Pick<WorkerDeps, 'db' | 'tts' | 'storage' | 'workDir' | 'log'>, budgetMs = 15 * 60_000): Promise<number> {
+export async function ensureVoiceSamples(deps: Pick<WorkerDeps, 'db' | 'tts' | 'storage' | 'workDir' | 'log'>, budgetMs = 15 * 60_000, redoLanguages: string[] = []): Promise<number> {
   const started = Date.now();
   const settings = await getActiveAppSettings(deps.db);
-  const done = new Set(await readManifest(deps));
+  // Samples in `redoLanguages` are rendered again (after a change to how those languages are spoken).
+  const done = new Set((await readManifest(deps)).filter((e) => !redoLanguages.some((l) => (l === 'en' ? !e.includes(':') : e.startsWith(`${l}:`)))));
   // A sample in every language each voice speaks.
   const missing = settings.voices.available.flatMap((voice) => (voiceInfo(voice)?.speaks ?? []).map((language) => ({ voice, language }))).filter((s) => !done.has(voiceSampleEntry(s.voice, s.language)));
   if (!missing.length) return 0;

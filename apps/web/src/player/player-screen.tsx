@@ -14,6 +14,7 @@ import { db } from '../offline/db';
 import { flushOutbox, queueFavorite, queueRating } from '../offline/sync';
 import { useFeatures } from '../lib/features';
 import { ShowArt } from '../components/show-art';
+import { publicSlugFor, SHARE_NOTE, shareTarget } from '../lib/share';
 
 interface PlaybackInfo {
   positionMs: number;
@@ -103,21 +104,25 @@ export function PlayerScreen() {
     await qc.invalidateQueries({ queryKey: ['playback', ep.id] });
     await flushOutbox();
   };
+  // Shares this episode's own link (not the podcast's). The owner of a private podcast can make it public to share.
   const share = async () => {
-    const series = await api<{ visibility: string; publicSlug: string | null }>(`/api/series/${ep.seriesId}`).catch(() => null);
+    setShareNote(null);
+    const series = await api<{ id: string; title: string; visibility: string; publicSlug: string | null; isOwner: boolean }>(`/api/series/${ep.seriesId}`).catch(() => null);
     if (!series) {
       setShareNote('Sharing needs a connection.');
       return;
     }
-    if (series.visibility !== 'public' || !series.publicSlug) {
-      setShareNote('This podcast is private. Make it public from its series page to share it.');
+    if (series.visibility !== 'public' && !series.isOwner) {
+      setShareNote('This podcast is private, so it can’t be shared.');
       return;
     }
-    const url = `${window.location.origin}/p/${series.publicSlug}`;
-    if (navigator.share) await navigator.share({ title: ep.title, text: `${ep.title} — ThinkMade`, url }).catch(() => {});
-    else {
-      await navigator.clipboard?.writeText(url);
-      setShareNote('Link copied.');
+    try {
+      const slug = await publicSlugFor(series);
+      if (!slug) return;
+      const r = await shareTarget({ kind: 'episode', title: ep.title, seriesTitle: ep.seriesTitle, slug, number: ep.number });
+      setShareNote(SHARE_NOTE[r]);
+    } catch {
+      setShareNote('Could not share this episode. Please try again.');
     }
   };
   const status = info.data?.status;

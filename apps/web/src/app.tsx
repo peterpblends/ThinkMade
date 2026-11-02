@@ -42,6 +42,7 @@ const AdminReport = lazyNamed(() => import('./screens/admin/report'), 'AdminRepo
 const GenerationProgressScreen = lazyNamed(() => import('./screens/generation-progress'), 'GenerationProgressScreen');
 const SeriesScreen = lazyNamed(() => import('./screens/series'), 'SeriesScreen');
 const PublicSeriesScreen = lazyNamed(() => import('./screens/series'), 'PublicSeriesScreen');
+const PublicEpisodeScreen = lazyNamed(() => import('./screens/series'), 'PublicEpisodeScreen');
 const PlayerScreen = lazyNamed(() => import('./player/player-screen'), 'PlayerScreen');
 const CoachScreen = lazyNamed(() => import('./screens/coach'), 'CoachScreen');
 
@@ -81,6 +82,7 @@ const router = createBrowserRouter([
       { path: '/generations/:id', element: <RequireAuth>{page(<GenerationProgressScreen />)}</RequireAuth> },
       { path: '/series/:id', element: page(<SeriesScreen />) },
       { path: '/p/:slug', element: page(<PublicSeriesScreen />) },
+      { path: '/p/:slug/e/:number', element: page(<PublicEpisodeScreen />) },
       { path: '/player', element: page(<PlayerScreen />) },
       { path: '/coach/:episodeId', element: <RequireAuth>{page(<CoachScreen />)}</RequireAuth> },
       { path: '/settings', element: <RequireAuth>{page(<SettingsScreen />)}</RequireAuth> },

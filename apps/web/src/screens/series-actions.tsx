@@ -4,19 +4,12 @@ import { useNavigate } from 'react-router';
 import { Compass, Globe, Layers, Lock, RefreshCw, Repeat, Share2, Trash2 } from 'lucide-react';
 import { api, type ApiError } from '../lib/api';
 import { Button, Card, Notice } from '../components/ui';
+import { shareTarget } from '../lib/share';
 
+/** Shares a podcast's link (the podcast as a whole). */
 export async function shareLink(title: string, slug: string): Promise<'shared' | 'copied' | 'failed'> {
-  const url = `${window.location.origin}/p/${slug}`;
-  try {
-    if (navigator.share) {
-      await navigator.share({ title: `${title} — ThinkMade`, url });
-      return 'shared';
-    }
-    await navigator.clipboard.writeText(url);
-    return 'copied';
-  } catch {
-    return 'failed';
-  }
+  const r = await shareTarget({ kind: 'podcast', title, slug });
+  return r === 'cancelled' ? 'shared' : r;
 }
 
 /** Owner tools: visibility, sharing, continued learning and deletion. */
@@ -83,7 +76,7 @@ export function SeriesOwnerActions({ series }: { series: { id: string; title: st
                   setNote({ tone: r === 'failed' ? 'error' : 'info', text: r === 'copied' ? 'Link copied.' : r === 'shared' ? 'Shared.' : 'Could not share the link.' });
                 }}
               >
-                <Share2 aria-hidden size={18} /> Share link
+                <Share2 aria-hidden size={18} /> Share podcast
               </button>
               <Button variant="secondary" onClick={() => visibility.mutate('private')} busy={visibility.isPending}>Make private</Button>
             </>

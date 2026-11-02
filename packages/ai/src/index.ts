@@ -11,6 +11,7 @@ export * from './llm/fallback';
 export * from './tts/types';
 export * from './tts/tone';
 export * from './tts/kokoro';
+export { espeakPhonemes } from './tts/espeak';
 export * from './stt/types';
 export * from './stt/openai-compatible';
 export * from './storage/types';

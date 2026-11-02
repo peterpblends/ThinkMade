@@ -6,7 +6,7 @@
  * of the sentence came through, as a check that every voice speaks clear English.
  */
 import { createDb, getActiveAppSettings } from '@thinkmade/db';
-import { voiceInfo, voiceSampleKey, voiceSampleText } from '@thinkmade/shared';
+import { LANGUAGES, voiceInfo, voiceSampleKey, voiceSampleText } from '@thinkmade/shared';
 import { createWorkerDeps, ensureVoiceSamples } from '../src/index';
 
 if (!process.env.DATABASE_URL) {
@@ -15,7 +15,14 @@ if (!process.env.DATABASE_URL) {
 }
 const handle = await createDb({ databaseUrl: process.env.DATABASE_URL });
 const deps = await createWorkerDeps(handle.db, process.env, { log: (m, x) => console.warn(m, JSON.stringify(x ?? {})) });
-const made = await ensureVoiceSamples(deps, 60 * 60_000);
+// VOICE_SAMPLES_REDO=fr,hi renders those languages' samples again.
+const redo = process.env.VOICE_SAMPLES_REDO?.split(',').filter(Boolean) ?? [];
+if (process.env.VOICE_SAMPLES_PHONEMES === '1') {
+  // Shows the sounds eSpeak gives Kokoro for each language's sample line, to check pronunciation.
+  const { espeakPhonemes } = await import('@thinkmade/ai');
+  for (const l of LANGUAGES.filter((x) => x.espeak)) console.info(`phonemes ${l.code}: ${await espeakPhonemes(voiceSampleText('Ana', l.code), l.espeak!)}`);
+}
+const made = await ensureVoiceSamples(deps, 60 * 60_000, redo);
 console.info(`${made} voice sample(s) rendered`);
 
 if (process.env.VOICE_SAMPLES_CHECK === '1') {
