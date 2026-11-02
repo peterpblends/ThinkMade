@@ -409,7 +409,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         ...(h.kind ? { kind: h.kind } : {}),
         ...(h.simulated ? { simulated: true } : {}),
       }));
-    const listener = { audience: u.audience, listenerRequests: prefs.requests };
+    const listener = { audience: u.audience, listenerRequests: prefs.requests, ...(options.naturalDelivery ? { naturalDelivery: true } : {}) };
     /**
      * The people in one episode: the series' hosts (just the first in a single-host episode) and, in an
      * interview series with rotating guests, that episode's own guest, cast once to suit the episode and never
@@ -890,6 +890,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           pacing: production.pacing,
           expressiveness: production.expressiveness,
           roomTone: production.roomTone,
+          natural: options.naturalDelivery === true,
           tts: deps.tts,
           outFile,
           workDir,

@@ -91,6 +91,7 @@ Craft:
 - Follow every item in listenerRequests that applies to this section, and write for their audience.
 - Only mention books from the verified list, by exact title and author. Never quote them; paraphrase ideas. Scripture or other texts the listener asked for may be cited as the rules allow.
 - Write for the ear: spell out numbers, symbols and abbreviations as they should be spoken. No stage directions, sound effects, markdown or emojis.
+- When naturalDelivery is true, write the way people actually talk, not the way they write: mostly short sentences with the odd long one, thoughts that change direction mid-sentence ("It's not that— well, it's more that..."), a speaker briefly correcting or rephrasing themselves, small asides, questions answered with a pause for thought ("Hm. I think it's..."), and natural connectors ("so", "and honestly", "I mean", "you know"). Use these lightly, a few per section, and never "um" or "uh". Put a quick reaction from the other host in its own short line where a listener would hear one.
 - Hit the target word count closely; it controls the episode length.
 If "continueFrom" is given, the section so far ends with that text: continue the conversation from exactly there with about "wordsNeeded" more words, without repeating anything already said.
 Also return a 2–3 sentence summary of what this section covered.

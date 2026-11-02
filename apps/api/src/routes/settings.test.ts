@@ -106,6 +106,8 @@ describe('settings routes', () => {
     expect(res.status).toBe(202);
     const [job] = await ctx.db.select().from(schema.generationJob);
     expect((job!.options as { voiceGender?: string }).voiceGender).toBe('female');
+    // New podcasts record whether natural delivery was on when they were requested.
+    expect((job!.options as { naturalDelivery?: boolean }).naturalDelivery).toBe(true);
     const bad = await app.request('/api/generations', { method: 'POST', headers, body: JSON.stringify({ topic: 'Robot voices', voiceGender: 'robot' }) });
     expect(bad.status).toBe(400);
   });

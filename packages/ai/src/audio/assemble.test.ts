@@ -34,6 +34,26 @@ describe('assembleEpisode', () => {
     expect(result.checks).toEqual({ chunks: 3, retried: 0, suspect: [] });
   }, 60_000);
 
+  it('with natural delivery, varies the pace of each sentence and masters through the natural chain', async () => {
+    const speeds: number[] = [];
+    const tone = createToneTts();
+    const tts = { ...tone, synthesize: (text: string, voice: string, o?: { speed?: number }) => (speeds.push(o?.speed ?? 1), tone.synthesize(text, voice, o)) };
+    const turns = [
+      { voice: 'af_heart', text: 'Here is a strange thing. It hides in plain sight. Most people never notice it at all.' },
+      { voice: 'am_michael', text: 'So what is it, then? Tell me more about the thing.' },
+    ];
+    const out = join(dir, 'natural.mp3');
+    const result = await assembleEpisode({ turns, tts, outFile: out, workDir: dir, natural: true });
+    expect(statSync(out).size).toBeGreaterThan(1000);
+    expect(await measureDuration(out)).toBeCloseTo(result.durationSeconds, 1);
+    expect(new Set(speeds.map((x) => x.toFixed(3))).size).toBeGreaterThan(1);
+    for (const x of speeds) expect(Math.abs(x - 1)).toBeLessThanOrEqual(0.03 + 0.04 * 1.03 + 1e-9);
+    // Without natural delivery every full sentence is read at the same pace.
+    speeds.length = 0;
+    await assembleEpisode({ turns: [turns[0]!], tts, outFile: join(dir, 'plain.mp3'), workDir: dir });
+    expect(new Set(speeds).size).toBe(1);
+  }, 60_000);
+
   it('reports progress per turn', async () => {
     const seen: number[] = [];
     await assembleEpisode({

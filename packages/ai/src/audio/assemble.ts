@@ -27,6 +27,11 @@ export interface AssembleOptions {
   expressiveness?: Expressiveness;
   /** A very quiet room tone under the whole episode, so pauses don't sound like dead air. */
   roomTone?: boolean;
+  /**
+   * Natural delivery: each sentence at a slightly different pace, as people speak, and a gentle mastering chain
+   * (warmth, softer synthetic sibilance, light compression and a faint room) instead of a dry, clinical sound.
+   */
+  natural?: boolean;
   bitrateKbps?: number;
   /** Stops between speech chunks (for example when the listener cancels). */
   signal?: AbortSignal;
@@ -49,6 +54,19 @@ const EXPRESSION: Record<Expressiveness, number> = { steady: 0.15, natural: 0.4,
 const TARGET_RMS = 0.08;
 /** Room tone level: about -63 dBFS. */
 const ROOM_TONE_LEVEL = 0.0007;
+/** The final processing: plain clean-up and loudness, or the natural-delivery mastering chain. */
+export const MASTERING = {
+  plain: 'highpass=f=60,loudnorm=I=-16:TP=-1.5:LRA=11',
+  natural: [
+    'highpass=f=70',
+    'equalizer=f=200:t=q:w=1.2:g=1.5', // body and warmth
+    'equalizer=f=3500:t=q:w=1.5:g=1', // presence
+    'equalizer=f=7500:t=q:w=2:g=-2', // the "synthetic" fizz some voices have
+    'acompressor=threshold=-21dB:ratio=2.2:attack=12:release=180',
+    'aecho=0.85:0.9:14|27:0.06|0.035', // a few early reflections: a small, quiet room
+    'loudnorm=I=-16:TP=-1.5:LRA=11',
+  ].join(','),
+} as const;
 
 /** A small deterministic random source, so the same script always produces the same audio. */
 export function seededRandom(seed: number): () => number {
@@ -173,7 +191,9 @@ export async function assembleEpisode(opts: AssembleOptions): Promise<AssembleRe
   const checks: AssembleResult['checks'] = { chunks: 0, retried: 0, suspect: [] };
   const speak = async (text: string, voice: string): Promise<Float32Array> => {
     const words = countWords(text);
-    const base: SpeakOptions = { speed: SPEED[pacing] * (words <= 4 ? 1.04 : 1), expressiveness };
+    // People don't speak every sentence at one pace: with natural delivery, each varies by up to ±3%.
+    const drift = opts.natural ? 1 + (random() - 0.5) * 0.06 : 1;
+    const base: SpeakOptions = { speed: SPEED[pacing] * (words <= 4 ? 1.04 : 1) * drift, expressiveness };
     let best: { samples: Float32Array; problem: string | null } | null = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       opts.signal?.throwIfAborted();
@@ -220,7 +240,7 @@ export async function assembleEpisode(opts: AssembleOptions): Promise<AssembleRe
     opts.signal?.throwIfAborted();
     await runFfmpeg([
       '-y', '-f', 's16le', '-ar', String(rate), '-ac', '1', '-i', raw,
-      '-af', 'highpass=f=60,loudnorm=I=-16:TP=-1.5:LRA=11',
+      '-af', opts.natural ? MASTERING.natural : MASTERING.plain,
       '-ar', '44100', '-ac', '1', '-codec:a', 'libmp3lame', '-b:a', `${opts.bitrateKbps ?? 64}k`,
       opts.outFile,
     ]);
