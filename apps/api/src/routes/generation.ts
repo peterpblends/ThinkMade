@@ -116,7 +116,8 @@ export function generationRoutes(ctx: AppContext) {
       .select({ id: schema.generationJob.id, status: schema.generationJob.status, currentStage: schema.generationJob.currentStage, seriesId: schema.generationJob.seriesId, createdAt: schema.generationJob.createdAt, topic: schema.learningRequest.inputText })
       .from(schema.generationJob)
       .innerJoin(schema.learningRequest, eq(schema.learningRequest.id, schema.generationJob.learningRequestId))
-      .where(eq(schema.generationJob.userId, c.var.session!.user.id))
+      // Voicing a series in another language isn't a podcast being made, so it isn't listed here.
+      .where(and(eq(schema.generationJob.userId, c.var.session!.user.id), sql`not (${schema.generationJob.options} ? 'translate')`))
       .orderBy(desc(schema.generationJob.createdAt))
       .limit(20);
     return c.json({

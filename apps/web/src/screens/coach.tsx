@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { AudioLines, Mic, Send, Sparkles, Square, Volume2, VolumeX } from 'lucide-react';
 import { api, ApiError } from '../lib/api';
+import { createCoachSpeaker } from '../lib/coach-voice';
 import { useVoiceConversation, type ConversationTurn, type VoiceConversation } from '../lib/conversation';
 import { useFeatures } from '../lib/features';
 import { useVoiceInput, type VoiceInput } from '../lib/voice';
@@ -229,26 +230,31 @@ export function CoachScreen() {
   const voice = useVoiceInput();
   const features = useFeatures();
   const [error, setError] = useState<string | null>(null);
-  // Spoken turns go straight to the coach; the conversation log refreshes after each reply.
-  const talk = useVoiceConversation(async (turn: ConversationTurn, signal: AbortSignal) => {
-    try {
-      const res = await api<{ reply: CoachMessage }>(`/api/coach/${episodeId}/messages`, {
-        method: 'POST',
-        body: JSON.stringify({ content: turn.text, spoken: true, ...(turn.interruptedAfter ? { interruptedAfter: turn.interruptedAfter } : {}) }),
-        signal,
-      });
-      void qc.invalidateQueries({ queryKey: ['coach', episodeId] });
-      return res.reply.content;
-    } catch (err) {
-      const body = err instanceof ApiError ? (err.body as { message?: string } | null) : null;
-      throw new Error(body?.message ?? 'The coach could not answer just now. Please try again.');
-    }
-  });
   const [optimistic, setOptimistic] = useState<CoachMessage | null>(null);
   const q = useQuery({
     queryKey: ['coach', episodeId],
-    queryFn: () => api<{ session: { id: string } | null; episode: { id: string; title: string; seriesTitle: string }; messages: CoachMessage[] }>(`/api/coach/${episodeId}`),
+    queryFn: () =>
+      api<{ session: { id: string } | null; episode: { id: string; title: string; seriesTitle: string }; language?: string; speechLang?: string; messages: CoachMessage[] }>(`/api/coach/${episodeId}`),
   });
+  // Spoken turns go straight to the coach, in the podcast's language; the conversation log refreshes after each reply.
+  const talk = useVoiceConversation(
+    async (turn: ConversationTurn, signal: AbortSignal) => {
+      try {
+        const res = await api<{ reply: CoachMessage }>(`/api/coach/${episodeId}/messages`, {
+          method: 'POST',
+          body: JSON.stringify({ content: turn.text, spoken: true, ...(turn.interruptedAfter ? { interruptedAfter: turn.interruptedAfter } : {}) }),
+          signal,
+        });
+        void qc.invalidateQueries({ queryKey: ['coach', episodeId] });
+        return res.reply.content;
+      } catch (err) {
+        const body = err instanceof ApiError ? (err.body as { message?: string } | null) : null;
+        throw new Error(body?.message ?? 'The coach could not answer just now. Please try again.');
+      }
+    },
+    createCoachSpeaker,
+    q.data?.speechLang ?? 'en-US',
+  );
   const send = useMutation({
     mutationFn: (content: string) => api<{ message: CoachMessage; reply: CoachMessage }>(`/api/coach/${episodeId}/messages`, { method: 'POST', body: JSON.stringify({ content }) }),
     onMutate: (content) => {

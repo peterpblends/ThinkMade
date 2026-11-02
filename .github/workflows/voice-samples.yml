@@ -10,6 +10,16 @@ on:
         description: Also transcribe every sample to check each voice speaks clear English
         type: boolean
         default: false
+      languages:
+        description: Only check these languages (e.g. es,fr); empty checks all
+        default: ''
+      redo:
+        description: Render these languages' samples again (e.g. fr,hi)
+        default: ''
+      phonemes:
+        description: Print the sounds eSpeak produces for each language
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -32,6 +42,9 @@ jobs:
       S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       VOICE_SAMPLES_CHECK: ${{ inputs.check && '1' || '0' }}
+      VOICE_SAMPLES_LANGUAGES: ${{ inputs.languages }}
+      VOICE_SAMPLES_REDO: ${{ inputs.redo }}
+      VOICE_SAMPLES_PHONEMES: ${{ inputs.phonemes && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

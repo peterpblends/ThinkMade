@@ -6,6 +6,7 @@ import type { AppContext } from '../create-context';
 import { z } from 'zod';
 import { FollowUpError, startFollowUp, type FollowUp } from '../generation/follow-up';
 import { requireSession, requireVerified, type AppVariables } from '../middleware/session';
+import { inLanguage, languageView, LanguageSwitchError, switchLanguage } from '../generation/translation';
 import { dailyLimitMessage } from './generation';
 import { coverSvg } from '@thinkmade/brand/cover';
 
@@ -91,8 +92,9 @@ export function seriesRoutes(ctx: AppContext) {
     const rows = await ctx.db
       .select({
         id: schema.podcastSeries.id,
-        title: schema.podcastSeries.title,
-        description: schema.podcastSeries.description,
+        // In the language the owner chose to show it in.
+        title: sql<string>`coalesce((select t.title from series_translation t where t.series_id = "podcast_series"."id" and t.language = "podcast_series"."language"), "podcast_series"."title")`,
+        description: sql<string>`coalesce((select t.description from series_translation t where t.series_id = "podcast_series"."id" and t.language = "podcast_series"."language"), "podcast_series"."description")`,
         status: schema.podcastSeries.status,
         visibility: schema.podcastSeries.visibility,
         createdAt: schema.podcastSeries.createdAt,
@@ -121,7 +123,9 @@ export function seriesRoutes(ctx: AppContext) {
     if (!features.showArtwork) return c.json({ error: 'not_found' }, 404);
     const s = await readableSeries(ctx.db, c.req.param('id'), c.var.session?.user.id ?? null);
     if (!s) return c.json({ error: 'not_found' }, 404);
-    return c.body(coverSvg({ title: s.title, seed: s.id }), 200, {
+    // The title in the language the series is shown in (the seed keeps its colours across languages).
+    const { title } = await languageView(ctx, s, []);
+    return c.body(coverSvg({ title, seed: s.id }), 200, {
       'Content-Type': 'image/svg+xml; charset=utf-8',
       'Cache-Control': s.visibility === 'public' ? 'public, max-age=86400' : 'private, max-age=86400',
     });
@@ -144,24 +148,44 @@ export function seriesRoutes(ctx: AppContext) {
               await ctx.db
                 .select({ id: schema.generationJob.id })
                 .from(schema.generationJob)
-                .where(and(eq(schema.generationJob.seriesId, s.id), inArray(schema.generationJob.status, ['queued', 'running'])))
+                // Voicing another language runs in the background and doesn't hold the series up.
+                .where(and(eq(schema.generationJob.seriesId, s.id), inArray(schema.generationJob.status, ['queued', 'running']), sql`not (${schema.generationJob.options} ? 'translate')`))
                 .limit(1)
             )[0]?.id ?? null,
           maxEpisodes: (await ctx.settings.getActive()).settings.podcast.maxEpisodesPerSeries,
         }
       : {};
+    const view = await languageView(ctx, s, eps.map((e) => e.id));
     return c.json({
       ...owner,
       id: s.id,
-      title: s.title,
-      description: s.description,
+      title: view.title,
+      description: view.description,
       status: s.status,
       visibility: s.visibility,
       publicSlug: s.publicSlug,
       isOwner: s.userId === c.var.session?.user.id,
       createdAt: s.createdAt,
-      episodes: eps.map((e) => serialiseEpisode(e, details.get(e.id))),
+      language: view.language,
+      originalLanguage: view.originalLanguage,
+      languages: view.languages,
+      episodes: eps.map((e) => inLanguage(serialiseEpisode(e, details.get(e.id)), view.episodes.get(e.id), view.originalLanguage)),
     });
+  });
+
+  // The owner switches the language the series is shown and played in.
+  r.put('/series/:id/language', requireVerified(), async (c) => {
+    const body = z.strictObject({ language: z.string().min(2).max(10) }).safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: 'invalid_request' }, 400);
+    const [s] = await ctx.db.select().from(schema.podcastSeries).where(and(eq(schema.podcastSeries.id, c.req.param('id')), eq(schema.podcastSeries.userId, c.var.session!.user.id)));
+    if (!s) return c.json({ error: 'not_found' }, 404);
+    try {
+      const { voicing } = await switchLanguage(ctx, s, body.data.language);
+      return c.json({ language: body.data.language, voicing });
+    } catch (err) {
+      if (err instanceof LanguageSwitchError) return c.json({ error: err.code, message: err.message }, err.status);
+      throw err;
+    }
   });
 
   const followUp = async (c: { var: AppVariables; json: (b: unknown, s?: number) => Response }, seriesId: string, req: FollowUp) => {
@@ -192,7 +216,11 @@ export function seriesRoutes(ctx: AppContext) {
     const s = await readableSeries(ctx.db, e.seriesId, c.var.session?.user.id ?? null);
     if (!s) return c.json({ error: 'not_found' }, 404);
     const details = await episodeDetails(ctx.db, [e.id]);
-    return c.json({ ...serialiseEpisode(e, details.get(e.id), { transcript: true }), seriesTitle: s.title, isOwner: s.userId === c.var.session?.user.id });
+    const view = await languageView(ctx, s, [e.id]);
+    const t = view.episodes.get(e.id);
+    const ep = inLanguage(serialiseEpisode(e, details.get(e.id), { transcript: true }), t, view.originalLanguage);
+    // The transcript in the shown language once that version is voiced.
+    return c.json({ ...ep, ...(t?.status === 'ready' && t.transcript ? { transcript: t.transcript } : {}), seriesTitle: view.title, isOwner: s.userId === c.var.session?.user.id });
   });
 
   r.get('/episodes/:id/audio', async (c) => {
@@ -200,18 +228,26 @@ export function seriesRoutes(ctx: AppContext) {
     if (!e || e.status !== 'ready' || !e.audioKey) return c.json({ error: 'not_found' }, 404);
     const s = await readableSeries(ctx.db, e.seriesId, c.var.session?.user.id ?? null);
     if (!s) return c.json({ error: 'not_found' }, 404);
+    // ?lang=es: the episode voiced in another language, once it is ready.
+    let audioKey = e.audioKey;
+    const lang = c.req.query('lang');
+    if (lang && lang !== s.originalLanguage) {
+      const [t] = await ctx.db.select().from(schema.episodeTranslation).where(and(eq(schema.episodeTranslation.episodeId, e.id), eq(schema.episodeTranslation.language, lang)));
+      if (!t?.audioKey || t.status !== 'ready') return c.json({ error: 'not_found' }, 404);
+      audioKey = t.audioKey;
+    }
     const cache = s.visibility === 'public' ? 'public, max-age=86400' : 'private, max-age=3600';
     if (ctx.storage.presignGet) {
       c.header('Cache-Control', 'private, no-store');
-      return c.redirect(await ctx.storage.presignGet(e.audioKey, 3600), 302);
+      return c.redirect(await ctx.storage.presignGet(audioKey, 3600), 302);
     }
-    const head = await ctx.storage.head(e.audioKey);
+    const head = await ctx.storage.head(audioKey);
     if (!head) return c.json({ error: 'not_found' }, 404);
     const range = parseRange(c.req.header('range'), head.size);
     if (range === 'invalid') {
       return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${head.size}` } });
     }
-    const obj = await ctx.storage.get(e.audioKey, range ?? undefined);
+    const obj = await ctx.storage.get(audioKey, range ?? undefined);
     const headers: Record<string, string> = {
       'Content-Type': 'audio/mpeg',
       'Accept-Ranges': 'bytes',

@@ -73,7 +73,7 @@ export function buildRoutes(indexHtml: string, opts: { connectOrigins?: string[]
     { src: '^/manifest\\.webmanifest$', headers: { 'Cache-Control': 'no-cache' }, continue: true },
     { src: '^/api(?:/.*)?$', dest: '/api' },
     // Shared links are rendered by the API so link previews show the series title and description.
-    { src: '^/p/[^/]+/?$', dest: '/api' },
+    { src: '^/p/[^/]+(?:/e/\\d+)?/?$', dest: '/api' },
     { handle: 'filesystem' },
     { src: '^/(?!api/).*$', dest: '/index.html' },
   ];

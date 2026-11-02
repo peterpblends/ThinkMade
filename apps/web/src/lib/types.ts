@@ -18,6 +18,10 @@ export interface EpisodeSummary {
   sources: Array<{ title: string; url: string | null; kind: string; verifiedVia: string | null }>;
   audioUrl: string | null;
   transcript?: string | null;
+  /** The language the audio is in (the original until a new language's audio is ready). */
+  audioLanguage?: string;
+  /** In a language the series was switched to: whether this episode's audio in it is ready yet. */
+  languageStatus?: 'ready' | 'voicing' | 'failed';
 }
 
 export interface SeriesDetail {
@@ -36,6 +40,10 @@ export interface SeriesDetail {
   activeGenerationId?: string | null;
   /** Owner only: the most episodes a series may have. */
   maxEpisodes?: number;
+  /** The language it is shown in, the one it was made in, and every language it has. */
+  language?: string;
+  originalLanguage?: string;
+  languages?: string[];
 }
 
 export interface SeriesListItem {

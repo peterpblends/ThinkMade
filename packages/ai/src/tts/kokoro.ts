@@ -1,10 +1,14 @@
-import { KOKORO_VOICE_INFO } from '@thinkmade/shared';
+import { KOKORO_VOICE_INFO, languageInfo } from '@thinkmade/shared';
+import { espeakPhonemes } from './espeak';
 import type { TtsEngine } from './types';
 
 const ENGLISH_VOICES = new Set<string>([...KOKORO_VOICE_INFO.map((v) => v.id), 'am_santa']);
 
+type Audio = { audio: Float32Array; sampling_rate: number };
 type KokoroModel = {
-  generate: (t: string, o: { voice: string; speed?: number }) => Promise<{ audio: Float32Array; sampling_rate: number }>;
+  generate: (t: string, o: { voice: string; speed?: number }) => Promise<Audio>;
+  generate_from_ids: (ids: unknown, o: { voice: string; speed?: number }) => Promise<Audio>;
+  tokenizer: (text: string, o: { truncation: boolean }) => { input_ids: unknown };
   _validate_voice: (voice: string) => string;
 };
 
@@ -41,7 +45,12 @@ export function createKokoroTts(options: KokoroOptions = {}): TtsEngine {
     sampleRate: 24_000,
     async synthesize(text, voice, speak) {
       const model = await load();
-      const out = await model.generate(text, { voice, speed: (options.speed ?? 1) * (speak?.speed ?? 1) });
+      const speed = (options.speed ?? 1) * (speak?.speed ?? 1);
+      const lang = languageInfo(speak?.language);
+      // Other languages: eSpeak turns the text into that language's sounds, which the voice then speaks.
+      const out = lang.espeak
+        ? await model.generate_from_ids(model.tokenizer(await espeakPhonemes(text, lang.espeak), { truncation: true }).input_ids, { voice, speed })
+        : await model.generate(text, { voice, speed });
       return { samples: out.audio, sampleRate: out.sampling_rate };
     },
   };

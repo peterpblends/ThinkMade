@@ -74,6 +74,21 @@ describe('Coach Me', () => {
     expect((await app.request(`/api/coach/${ep.id}/messages`, { method: 'POST', headers, body: JSON.stringify({ content: 'Typed still works' }) })).status).toBe(200);
   });
 
+  it('coaches in the language the podcast was made in', async () => {
+    ctx = await createTestContext();
+    const app = createApp(ctx);
+    const cookie = await signUpVerified(app, ctx, { email: 'es@example.com' });
+    const headers = { cookie, 'content-type': 'application/json', origin: ctx.env.APP_URL };
+    await app.request('/api/generations', { method: 'POST', headers, body: JSON.stringify({ topic: '¿Por qué mi equipo no cumple los plazos?', language: 'es', customization: { lengthMinutes: 1, episodes: 1, speakerFormat: 'single', learningMode: 'explore' } }) });
+    await runNextJob(ctx.worker!);
+    const [ep] = await ctx.db.select().from(schema.episode);
+    expect(await (await app.request(`/api/coach/${ep!.id}`, { headers: { cookie } })).json()).toMatchObject({ language: 'es', speechLang: 'es-MX' });
+    let seen: ChatMessage[] = [];
+    setFakeResponder((m) => (textOf(m[0]!.content).startsWith('STAGE: coach') ? ((seen = m), 'Claro. ¿Qué harías primero?') : fakeResponder(m)));
+    await app.request(`/api/coach/${ep!.id}/messages`, { method: 'POST', headers, body: JSON.stringify({ content: '¿Cómo empiezo?' }) });
+    expect(textOf(seen[0]!.content)).toMatch(/This podcast is in Spanish \(Español\)/);
+  });
+
   it('keeps history privately and resumes it', async () => {
     const { app, headers, cookie, ep } = await withEpisode();
     await app.request(`/api/coach/${ep.id}/messages`, { method: 'POST', headers, body: JSON.stringify({ content: 'First question' }) });

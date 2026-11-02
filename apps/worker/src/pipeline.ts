@@ -11,9 +11,10 @@ import {
   type ChatMessage,
 } from '@thinkmade/ai';
 import { getActivePrompts, indexSeriesEmbedding, queryRows, schema, settleCancelledSeries, type Db, type ModelStage } from '@thinkmade/db';
-import { castHosts, chooseHosts, chooseShowFormat, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, HOST_IDS, voiceInfo, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowFormat } from '@thinkmade/shared';
+import { castHosts, chooseHosts, chooseShowFormat, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, HOST_IDS, languageInfo, languageInstruction, speaksLanguage, voiceInfo, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowFormat } from '@thinkmade/shared';
 import { JobCancelledError, LostLeaseError, PermanentJobError, type WorkerDeps } from './deps';
 import { overusedModels, rankForVariety } from './model-variety';
+import { voiceTranslation } from './translate';
 import { input, PLAN_TASK, RESEARCH_TASK, SCRIPT_TASK, SELECT_MODELS_TASK, stageSystem, UNDERSTAND_TASK } from './prompts';
 import type { ClaimedJob } from './queue';
 import { analyseUploads, type MediaAnalysis } from './media';
@@ -250,9 +251,13 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
   const lease = deps.leaseSeconds ?? 600;
   const runner = new StageRunner(db, job.id, deps.workerId);
   const options = job.options as unknown as GenerationOptions;
+  // Podcasts made before languages were added are English.
+  const language = languageInfo(options.language).code;
+  const languageRule = languageInstruction(language);
   const state = (job.state ?? {}) as JobState;
   state.tokens ??= 0;
-  let seriesId = job.series_id;
+  // Voicing an existing series in another language never changes the series itself, so it isn't tracked here.
+  let seriesId = options.translate ? null : job.series_id;
 
   const overrides = await getActivePrompts(db);
   // Cancelling marks the job cancelled (and clears our lease) at once. Notice within seconds and interrupt
@@ -272,7 +277,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
   const chat = async <T>(stage: ModelStage, task: string, data: unknown, zschema: Parameters<typeof completeJson<T>>[2], maxTokens = 4096) => {
     const llm = await deps.llm(stage);
     const messages: ChatMessage[] = [
-      { role: 'system', content: stageSystem(stage, overrides.get(stage) ?? task) },
+      { role: 'system', content: stageSystem(stage, `${overrides.get(stage) ?? task}${languageRule ? `\n\n${languageRule}` : ''}`) },
       { role: 'user', content: input(data) },
     ];
     // Model selection runs warmer, so series don't keep landing on the same few models.
@@ -291,6 +296,28 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
   try {
     const [request] = await db.select().from(schema.learningRequest).where(eq(schema.learningRequest.id, job.learning_request_id));
     if (!request) throw new PermanentJobError('The learning request no longer exists.');
+
+    // A finished series in another language: its text is already translated; voice each episode.
+    if (options.translate) {
+      if (!job.series_id) throw new PermanentJobError('The series no longer exists.');
+      const result = await voiceTranslation({
+        db,
+        deps,
+        seriesId: job.series_id,
+        options,
+        signal: stop.signal,
+        onTokens: (n) => (state.tokens! += n),
+        keepAlive: () => extendLease(db, job.id, deps.workerId, lease),
+        log,
+      });
+      log('translation voiced', { jobId: job.id, language: options.translate.language, ...result });
+      await db.insert(schema.usageMetric).values({ metric: 'llm_tokens', value: state.tokens ?? 0, userId: job.user_id, jobId: job.id });
+      await db
+        .update(schema.generationJob)
+        .set({ status: 'succeeded', currentStage: 'publish', finishedAt: new Date(), lockedBy: null, lockedUntil: null, error: null, state: state as Record<string, unknown> })
+        .where(and(eq(schema.generationJob.id, job.id), eq(schema.generationJob.lockedBy, deps.workerId)));
+      return 'succeeded';
+    }
 
     // 0. Photos and videos
     if (!state.media && request.mediaUploadIds.length) {
@@ -376,8 +403,12 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     if (!state.plan && !state.adjusted) state.adjusted = listenerAdjustments(options, prefs);
     Object.assign(options, state.adjusted ?? {});
     const production = { ...DEFAULT_PRODUCTION, ...options.production };
-    state.showFormat ??= chooseShowFormat({ speakerFormat: options.speakerFormat, production, requested: prefs.showFormat, suggested: u.suggestedFormat });
     const pool = options.voicePool ?? DEFAULT_APP_SETTINGS.voices.available;
+    // A podcast in another language is cast from that language's native voices. With only one (French), it
+    // has a single host rather than two hosts sharing a voice.
+    const languageVoices = pool.filter((v) => speaksLanguage(v, language)).length;
+    if (language !== 'en' && languageVoices < 2) options.speakerFormat = 'single';
+    state.showFormat ??= chooseShowFormat({ speakerFormat: options.speakerFormat, production, requested: prefs.showFormat, suggested: u.suggestedFormat });
     // A British audience (or a request for British voices) gets British voices unless a host says otherwise.
     const preferAccent = /\b(british|uk|united kingdom|england|english accents?)\b/i.test([u.audience, ...prefs.requests].join(' ')) ? ('UK' as const) : null;
     if (!state.hosts) {
@@ -385,9 +416,11 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       // Interviews keep one host throughout and bring a new guest each episode, unless the listener described
       // their own cast or picked voices for it.
       state.rotatingGuests = state.showFormat === 'interview' && production.rotateGuests && described.length === 0 && !options.chosenVoices?.length;
-      const count = options.speakerFormat === 'single' || state.rotatingGuests ? 1 : Math.max(2, described.length, options.chosenVoices?.length ?? 0);
+      const wanted = options.speakerFormat === 'single' || state.rotatingGuests ? 1 : Math.max(2, described.length, options.chosenVoices?.length ?? 0);
+      const count = language === 'en' ? wanted : Math.max(1, Math.min(wanted, languageVoices));
       state.hosts = chooseHosts({
         count,
+        language,
         requested: described,
         ...(options.chosenVoices ? { chosenVoices: options.chosenVoices } : {}),
         ...(options.voiceGender ? { gender: options.voiceGender } : {}),
@@ -426,6 +459,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         const others = [...base, ...Object.values(state.episodeGuests)];
         const [guest] = chooseHosts({
           count: 1,
+          language,
           // The listener's female or male preference covers guests too.
           requested: [{ gender: options.voiceGender ?? ep.guest?.gender ?? null, age: ep.guest?.age ?? null }],
           pool,
@@ -449,7 +483,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     if (!seriesId) {
       const [s] = await db
         .insert(schema.podcastSeries)
-        .values({ userId: job.user_id, learningRequestId: request.id, title: u.seriesTitle, description: u.seriesDescription, visibility: options.visibility, status: 'generating' })
+        .values({ userId: job.user_id, learningRequestId: request.id, title: u.seriesTitle, description: u.seriesDescription, visibility: options.visibility, status: 'generating', originalLanguage: language, language })
         .returning({ id: schema.podcastSeries.id });
       seriesId = s!.id;
       await db.update(schema.generationJob).set({ seriesId }).where(eq(schema.generationJob.id, job.id));
@@ -891,6 +925,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           expressiveness: production.expressiveness,
           roomTone: production.roomTone,
           natural: options.naturalDelivery === true,
+          language,
           tts: deps.tts,
           outFile,
           workDir,
@@ -991,6 +1026,16 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
 
   async function finalise(status: 'failed' | 'cancelled', error: string): Promise<'failed' | 'partial' | 'cancelled'> {
     let final: 'failed' | 'partial' | 'cancelled' = status;
+    // Voicing another language stopped for good: its episodes still waiting are marked failed (the series is untouched).
+    if (options.translate && job.series_id) {
+      const ids = (await db.select({ id: schema.episode.id }).from(schema.episode).where(eq(schema.episode.seriesId, job.series_id))).map((e) => e.id);
+      if (ids.length) {
+        await db
+          .update(schema.episodeTranslation)
+          .set({ status: 'failed', updatedAt: new Date() })
+          .where(and(inArray(schema.episodeTranslation.episodeId, ids), eq(schema.episodeTranslation.language, options.translate.language), eq(schema.episodeTranslation.status, 'voicing')));
+      }
+    }
     if (seriesId && status === 'cancelled') {
       await settleCancelledSeries(db, seriesId);
     } else if (seriesId) {

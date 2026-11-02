@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } fr
 import { Camera, Mic, Play, Square, SlidersHorizontal, Video, X } from 'lucide-react';
 import { useVoiceInput, type VoiceInput } from '../lib/voice';
 import type { PublicPodcastSettings, PublicSettings, VoiceOption } from '../lib/api';
+import { LANGUAGES, languageInfo, type LanguageCode } from '@thinkmade/shared';
 import { Button } from '../components/ui';
 import { CREATE_EXAMPLES, EXAMPLE_INTERVAL_MS } from './create-examples';
 
@@ -28,6 +29,8 @@ export interface CreateRequest {
   voices?: string[];
   /** Female or male voices, when no exact voices were picked. */
   voiceGender?: VoiceGender;
+  /** The podcast's language, when not English. */
+  language?: LanguageCode;
 }
 
 const MAX_HOSTS = 4;
@@ -99,7 +102,10 @@ function VoicePicker({
   onChange,
   gender,
   onGender,
+  languageName,
 }: {
+  /** For a podcast in another language: its voices are grouped by gender under the language's name. */
+  languageName?: string | undefined;
   voices: VoiceOption[];
   hostCount: number;
   value: string[] | null;
@@ -161,7 +167,10 @@ function VoicePicker({
               <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm text-ink">
                 Host {i + 1}
                 <select value={id} onChange={(e) => pick(i, e.target.value)} className="min-h-11 w-full rounded-xl border border-line bg-surface px-3 text-[0.95rem] text-ink">
-                  {VOICE_GROUPS.filter((grp) => voices.some(grp.match)).map(({ label, match }) => (
+                  {(languageName
+                    ? (['female', 'male'] as const).map((g) => ({ label: `${languageName}, ${g}`, match: (v: VoiceOption) => v.gender === g }))
+                    : VOICE_GROUPS
+                  ).filter((grp) => voices.some(grp.match)).map(({ label, match }) => (
                     <optgroup key={label} label={label}>
                       {voices
                         .filter(match)
@@ -391,7 +400,7 @@ export function CreateForm({
   features,
 }: {
   /** Features an administrator switched on; all on when left out. */
-  features?: Partial<Record<'voiceInput' | 'mediaUploads', boolean>>;
+  features?: Partial<Record<'voiceInput' | 'mediaUploads' | 'languages', boolean>>;
   defaults: PublicPodcastSettings;
   media?: PublicSettings['media'];
   /** Voices listeners may pick; the picker is hidden without them. */
@@ -458,6 +467,17 @@ export function CreateForm({
   });
   const [chosenVoices, setChosenVoices] = useState<string[] | null>(null);
   const [voiceGender, setVoiceGender] = useState<VoiceGender | null>(null);
+  const [language, setLanguage] = useState<LanguageCode>('en');
+  // Languages with voices to speak them (other languages only while the administrator has them switched on).
+  const languageChoices = LANGUAGES.filter((l) => l.code === 'en' || (features?.languages !== false && voiceOptions.some((v) => v.speaks?.includes(l.code))));
+  // The voices that speak the chosen language, each with its sample in that language.
+  const languageVoices = voiceOptions
+    .filter((v) => (v.speaks ?? ['en']).includes(language))
+    .map((v) => {
+      const sampleUrl = v.sampleUrls?.[language] ?? (language === 'en' ? v.sampleUrl : undefined);
+      const { sampleUrl: _s, ...rest } = v;
+      return sampleUrl ? { ...rest, sampleUrl } : rest;
+    });
   const ids = { topic: useId(), error: useId(), panel: useId(), hint: useId() };
   // Example questions rotate in the empty box, but never while someone is typing, focused or recording.
   const [focused, setFocused] = useState(false);
@@ -477,7 +497,7 @@ export function CreateForm({
     }
     setError(null);
     // Only choices the listener actually changed override what they wrote (for example "five episodes").
-    onCreate({ topic: trimmed, customization: touchedCustom ? custom : null, attachments, ...(chosenVoices ? { voices: chosenVoices } : voiceGender ? { voiceGender } : {}) });
+    onCreate({ topic: trimmed, customization: touchedCustom ? custom : null, attachments, ...(chosenVoices ? { voices: chosenVoices } : voiceGender ? { voiceGender } : {}), ...(language !== 'en' ? { language } : {}) });
   };
 
   return (
@@ -570,6 +590,8 @@ export function CreateForm({
             changed: custom.speakerFormat !== defaults.speakerFormat || chosenVoices !== null || voiceGender !== null,
           },
           { label: 'Learning Mode', value: MODES.find((o) => o.value === custom.learningMode)!.label, changed: custom.learningMode !== defaults.learningMode },
+          // Only when a podcast is in another language.
+          ...(language !== 'en' ? [{ label: 'Language', value: languageInfo(language).native, changed: true }] : []),
         ].map((t) => (
           <SettingTag key={t.label} {...t} onClick={() => setCustomOpen(true)} />
         ))}
@@ -590,6 +612,19 @@ export function CreateForm({
 
       {customOpen && (
         <div id={ids.panel} className="flex flex-col gap-5 rounded-[var(--radius-card)] border border-line bg-surface p-5">
+          {languageChoices.length > 1 && (
+            <ChoiceGroup
+              legend="Language"
+              name="language"
+              options={languageChoices.map((l) => ({ value: l.code, label: l.native, hint: l.name }))}
+              value={language}
+              onChange={(v) => {
+                setLanguage(v);
+                // Voices picked for one language may not speak another.
+                setChosenVoices(null);
+              }}
+            />
+          )}
           <ChoiceGroup
             legend="Episode length"
             name="length"
@@ -605,8 +640,16 @@ export function CreateForm({
             onChange={(v) => update('episodes', v)}
           />
           <ChoiceGroup legend="Hosts" name="speakers" options={SPEAKERS} value={custom.speakerFormat} onChange={(v) => update('speakerFormat', v)} />
-          {voiceOptions.length > 1 && (
-            <VoicePicker voices={voiceOptions} hostCount={touchedCustom && custom.speakerFormat === 'single' ? 1 : 2} value={chosenVoices} onChange={setChosenVoices} gender={voiceGender} onGender={setVoiceGender} />
+          {languageVoices.length > 1 && (
+            <VoicePicker
+              voices={languageVoices}
+              hostCount={touchedCustom && custom.speakerFormat === 'single' ? 1 : 2}
+              value={chosenVoices}
+              onChange={setChosenVoices}
+              gender={voiceGender}
+              onGender={setVoiceGender}
+              languageName={language === 'en' ? undefined : languageInfo(language).name}
+            />
           )}
           <ChoiceGroup legend="Learning mode" name="mode" options={MODES} value={custom.learningMode} onChange={(v) => update('learningMode', v)} />
         </div>

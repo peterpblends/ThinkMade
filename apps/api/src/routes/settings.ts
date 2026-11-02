@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream';
 import { Hono } from 'hono';
-import { EPISODE_COUNT_CHOICES, PODCAST_LENGTH_CHOICES, usableVoices, VOICE_SAMPLE_MANIFEST_KEY, voiceInfo, voiceSampleKey } from '@thinkmade/shared';
+import { EPISODE_COUNT_CHOICES, languageInfo, PODCAST_LENGTH_CHOICES, usableVoices, VOICE_SAMPLE_MANIFEST_KEY, voiceInfo, voiceSampleEntry, voiceSampleKey } from '@thinkmade/shared';
 import type { AppContext } from '../create-context';
 
 /** The voices with a rendered sample, read from the worker's manifest and kept for a few minutes. */
@@ -49,7 +49,11 @@ export function publicSettingsRoutes(ctx: AppContext) {
         // Voices listeners may pick for their hosts, with a sample to hear where one has been rendered.
         voices: usableVoices(settings).flatMap((id) => {
           const v = voiceInfo(id);
-          return v ? [{ id, name: v.name, accent: v.accent, gender: v.gender, ...(v.heritage ? { heritage: v.heritage } : {}), ...(withSample.has(id) ? { sampleUrl: `/api/voices/${encodeURIComponent(id)}/sample` } : {}) }] : [];
+          if (!v) return [];
+          const url = (lang: string) => `/api/voices/${encodeURIComponent(id)}/sample${lang === 'en' ? '' : `?lang=${lang}`}`;
+          // A sample in each language the voice speaks (English as sampleUrl, as before).
+          const sampleUrls = Object.fromEntries(v.speaks.filter((l) => withSample.has(voiceSampleEntry(id, l))).map((l) => [l, url(l)]));
+          return [{ id, name: v.name, accent: v.accent, gender: v.gender, speaks: v.speaks, ...(v.heritage ? { heritage: v.heritage } : {}), ...(sampleUrls.en ? { sampleUrl: sampleUrls.en } : {}), sampleUrls }];
         }),
       });
     })
@@ -57,8 +61,9 @@ export function publicSettingsRoutes(ctx: AppContext) {
     .get('/voices/:id/sample', async (c) => {
       const id = c.req.param('id');
       const { settings } = await ctx.settings.getActive();
-      if (!voiceInfo(id) || !usableVoices(settings).includes(id)) return c.json({ error: 'not_found' }, 404);
-      const key = voiceSampleKey(id);
+      const lang = languageInfo(c.req.query('lang')).code;
+      if (!voiceInfo(id)?.speaks.includes(lang) || !usableVoices(settings).includes(id)) return c.json({ error: 'not_found' }, 404);
+      const key = voiceSampleKey(id, lang);
       const head = await ctx.storage.head(key);
       if (!head) return c.json({ error: 'not_ready', message: "This voice's sample isn't ready yet." }, 404);
       if (ctx.storage.presignGet) {

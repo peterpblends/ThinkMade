@@ -1,4 +1,4 @@
-import { boolean, index, integer, jsonb, pgTable, real, text, uniqueIndex, vector } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, jsonb, pgTable, primaryKey, real, text, uniqueIndex, vector } from 'drizzle-orm/pg-core';
 import { createdAt, id, tz, updatedAt } from './_helpers';
 import { user } from './auth';
 
@@ -130,6 +130,9 @@ export const podcastSeries = pgTable(
     visibility: text('visibility').notNull().default('private'),
     publicSlug: text('public_slug').unique(),
     status: text('status').notNull().default('pending'), // pending | generating | ready | partial | failed
+    /** The language the series was made in, and the one it is shown in now (the owner can switch). */
+    originalLanguage: text('original_language').notNull().default('en'),
+    language: text('language').notNull().default('en'),
     embedding: vector('embedding', { dimensions: 512 }),
     // Which embedder made `embedding`. Vectors from different models are never compared.
     embeddingModel: text('embedding_model'),
@@ -174,6 +177,51 @@ export const episode = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [uniqueIndex('episode_series_number_uq').on(t.seriesId, t.number)],
+);
+
+/** A series' title and description in another language. */
+export const seriesTranslation = pgTable(
+  'series_translation',
+  {
+    seriesId: text('series_id')
+      .notNull()
+      .references(() => podcastSeries.id, { onDelete: 'cascade' }),
+    language: text('language').notNull(),
+    title: text('title').notNull(),
+    description: text('description').notNull().default(''),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.seriesId, t.language] })],
+);
+
+/**
+ * An episode in another language: its text straight away, then its script and audio once the worker has
+ * voiced it. status: voicing (text only so far) | ready | failed.
+ */
+export const episodeTranslation = pgTable(
+  'episode_translation',
+  {
+    episodeId: text('episode_id')
+      .notNull()
+      .references(() => episode.id, { onDelete: 'cascade' }),
+    language: text('language').notNull(),
+    title: text('title').notNull(),
+    description: text('description').notNull().default(''),
+    learningObjective: text('learning_objective'),
+    outcomes: jsonb('outcomes').$type<{ thinking: string; seeing: string; doing: string }>(),
+    keyTakeaways: jsonb('key_takeaways').notNull().$type<string[]>().default([]),
+    examples: jsonb('examples').notNull().$type<Array<Record<string, unknown>>>().default([]),
+    script: jsonb('script').$type<Array<{ speaker: string; text: string }>>(),
+    transcript: text('transcript'),
+    hosts: jsonb('hosts').$type<Array<{ id: string; name: string; voice: string }>>(),
+    audioKey: text('audio_key'),
+    audioBytes: integer('audio_bytes'),
+    durationSeconds: real('duration_seconds'),
+    status: text('status').notNull().default('voicing'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [primaryKey({ columns: [t.episodeId, t.language] })],
 );
 
 export const episodeMentalModel = pgTable(

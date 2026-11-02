@@ -45,6 +45,10 @@ export interface VoiceOption {
   heritage?: 'latino' | 'south-asian' | 'east-asian';
   /** A short spoken sample, once the worker has rendered one. */
   sampleUrl?: string;
+  /** Languages the voice can speak a podcast in. */
+  speaks?: string[];
+  /** A sample in each language it speaks, once rendered. */
+  sampleUrls?: Record<string, string>;
 }
 
 export interface PublicSettings {

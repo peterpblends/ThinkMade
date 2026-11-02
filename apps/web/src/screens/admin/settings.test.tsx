@@ -36,8 +36,8 @@ describe('AdminSettingsScreen rollback', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
-    await userEvent.click(await screen.findByRole('button', { name: 'Restore' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(/could not restore version 1/i);
     // The form lists every voice (about 80) with its casting settings, which is slow to render under load.
-  }, 15_000);
+    await userEvent.click(await screen.findByRole('button', { name: 'Restore' }, { timeout: 10_000 }));
+    expect(await screen.findByRole('alert', {}, { timeout: 10_000 })).toHaveTextContent(/could not restore version 1/i);
+  }, 25_000);
 });

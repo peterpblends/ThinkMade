@@ -83,6 +83,15 @@ export function fakeResponder(messages: ChatMessage[]): string {
         models: pool.slice(0, inp.count ?? 3).map(([slug, name, summary], i) => ({ name, slug, summary, category: 'decision-making', relevance: 'Directly useful for the objective.', score: 0.95 - i * 0.05 })),
       });
     }
+    case 'translate': {
+      // Marks text as translated, keeping the structure, so tests can tell a translation from the original.
+      const tag = `[${String(inp.targetLanguage ?? '?').split(' ')[0]}]`;
+      if (Array.isArray(inp.segments)) return JSON.stringify({ segments: inp.segments.map((s: { speaker: string; text: string }) => ({ speaker: s.speaker, text: `${tag} ${s.text}` })) });
+      return JSON.stringify({
+        series: { title: `${tag} ${inp.series?.title ?? ''}`, description: `${tag} ${inp.series?.description ?? ''}` },
+        episodes: (inp.episodes ?? []).map((e: Record<string, unknown>) => ({ ...e, title: `${tag} ${String(e.title)}`, description: `${tag} ${String(e.description)}` })),
+      });
+    }
     case 'research':
       return JSON.stringify({
         models: (inp.models ?? []).map((m: { slug: string; name: string }) => ({

@@ -2,7 +2,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { assembleEpisode } from '@thinkmade/ai';
 import { getActiveAppSettings } from '@thinkmade/db';
-import { VOICE_SAMPLE_MANIFEST_KEY, voiceInfo, voiceSampleKey, voiceSampleText } from '@thinkmade/shared';
+import { VOICE_SAMPLE_MANIFEST_KEY, voiceInfo, voiceSampleEntry, voiceSampleKey, voiceSampleText } from '@thinkmade/shared';
 import type { WorkerDeps } from './deps';
 
 async function readManifest(deps: Pick<WorkerDeps, 'storage'>): Promise<string[]> {
@@ -22,26 +22,28 @@ async function readManifest(deps: Pick<WorkerDeps, 'storage'>): Promise<string[]
  * hear a voice before choosing it. The manifest lists the voices with a sample (the API reads it). Stops
  * after `budgetMs` and carries on next time.
  */
-export async function ensureVoiceSamples(deps: Pick<WorkerDeps, 'db' | 'tts' | 'storage' | 'workDir' | 'log'>, budgetMs = 15 * 60_000): Promise<number> {
+export async function ensureVoiceSamples(deps: Pick<WorkerDeps, 'db' | 'tts' | 'storage' | 'workDir' | 'log'>, budgetMs = 15 * 60_000, redoLanguages: string[] = []): Promise<number> {
   const started = Date.now();
   const settings = await getActiveAppSettings(deps.db);
-  const done = new Set(await readManifest(deps));
-  const missing = settings.voices.available.filter((v) => !done.has(v) && voiceInfo(v));
+  // Samples in `redoLanguages` are rendered again (after a change to how those languages are spoken).
+  const done = new Set((await readManifest(deps)).filter((e) => !redoLanguages.some((l) => (l === 'en' ? !e.includes(':') : e.startsWith(`${l}:`)))));
+  // A sample in every language each voice speaks.
+  const missing = settings.voices.available.flatMap((voice) => (voiceInfo(voice)?.speaks ?? []).map((language) => ({ voice, language }))).filter((s) => !done.has(voiceSampleEntry(s.voice, s.language)));
   if (!missing.length) return 0;
   const dir = join(deps.workDir, 'voice-samples');
   mkdirSync(dir, { recursive: true });
   let made = 0;
   try {
-    for (const voice of missing) {
+    for (const { voice, language } of missing) {
       if (Date.now() - started > budgetMs) break;
-      const out = join(dir, `${voiceSampleKey(voice).split('/').pop()}`);
+      const out = join(dir, `${language}-${voiceSampleKey(voice).split('/').pop()}`);
       try {
-        await assembleEpisode({ turns: [{ voice, text: voiceSampleText(voiceInfo(voice)!.name) }], tts: deps.tts, outFile: out, workDir: dir, bitrateKbps: 64 });
-        await deps.storage.putFile(voiceSampleKey(voice), out, 'audio/mpeg');
-        done.add(voice);
+        await assembleEpisode({ turns: [{ voice, text: voiceSampleText(voiceInfo(voice)!.name, language) }], tts: deps.tts, outFile: out, workDir: dir, bitrateKbps: 64, language });
+        await deps.storage.putFile(voiceSampleKey(voice, language), out, 'audio/mpeg');
+        done.add(voiceSampleEntry(voice, language));
         made++;
       } catch (err) {
-        deps.log?.('voice sample failed', { voice, error: err instanceof Error ? err.message : String(err) });
+        deps.log?.('voice sample failed', { voice, language, error: err instanceof Error ? err.message : String(err) });
       }
     }
   } finally {

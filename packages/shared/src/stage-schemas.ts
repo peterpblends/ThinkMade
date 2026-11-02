@@ -235,3 +235,25 @@ export const STAGE_SCHEMAS: Partial<Record<PromptStage, z.ZodType<unknown>>> = {
   validate: judgementSchema,
   vision: mediaAnalysisSchema,
 };
+
+/** A podcast's text in another language (TRANSLATE_TEXT_TASK). */
+export const translatedTextSchema = z.object({
+  series: z.object({ title: z.string().min(1).max(300), description: z.string().max(2000).default('') }),
+  episodes: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string().min(1).max(300),
+      description: z.string().max(2000).default(''),
+      learningObjective: z.string().max(1000).nullish(),
+      outcomes: z.object({ thinking: z.string(), seeing: z.string(), doing: z.string() }).nullish(),
+      keyTakeaways: z.array(z.string().max(500)).max(20).default([]),
+      examples: z.array(z.object({ title: z.string().max(300), kind: z.string().max(40), summary: z.string().max(1500) })).max(20).default([]),
+    }),
+  ),
+});
+export type TranslatedText = z.infer<typeof translatedTextSchema>;
+
+/** An episode's script lines in another language (TRANSLATE_SCRIPT_TASK). */
+export const translatedScriptSchema = z.object({
+  segments: z.array(z.object({ speaker: z.string().min(1).max(4), text: z.string().min(1).max(4000) })).min(1),
+});

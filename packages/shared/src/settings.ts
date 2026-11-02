@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { languageInfo, SAMPLE_LINES, type LanguageCode } from './languages.ts';
 
 export const speakerFormatSchema = z.enum(['single', 'two_hosts', 'mixed']);
 export const learningModeSchema = z.enum(['explore', 'deepen', 'reinforce']);
@@ -117,7 +118,7 @@ const alertsSchema = z.strictObject({
 });
 
 /** Features an administrator can switch on or off. */
-export const FEATURE_KEYS = ['coach', 'voiceCoaching', 'voiceInput', 'mediaUploads', 'accentVoices', 'naturalDelivery', 'showArtwork'] as const;
+export const FEATURE_KEYS = ['coach', 'voiceCoaching', 'voiceInput', 'mediaUploads', 'accentVoices', 'languages', 'naturalDelivery', 'showArtwork'] as const;
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
 export const FEATURE_INFO: Record<FeatureKey, { label: string; description: string }> = {
   coach: { label: 'Coach Me', description: 'Listeners can ask a coach about any episode.' },
@@ -125,6 +126,7 @@ export const FEATURE_INFO: Record<FeatureKey, { label: string; description: stri
   voiceInput: { label: 'Voice input', description: 'Listeners can speak their question instead of typing it.' },
   mediaUploads: { label: 'Photos and videos', description: 'Listeners can add photos and videos to their request.' },
   accentVoices: { label: 'More accents', description: 'American voices with Latino, South Asian and East Asian accents.' },
+  languages: { label: 'Other languages', description: 'Podcasts in Spanish, French, Portuguese (Brazil), Italian and Hindi, with native voices.' },
   naturalDelivery: { label: 'Natural delivery', description: 'Conversational phrasing, breathing room and a warmer, less synthetic sound in new episodes.' },
   showArtwork: { label: 'Show artwork', description: 'A cover image with the title for every podcast show.' },
 };
@@ -317,6 +319,18 @@ export const KOKORO_HERITAGE_VOICES = [
   { id: 'em_alex', name: 'Alejandro', accent: 'US', gender: 'male', heritage: 'latino' },
 ] as const;
 
+/**
+ * Kokoro voices that speak only their own language (bundled with kokoro-js): French, Italian and Brazilian
+ * Portuguese podcasts. `grade` is the model card's.
+ */
+export const KOKORO_NATIVE_VOICES = [
+  { id: 'ff_siwis', name: 'Camille', gender: 'female', speaks: 'fr', grade: 'B-' },
+  { id: 'if_sara', name: 'Sara', gender: 'female', speaks: 'it', grade: 'C' },
+  { id: 'im_nicola', name: 'Nicola', gender: 'male', speaks: 'it', grade: 'C' },
+  { id: 'pf_dora', name: 'Beatriz', gender: 'female', speaks: 'pt-br' },
+  { id: 'pm_alex', name: 'Rafael', gender: 'male', speaks: 'pt-br' },
+] as const;
+
 /** Kokoro voice ids. af_heart is the highest-rated voice in the Kokoro model card. */
 export const KOKORO_VOICES = KOKORO_VOICE_INFO.map((v) => v.id);
 
@@ -334,6 +348,8 @@ export interface VoiceInfo {
   style?: 'whisper';
   /** American English with another heritage's accent (a native speaker of another language). */
   heritage?: Heritage;
+  /** Languages this voice can speak a podcast in: English, and the voice's own language where the engine supports it. */
+  speaks: readonly LanguageCode[];
 }
 
 /**
@@ -347,12 +363,24 @@ export function castableByDefault(v: VoiceInfo): boolean {
 }
 
 /** Every voice ThinkMade can speak with. */
+/** Kokoro speaks other languages from its Hindi and Spanish voices; its Japanese and Mandarin ones need tools it lacks. */
+const KOKORO_OWN_LANGUAGE: Record<string, LanguageCode> = { e: 'es', h: 'hi' };
+
 export const VOICE_CATALOG: readonly VoiceInfo[] = [
-  ...PHONON_VOICES.map((v) => ({ id: `phonon:${v.key}`, name: v.name, engine: 'Phonon' as const, accent: v.accent, gender: v.gender })),
-  ...KOKORO_VOICE_INFO.map((v) => ({ id: v.id, name: v.name, engine: 'Kokoro' as const, accent: v.accent, gender: v.gender, grade: v.grade, ...('style' in v ? { style: v.style } : {}) })),
-  ...PHONON_HERITAGE_VOICES.map((v) => ({ id: `phonon:${v.key}`, name: v.name, engine: 'Phonon' as const, accent: v.accent, gender: v.gender, heritage: v.heritage })),
-  ...KOKORO_HERITAGE_VOICES.map((v) => ({ id: v.id, name: v.name, engine: 'Kokoro' as const, accent: v.accent, gender: v.gender, heritage: v.heritage, ...('grade' in v ? { grade: v.grade } : {}) })),
+  ...PHONON_VOICES.map((v) => ({ id: `phonon:${v.key}`, name: v.name, engine: 'Phonon' as const, accent: v.accent, gender: v.gender, speaks: ['en'] as const })),
+  ...KOKORO_VOICE_INFO.map((v) => ({ id: v.id, name: v.name, engine: 'Kokoro' as const, accent: v.accent, gender: v.gender, grade: v.grade, ...('style' in v ? { style: v.style } : {}), speaks: ['en'] as const })),
+  ...PHONON_HERITAGE_VOICES.map((v) => ({ id: `phonon:${v.key}`, name: v.name, engine: 'Phonon' as const, accent: v.accent, gender: v.gender, heritage: v.heritage, speaks: ['en'] as const })),
+  ...KOKORO_HERITAGE_VOICES.map((v) => {
+    const own = KOKORO_OWN_LANGUAGE[v.id[0]!];
+    return { id: v.id, name: v.name, engine: 'Kokoro' as const, accent: v.accent, gender: v.gender, heritage: v.heritage, ...('grade' in v ? { grade: v.grade } : {}), speaks: own ? (['en', own] as const) : (['en'] as const) };
+  }),
+  ...KOKORO_NATIVE_VOICES.map((v) => ({ id: v.id, name: v.name, engine: 'Kokoro' as const, accent: 'US' as const, gender: v.gender, ...('grade' in v ? { grade: v.grade } : {}), speaks: [v.speaks] as const })),
 ];
+
+/** Whether a voice can speak a podcast in `language`. */
+export function speaksLanguage(voice: string, language: string): boolean {
+  return !!voiceInfo(voice)?.speaks.includes(languageInfo(language).code);
+}
 
 /** The voices listeners and casting may use: the administrator's list, without accent voices while those are switched off. */
 export function usableVoices(settings: Pick<AppSettings, 'voices' | 'features'>): string[] {
@@ -366,12 +394,18 @@ export function voiceInfo(voice: string): VoiceInfo | undefined {
 /** Where a voice's short sample lives in storage (rendered by the worker), and the list of those rendered. */
 export const VOICE_SAMPLE_PREFIX = 'voice-samples/v1';
 export const VOICE_SAMPLE_MANIFEST_KEY = `${VOICE_SAMPLE_PREFIX}/manifest.json`;
-export function voiceSampleKey(voice: string): string {
-  return `${VOICE_SAMPLE_PREFIX}/${voice.replace(/[^a-zA-Z0-9_-]/g, '-')}.mp3`;
+/** A voice's sample in a language: English samples keep their original place; other languages have their own folder. */
+export function voiceSampleKey(voice: string, language = 'en'): string {
+  const file = `${voice.replace(/[^a-zA-Z0-9_-]/g, '-')}.mp3`;
+  return language === 'en' ? `${VOICE_SAMPLE_PREFIX}/${file}` : `${VOICE_SAMPLE_PREFIX}/${language}/${file}`;
 }
-/** What each voice says in its sample. */
-export function voiceSampleText(name: string): string {
-  return `Hi, I'm ${name}. Let's think this through together, one idea at a time, and find what really matters.`;
+/** How a sample is listed in the manifest: the voice id, prefixed with the language when it isn't English. */
+export function voiceSampleEntry(voice: string, language = 'en'): string {
+  return language === 'en' ? voice : `${language}:${voice}`;
+}
+/** What each voice says in its sample, in the sample's language. */
+export function voiceSampleText(name: string, language = 'en'): string {
+  return (SAMPLE_LINES[languageInfo(language).code] ?? SAMPLE_LINES.en)(name);
 }
 
 /** A readable label for a stored voice id, e.g. "Zoey (Phonon, US female)" or "Regina (Phonon, US Latino female)". */
@@ -388,6 +422,8 @@ const LEGACY_AVAILABLE_VOICES = [
 
 /** Every voice before the accent voices were added; a stored list equal to this gains them. */
 const CATALOG_BEFORE_ACCENTS = [...PHONON_VOICES.map((v) => `phonon:${v.key}`), ...KOKORO_VOICE_INFO.map((v) => v.id)];
+/** Every voice before the voices for other languages were added. */
+const CATALOG_BEFORE_LANGUAGES = [...CATALOG_BEFORE_ACCENTS, ...PHONON_HERITAGE_VOICES.map((v) => `phonon:${v.key}`), ...KOKORO_HERITAGE_VOICES.map((v) => v.id)];
 
 /**
  * Brings a stored settings document up to date: a voice list that still matches an earlier default gains the
@@ -396,7 +432,7 @@ const CATALOG_BEFORE_ACCENTS = [...PHONON_VOICES.map((v) => `phonon:${v.key}`), 
 export function upgradeAppSettings(settings: AppSettings): AppSettings {
   const a = settings.voices.available;
   const matches = (list: readonly string[]) => a.length === list.length && list.every((v) => a.includes(v));
-  if (matches(LEGACY_AVAILABLE_VOICES) || matches(CATALOG_BEFORE_ACCENTS)) {
+  if (matches(LEGACY_AVAILABLE_VOICES) || matches(CATALOG_BEFORE_ACCENTS) || matches(CATALOG_BEFORE_LANGUAGES)) {
     return { ...settings, voices: { ...settings.voices, available: VOICE_CATALOG.map((v) => v.id) } };
   }
   return settings;

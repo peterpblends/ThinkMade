@@ -137,6 +137,32 @@ describe('settings routes', () => {
     expect((await app.request('/api/admin/settings', { method: 'PUT', headers: h(admin), body: JSON.stringify({ patch: { features: { teleport: true } } }) })).status).toBe(400);
   });
 
+  it('makes podcasts in other languages with voices that speak them, while the feature is on', async () => {
+    ctx = await createTestContext();
+    const app = createApp(ctx);
+    const admin = await signUpVerified(app, ctx, { email: 'root@example.com', role: 'admin', twoFactorEnabled: true });
+    const user = await signUpVerified(app, ctx, { email: 'u@example.com' });
+    const h = (cookie: string) => ({ cookie, 'content-type': 'application/json', origin: ctx!.env.APP_URL });
+    const voices = ((await (await app.request('/api/settings/public')).json()) as { voices: Array<{ id: string; speaks: string[] }> }).voices;
+    expect(voices.find((v) => v.id === 'ef_dora')!.speaks).toEqual(['en', 'es']);
+    expect(voices.find((v) => v.id === 'ff_siwis')!.speaks).toEqual(['fr']);
+
+    const ok = await app.request('/api/generations', { method: 'POST', headers: h(user), body: JSON.stringify({ topic: 'Tomar mejores decisiones', language: 'es', voices: ['ef_dora', 'em_alex'] }) });
+    expect(ok.status).toBe(202);
+    const [job] = await ctx.db.select().from(schema.generationJob);
+    expect((job!.options as { language?: string }).language).toBe('es');
+
+    const wrong = await app.request('/api/generations', { method: 'POST', headers: h(user), body: JSON.stringify({ topic: 'Tomar decisiones', language: 'es', voices: ['phonon:zoey'] }) });
+    expect(wrong.status).toBe(400);
+    expect(await wrong.json()).toMatchObject({ message: expect.stringMatching(/don't speak Spanish/) });
+    expect((await app.request('/api/generations', { method: 'POST', headers: h(user), body: JSON.stringify({ topic: 'Klingon please', language: 'tlh' }) })).status).toBe(400);
+
+    await app.request('/api/admin/settings', { method: 'PUT', headers: h(admin), body: JSON.stringify({ patch: { features: { languages: false } } }) });
+    const off = await app.request('/api/generations', { method: 'POST', headers: h(user), body: JSON.stringify({ topic: 'Décisions', language: 'fr' }) });
+    expect(off.status).toBe(400);
+    expect(await off.json()).toMatchObject({ message: expect.stringMatching(/other languages are turned off/) });
+  });
+
   it('a normal user cannot read admin settings', async () => {
     ctx = await createTestContext();
     const app = createApp(ctx);

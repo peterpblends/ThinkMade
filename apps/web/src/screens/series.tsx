@@ -1,7 +1,7 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router';
-import { BookOpen, Lightbulb, LoaderCircle, MessageCircleQuestion, Pause, Play, Plus, RefreshCw } from 'lucide-react';
+import { BookOpen, Lightbulb, LoaderCircle, MessageCircleQuestion, Pause, Play, Plus, RefreshCw, Share2 } from 'lucide-react';
 import { usePlayer, type PlayableEpisode } from '../player/player-context';
 import { DownloadButton } from '../offline/download-button';
 import { startPositionFor } from '../offline/player-adapters';
@@ -12,8 +12,10 @@ import { Button, Card, Notice, PageHeader } from '../components/ui';
 import { SeriesOwnerActions, shareLink } from './series-actions';
 import { useSession } from '../lib/auth-client';
 import { useNavigate } from 'react-router';
-import { useFeatures } from '../lib/features';
+import { useFeatures, usePublicSettings } from '../lib/features';
+import { LANGUAGES, languageInfo } from '@thinkmade/shared';
 import { ShowArt } from '../components/show-art';
+import { publicSlugFor, SHARE_NOTE, shareTarget } from '../lib/share';
 
 export function toPlayable(ep: EpisodeSummary, seriesTitle: string): PlayableEpisode {
   return {
@@ -47,7 +49,7 @@ function PlayButton({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTitl
   );
 }
 
-function EpisodeCard({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTitle: string; queue: PlayableEpisode[] }) {
+function EpisodeCard({ ep, seriesTitle, queue, onShare, language }: { ep: EpisodeSummary; seriesTitle: string; queue: PlayableEpisode[]; onShare?: ((ep: EpisodeSummary) => void) | undefined; language?: string | undefined }) {
   const features = useFeatures();
   return (
     <article id={ep.id} aria-labelledby={`${ep.id}-title`} className="scroll-mt-20 rounded-[var(--radius-card)] border border-line bg-surface p-5 shadow-card">
@@ -65,6 +67,13 @@ function EpisodeCard({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTit
         </p>
       )}
       <p className="mt-3 text-[0.98rem]">{ep.description}</p>
+      {language && ep.audioLanguage && ep.audioLanguage !== language && ep.status === 'ready' && (
+        <p className="mt-2 text-sm text-muted">
+          {ep.languageStatus === 'failed'
+            ? `Its ${languageInfo(language).name} audio couldn't be made, so it plays in ${languageInfo(ep.audioLanguage).name}.`
+            : `Plays in ${languageInfo(ep.audioLanguage).name} until its ${languageInfo(language).name} audio is ready.`}
+        </p>
+      )}
 
       {ep.status === 'ready' && ep.audioUrl ? (
         <div className="flex flex-wrap items-center gap-2">
@@ -73,6 +82,16 @@ function EpisodeCard({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTit
             <Link to={`/coach/${ep.id}`} className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line px-4 text-sm font-semibold">
               <MessageCircleQuestion aria-hidden size={18} /> Coach Me
             </Link>
+          )}
+          {onShare && (
+            <button
+              type="button"
+              onClick={() => onShare(ep)}
+              aria-label={`Share episode ${ep.number}: ${ep.title}`}
+              className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line px-4 text-sm font-semibold"
+            >
+              <Share2 aria-hidden size={18} /> Share
+            </button>
           )}
           <span className="mt-4">
             <DownloadButton ep={toPlayable(ep, seriesTitle)} compact loadDetail={() => fetch(`/api/episodes/${ep.id}`, { credentials: 'same-origin' }).then((r) => r.json())} />
@@ -183,12 +202,48 @@ export function PublicSeriesScreen() {
   return <SeriesView s={q.data} />;
 }
 
+/** A shared episode's own page: that episode, with a way to the rest of the podcast. */
+export function PublicEpisodeScreen() {
+  const { slug = '', number = '' } = useParams();
+  const q = useQuery({ queryKey: ['public', slug], queryFn: () => api<SeriesDetail>(`/api/public/${slug}`) });
+  if (q.isError) return <Notice tone="error" role="alert">This episode is not shared, or the link has changed.</Notice>;
+  if (!q.data) return <p role="status" className="text-muted">Loading…</p>;
+  const s = q.data;
+  const ep = s.episodes.find((e) => e.number === Number(number));
+  if (!ep) {
+    return (
+      <Notice tone="error" role="alert">
+        This episode isn't available. <Link className="font-semibold underline" to={`/p/${slug}`}>See the whole podcast</Link>
+      </Notice>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center gap-4">
+        <ShowArt seriesId={s.id} title={s.title} decorative className="w-24 rounded-2xl shadow-card sm:w-28" />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-muted">From the podcast</p>
+          <Link to={`/p/${slug}`} className="font-serif text-xl font-semibold leading-snug underline-offset-4 hover:underline">
+            {s.title}
+          </Link>
+        </div>
+      </div>
+      <EpisodeCard ep={ep} seriesTitle={s.title} queue={[toPlayable(ep, s.title)]} />
+      <Link to={`/p/${slug}`} className="self-start font-semibold text-accent-ink underline underline-offset-4">
+        All {s.episodes.length} episode{s.episodes.length === 1 ? '' : 's'} of {s.title}
+      </Link>
+    </div>
+  );
+}
+
 export function SeriesScreen() {
   const { id = '' } = useParams();
   const q = useQuery({
     queryKey: ['series', id],
     queryFn: () => api<SeriesDetail>(`/api/series/${id}`),
-    refetchInterval: (query) => (query.state.data?.status === 'generating' || query.state.data?.activeGenerationId ? 4000 : false),
+    // Refresh while it is being made, or while a new language's audio is being recorded.
+    refetchInterval: (query) =>
+      query.state.data?.status === 'generating' || query.state.data?.activeGenerationId ? 4000 : query.state.data?.episodes.some((e) => e.languageStatus === 'voicing') ? 15_000 : false,
   });
   if (q.isError) return <Notice tone="error" role="alert">This series doesn't exist or isn't shared with you.</Notice>;
   if (!q.data) return <p role="status" className="text-muted">Loading…</p>;
@@ -245,21 +300,94 @@ function AddEpisodes({ s }: { s: SeriesDetail }) {
   );
 }
 
+/**
+ * The owner switches the language the series is shown and played in. The text changes at once; audio in a
+ * new language is made in the background, and each episode plays in its original language until then.
+ */
+function LanguageSwitch({ s }: { s: SeriesDetail }) {
+  const qc = useQueryClient();
+  const features = useFeatures();
+  const settings = usePublicSettings();
+  const [error, setError] = useState<string | null>(null);
+  const change = useMutation({
+    mutationFn: (language: string) => api<{ language: string; voicing: boolean }>(`/api/series/${s.id}/language`, { method: 'PUT', body: JSON.stringify({ language }) }),
+    onMutate: () => setError(null),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['series', s.id] }),
+    onError: (err) => setError(((err as ApiError).body as { message?: string } | null)?.message ?? 'Could not change the language. Please try again.'),
+  });
+  const voices = settings.data?.voices ?? [];
+  const current = s.language ?? 'en';
+  // The original, any language it already has, and (while switched on) every language with voices.
+  const choices = LANGUAGES.filter(
+    (l) => l.code === (s.originalLanguage ?? 'en') || s.languages?.includes(l.code) || (features.languages && voices.some((v) => v.speaks?.includes(l.code))),
+  );
+  if (choices.length < 2 || !['ready', 'partial'].includes(s.status)) return null;
+  const voicing = s.episodes.filter((e) => e.languageStatus === 'voicing').length;
+  return (
+    <div className="-mt-2 mb-5 flex flex-col gap-2">
+      <label className="flex flex-wrap items-center gap-2 text-sm font-medium">
+        Language
+        <select
+          value={current}
+          disabled={change.isPending}
+          onChange={(e) => change.mutate(e.target.value)}
+          className="min-h-11 rounded-xl border border-line bg-surface px-3 text-[0.95rem]"
+        >
+          {choices.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.native}
+              {l.code === s.originalLanguage ? ' (original)' : ''}
+            </option>
+          ))}
+        </select>
+        {change.isPending && (
+          <span role="status" className="inline-flex items-center gap-1.5 text-muted">
+            <LoaderCircle aria-hidden size={16} className="animate-spin" /> Translating…
+          </span>
+        )}
+      </label>
+      {voicing > 0 && !change.isPending && (
+        <p role="status" className="text-sm text-muted">
+          Recording the {languageInfo(current).name} audio for {voicing} episode{voicing === 1 ? '' : 's'}. Until each is ready, it plays in {languageInfo(s.originalLanguage).name}.
+        </p>
+      )}
+      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+    </div>
+  );
+}
+
 function SeriesView({ s }: { s: SeriesDetail }) {
   const location = useLocation();
+  const qc = useQueryClient();
+  const [shareNote, setShareNote] = useState<{ tone: 'info' | 'error'; text: string } | null>(null);
+  // An episode's own link: the owner can share any finished episode (the podcast becomes public if they agree).
+  const canShare = s.isOwner || s.visibility === 'public';
+  const shareEpisode = async (ep: EpisodeSummary) => {
+    setShareNote(null);
+    try {
+      const slug = await publicSlugFor(s);
+      if (!slug) return;
+      if (s.visibility !== 'public') await qc.invalidateQueries({ queryKey: ['series', s.id] });
+      const r = await shareTarget({ kind: 'episode', title: ep.title, seriesTitle: s.title, slug, number: ep.number });
+      if (SHARE_NOTE[r]) setShareNote({ tone: r === 'failed' ? 'error' : 'info', text: SHARE_NOTE[r]! });
+    } catch {
+      setShareNote({ tone: 'error', text: 'Could not share this episode. Please try again.' });
+    }
+  };
   useEffect(() => {
     if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
   }, [s.id, location.hash]);
   const busy = !!s.activeGenerationId;
   const queue = s.episodes.filter((e) => e.status === 'ready').map((e) => toPlayable(e, s.title));
   const items = [
-    ...s.episodes.map((ep) => ({ number: ep.number, node: <EpisodeCard key={ep.id} ep={ep} seriesTitle={s.title} queue={queue} /> })),
+    ...s.episodes.map((ep) => ({ number: ep.number, node: <EpisodeCard key={ep.id} ep={ep} seriesTitle={s.title} queue={queue} onShare={canShare ? (e) => void shareEpisode(e) : undefined} language={s.language} /> })),
     ...(s.removedEpisodes ?? []).map((ep) => ({ number: ep.number, node: <RemovedEpisode key={ep.id} seriesId={s.id} ep={ep} disabled={busy} /> })),
   ].sort((a, b) => a.number - b.number);
   return (
     <div>
       <ShowArt seriesId={s.id} title={s.title} decorative className="mb-4 w-40 rounded-2xl shadow-card sm:w-48" />
       <PageHeader title={s.title} subtitle={s.description} />
+      {s.isOwner ? <LanguageSwitch s={s} /> : s.language && s.language !== 'en' ? <p className="-mt-3 mb-5 text-sm text-muted">In {languageInfo(s.language).native}</p> : null}
       {!s.isOwner && s.visibility === 'public' && <PublicActions s={s} />}
       {busy && (
         <div className="mb-5">
@@ -268,6 +396,13 @@ function SeriesView({ s }: { s: SeriesDetail }) {
               <LoaderCircle aria-hidden size={18} className="animate-spin" /> We're working on this series.{' '}
               <Link to={`/generations/${s.activeGenerationId}`} className="font-semibold underline underline-offset-4">See progress</Link>
             </span>
+          </Notice>
+        </div>
+      )}
+      {shareNote && (
+        <div className="mb-4">
+          <Notice tone={shareNote.tone} role={shareNote.tone === 'error' ? 'alert' : 'status'}>
+            {shareNote.text}
           </Notice>
         </div>
       )}

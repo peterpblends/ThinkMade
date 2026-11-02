@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { learningModeSchema, speakerFormatSchema, visibilitySchema, type ProductionSettings, type VoiceProfile } from './settings.ts';
+import { LANGUAGE_CODES } from './languages.ts';
 
 /** Internal pipeline stages, in order. */
 export const GENERATION_STAGES = ['analyze_media', 'understand', 'select_models', 'research', 'plan', 'script', 'validate', 'synthesize', 'publish'] as const;
@@ -40,6 +41,8 @@ export const createGenerationSchema = z.strictObject({
   voices: z.array(z.string().min(1).max(40)).min(1).max(4).optional(),
   /** Female or male voices for the hosts (and guests), when the listener didn't pick exact voices. */
   voiceGender: z.enum(['female', 'male']).optional(),
+  /** The language of the podcast; the administrator's default when left out. */
+  language: z.enum(LANGUAGE_CODES).optional(),
 }).refine((v) => v.topic.length >= 3 || v.mediaUploadIds.length > 0 || !!v.coachingSessionId || !!v.parentSeriesId, {
   path: ['topic'],
   message: 'Tell us a little more about what you want to think through, or add a photo or video.',
@@ -65,6 +68,8 @@ export interface GenerationOptions {
   chosenVoices?: string[];
   /** Natural delivery (conversational phrasing and the natural mastering chain), as switched on when the podcast was requested. */
   naturalDelivery?: boolean;
+  /** A job that voices an existing series in another language (its text is already translated). */
+  translate?: { language: string };
   /** Female or male voices for every host and guest, unless the listener described a host otherwise. */
   voiceGender?: 'female' | 'male';
   /** True when the listener set length, episodes and format themselves; otherwise requests in their words apply. */
