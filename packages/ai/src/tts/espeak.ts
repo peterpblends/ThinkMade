@@ -39,7 +39,9 @@ async function phonemizeClause(text: string, voice: string): Promise<string> {
   if (!clause) return '';
   const run = async () => {
     const espeak = await factory({
-      arguments: ['--phonout', 'phonemes.txt', '-q', '--ipa', '-b=1', '-v', voice, clause],
+      // -b 1: the text is UTF-8 (as two arguments: "-b=1" isn't understood, and accents and other scripts come
+      // out as Latin-1 garbage, e.g. "é" read as "A tilde, copyright").
+      arguments: ['--phonout', 'phonemes.txt', '-q', '--ipa', '-b', '1', '-v', voice, clause],
       instantiateWasm: (imports, receive) => {
         void WebAssembly.instantiate(wasm, imports).then(receive);
         return {};
@@ -47,7 +49,15 @@ async function phonemizeClause(text: string, voice: string): Promise<string> {
       print: () => {},
       printErr: () => {},
     });
-    return espeak.FS.readFile('phonemes.txt', { encoding: 'utf8' }).replace(/\s+/g, ' ').trim();
+    return (
+      espeak.FS.readFile('phonemes.txt', { encoding: 'utf8' })
+        // eSpeak marks words it reads in another language, e.g. "(en)kˈɒpi(fr)"; Kokoro only wants the sounds.
+        .replace(/\([a-z]{2,3}(?:-[a-z0-9]+)?\)/gi, '')
+        // Its liaison hyphens ("ʒə- sɥi") aren't sounds either.
+        .replace(/-/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    );
   };
   const next = queue.then(run, run);
   queue = next.catch(() => {});
