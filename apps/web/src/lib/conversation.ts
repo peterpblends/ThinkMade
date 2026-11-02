@@ -66,7 +66,14 @@ export const END_OF_TURN_MS = { final: 900, interim: 1500 } as const;
 /** Words needed before talking over the coach counts as an interruption (not a cough or an "mm"). */
 const BARGE_IN_WORDS = 2;
 
-export function useVoiceConversation(ask: (turn: ConversationTurn, signal: AbortSignal) => Promise<string>, speakerFactory: () => CoachSpeaker = createCoachSpeaker): VoiceConversation {
+/** `lang` is the language the listener speaks (a BCP-47 tag such as "es-MX"), read when the conversation starts. */
+export function useVoiceConversation(
+  ask: (turn: ConversationTurn, signal: AbortSignal) => Promise<string>,
+  speakerFactory: (lang: string) => CoachSpeaker = createCoachSpeaker,
+  lang = 'en-US',
+): VoiceConversation {
+  const langRef = useRef(lang);
+  langRef.current = lang;
   const Recognition = recognitionCtor();
   const [phase, setPhaseState] = useState<ConversationPhase>('off');
   const [caption, setCaption] = useState('');
@@ -182,7 +189,7 @@ export function useVoiceConversation(ask: (turn: ConversationTurn, signal: Abort
   const listen = useCallback(() => {
     if (!Recognition || !active.current) return;
     const r = new Recognition();
-    r.lang = 'en-US';
+    r.lang = langRef.current;
     r.continuous = true;
     r.interimResults = true;
     // A new recognition session numbers its results from zero again.
@@ -243,7 +250,7 @@ export function useVoiceConversation(ask: (turn: ConversationTurn, signal: Abort
       return;
     }
     setError(null);
-    speaker.current ??= speakerFactory();
+    speaker.current ??= speakerFactory(langRef.current);
     speaker.current.prepare();
     active.current = true;
     finals.current.clear();

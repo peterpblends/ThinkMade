@@ -150,7 +150,7 @@ describe('generations', () => {
     ctx = await createTestContext();
     const res = (await (await createApp(ctx).request('/api/settings/public')).json()) as { voices: Array<{ id: string; name: string; gender: string }> };
     expect(res.voices.length).toBeGreaterThanOrEqual(50);
-    expect(res.voices).toContainEqual({ id: 'phonon:zoey', name: 'Zoey', accent: 'US', gender: 'female' });
+    expect(res.voices).toContainEqual(expect.objectContaining({ id: 'phonon:zoey', name: 'Zoey', accent: 'US', gender: 'female', speaks: ['en'] }));
   });
 
   it('lets the owner cancel a queued job', async () => {

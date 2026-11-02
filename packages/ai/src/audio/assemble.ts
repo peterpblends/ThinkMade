@@ -32,6 +32,8 @@ export interface AssembleOptions {
    * (warmth, softer synthetic sibilance, light compression and a faint room) instead of a dry, clinical sound.
    */
   natural?: boolean;
+  /** The language the lines are in (a LANGUAGES code); English when left out. */
+  language?: string;
   bitrateKbps?: number;
   /** Stops between speech chunks (for example when the listener cancels). */
   signal?: AbortSignal;
@@ -193,7 +195,7 @@ export async function assembleEpisode(opts: AssembleOptions): Promise<AssembleRe
     const words = countWords(text);
     // People don't speak every sentence at one pace: with natural delivery, each varies by up to ±3%.
     const drift = opts.natural ? 1 + (random() - 0.5) * 0.06 : 1;
-    const base: SpeakOptions = { speed: SPEED[pacing] * (words <= 4 ? 1.04 : 1) * drift, expressiveness };
+    const base: SpeakOptions = { speed: SPEED[pacing] * (words <= 4 ? 1.04 : 1) * drift, expressiveness, ...(opts.language && opts.language !== 'en' ? { language: opts.language } : {}) };
     let best: { samples: Float32Array; problem: string | null } | null = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       opts.signal?.throwIfAborted();
@@ -215,7 +217,7 @@ export async function assembleEpisode(opts: AssembleOptions): Promise<AssembleRe
     let prev: { text: string; turn: number; midSentence: boolean } | null = null;
     for (let t = 0; t < opts.turns.length; t++) {
       const turn = opts.turns[t]!;
-      const chunks = splitForSpeech(toSpeechText(turn.text));
+      const chunks = splitForSpeech(toSpeechText(turn.text, opts.language));
       for (let c = 0; c < chunks.length; c++) {
         const text = chunks[c]!;
         if (prev) {

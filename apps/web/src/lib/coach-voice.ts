@@ -39,12 +39,16 @@ function canRunPhonon(): boolean {
   return nav.deviceMemory === undefined || nav.deviceMemory >= 2;
 }
 
-/** The most natural-sounding English voice the device offers (its "enhanced" or "natural" voices first). */
-function deviceVoice(): SpeechSynthesisVoice | null {
+/** The most natural-sounding voice the device offers for `lang` (e.g. "es-MX"): its "enhanced" or "natural" voices first. */
+function deviceVoice(lang: string): SpeechSynthesisVoice | null {
   if (!('speechSynthesis' in window)) return null;
-  const voices = window.speechSynthesis.getVoices().filter((v) => /^en(-|_|$)/i.test(v.lang));
+  const base = lang.split('-')[0]!.toLowerCase();
+  const voices = window.speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().replace('_', '-').split('-')[0] === base);
   const rank = (v: SpeechSynthesisVoice) =>
-    (/natural|neural|premium|enhanced/i.test(v.name) ? 4 : 0) + (/^en[-_]US/i.test(v.lang) ? 2 : 0) + (/google|samantha|ava|allison|aria|jenny/i.test(v.name) ? 1 : 0) + (v.localService ? 0.5 : 0);
+    (/natural|neural|premium|enhanced/i.test(v.name) ? 4 : 0) +
+    (v.lang.toLowerCase().replace('_', '-') === lang.toLowerCase() ? 2 : 0) +
+    (/google|samantha|ava|allison|aria|jenny/i.test(v.name) ? 1 : 0) +
+    (v.localService ? 0.5 : 0);
   return voices.sort((a, b) => rank(b) - rank(a))[0] ?? null;
 }
 
@@ -53,7 +57,12 @@ export function sentences(text: string): string[] {
   return (text.replace(/\s+/g, ' ').match(/[^.!?]+(?:[.!?]+["')\]]*|$)/g) ?? []).map((s) => s.trim()).filter(Boolean);
 }
 
-export function createCoachSpeaker(): CoachSpeaker {
+/**
+ * `lang` is the conversation's language (a BCP-47 tag such as "es-MX"). The on-device Phonon voice speaks
+ * English; other languages use the device's own voice for that language.
+ */
+export function createCoachSpeaker(lang = 'en-US'): CoachSpeaker {
+  const english = lang.toLowerCase().startsWith('en');
   let phonon: Phonon | null = null;
   let loading: Promise<void> | null = null;
   // If this device can't generate speech faster than it plays, the device voice takes over.
@@ -65,7 +74,7 @@ export function createCoachSpeaker(): CoachSpeaker {
 
   const loadPhonon = () =>
     (loading ??= (async () => {
-      if (!canRunPhonon()) return;
+      if (!english || !canRunPhonon()) return;
       // The model files are only there when the build prepared them.
       const head = await fetch(MODEL.config, { method: 'HEAD' }).catch(() => null);
       if (!head?.ok) return;
@@ -91,7 +100,8 @@ export function createCoachSpeaker(): CoachSpeaker {
     new Promise<void>((resolve) => {
       if (!('speechSynthesis' in window) || signal.aborted) return resolve();
       const u = new SpeechSynthesisUtterance(text);
-      const v = deviceVoice();
+      u.lang = lang;
+      const v = deviceVoice(lang);
       if (v) u.voice = v;
       u.rate = 1.03;
       u.onboundary = (e) => onProgress?.(text.slice(0, e.charIndex));

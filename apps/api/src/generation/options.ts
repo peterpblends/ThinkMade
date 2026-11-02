@@ -1,11 +1,11 @@
-import { usableVoices, type AppSettings, type CreateGenerationInput, type GenerationOptions } from '@thinkmade/shared';
+import { languageInfo, languageLabel, speaksLanguage, usableVoices, type AppSettings, type CreateGenerationInput, type GenerationOptions } from '@thinkmade/shared';
 
 const BITRATE = { compact: 48, balanced: 64, high: 96 } as const;
 
 export class LimitError extends Error {}
 
 /** Admin defaults, overridden by the user's customisation, never beyond admin limits. */
-export function resolveOptions(settings: AppSettings, input: Pick<CreateGenerationInput, 'customization' | 'visibility' | 'voices' | 'voiceGender'>): GenerationOptions {
+export function resolveOptions(settings: AppSettings, input: Pick<CreateGenerationInput, 'customization' | 'visibility' | 'voices' | 'voiceGender' | 'language'>): GenerationOptions {
   const p = settings.podcast;
   const c = input.customization ?? null;
   if (c && (c.lengthMinutes > p.maxEpisodeMinutes || c.episodes > p.maxEpisodesPerSeries)) {
@@ -14,13 +14,18 @@ export function resolveOptions(settings: AppSettings, input: Pick<CreateGenerati
   const usable = usableVoices(settings);
   const unavailable = (input.voices ?? []).filter((v) => !usable.includes(v));
   if (unavailable.length) throw new LimitError(`These voices aren't available: ${unavailable.join(', ')}.`);
+  const language = languageInfo(input.language ?? p.language).code;
+  if (language !== 'en' && !settings.features.languages) throw new LimitError('Podcasts in other languages are turned off right now.');
+  const wrongLanguage = (input.voices ?? []).filter((v) => !speaksLanguage(v, language));
+  if (wrongLanguage.length) throw new LimitError(`These voices don't speak ${languageLabel(language)}: ${wrongLanguage.join(', ')}.`);
+  if (!usable.some((v) => speaksLanguage(v, language))) throw new LimitError(`No voices are available for ${languageLabel(language)} right now.`);
   return {
     lengthMinutes: c?.lengthMinutes ?? p.defaultLengthMinutes,
     episodes: c?.episodes ?? p.defaultEpisodes,
     speakerFormat: c?.speakerFormat ?? p.speakerFormat,
     learningMode: c?.learningMode ?? p.learningMode,
     visibility: input.visibility ?? p.visibility,
-    language: p.language,
+    language,
     teachingStyle: p.teachingStyle,
     voices: { single: settings.voices.single, hostA: settings.voices.hostA, hostB: settings.voices.hostB },
     voicePool: usable,

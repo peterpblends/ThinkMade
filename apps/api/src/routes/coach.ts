@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { LlmError, ProviderNotConfiguredError, type ChatMessage } from '@thinkmade/ai';
 import { getActivePrompts, schema } from '@thinkmade/db';
 import type { AppContext } from '../create-context';
-import { SPOKEN_COACH_INSTRUCTIONS } from '@thinkmade/shared';
+import { languageInfo, languageInstruction, SPOKEN_COACH_INSTRUCTIONS } from '@thinkmade/shared';
 import { COACH_INSTRUCTIONS, selectExcerpts } from '../coach/context';
 import { requireFeature } from '../middleware/feature';
 import { rateLimit } from '../middleware/rate-limit';
@@ -30,6 +30,17 @@ export function coachRoutes(ctx: AppContext) {
     return s ? { episode: e, series: s } : null;
   }
 
+  /** The language the series was made in (English for series made before languages). */
+  async function seriesLanguage(seriesId: string): Promise<string> {
+    const [job] = await ctx.db
+      .select({ options: schema.generationJob.options })
+      .from(schema.generationJob)
+      .where(eq(schema.generationJob.seriesId, seriesId))
+      .orderBy(asc(schema.generationJob.createdAt))
+      .limit(1);
+    return languageInfo((job?.options as { language?: string } | undefined)?.language).code;
+  }
+
   async function latestSession(userId: string, episodeId: string) {
     const [s] = await ctx.db
       .select()
@@ -52,7 +63,8 @@ export function coachRoutes(ctx: AppContext) {
           .where(eq(schema.coachingMessage.sessionId, session.id))
           .orderBy(asc(schema.coachingMessage.createdAt), asc(schema.coachingMessage.id))
       : [];
-    return c.json({ session: session && { id: session.id }, episode: { id: found.episode.id, title: found.episode.title, seriesTitle: found.series.title }, messages });
+    const language = await seriesLanguage(found.series.id);
+    return c.json({ session: session && { id: session.id }, episode: { id: found.episode.id, title: found.episode.title, seriesTitle: found.series.title }, language, speechLang: languageInfo(language).speech, messages });
   });
 
   r.post(
@@ -98,7 +110,8 @@ export function coachRoutes(ctx: AppContext) {
         verifiedBooks: details?.sources.map((s) => s.title) ?? [],
       };
       const instructions = (await getActivePrompts(ctx.db)).get('coach') ?? COACH_INSTRUCTIONS;
-      const system = `STAGE: coach\n${instructions}${spoken ? `\n\n${SPOKEN_COACH_INSTRUCTIONS}` : ''}\n\nEpisode context (JSON):\n${JSON.stringify(context, null, 2)}\n\nTranscript excerpts:\n${excerpts.map((x, i) => `[${i + 1}] ${x}`).join('\n\n') || '(none)'}`;
+      const languageRule = languageInstruction(await seriesLanguage(series.id));
+      const system = `STAGE: coach\n${instructions}${spoken ? `\n\n${SPOKEN_COACH_INSTRUCTIONS}` : ''}${languageRule ? `\n\n${languageRule} Reply in that language unless the listener writes in another.` : ''}\n\nEpisode context (JSON):\n${JSON.stringify(context, null, 2)}\n\nTranscript excerpts:\n${excerpts.map((x, i) => `[${i + 1}] ${x}`).join('\n\n') || '(none)'}`;
       const messages: ChatMessage[] = [
         { role: 'system', content: system },
         ...history.map((m) => ({ role: m.role === 'coach' ? ('assistant' as const) : ('user' as const), content: m.content })),

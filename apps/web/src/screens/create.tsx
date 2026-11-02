@@ -96,7 +96,7 @@ export function CreateScreen() {
       setStatus(null);
       const { id } = await api<{ id: string }>('/api/generations', {
         method: 'POST',
-        body: JSON.stringify({ topic: req.topic, customization: req.customization, mediaUploadIds, ...(req.voices ? { voices: req.voices } : req.voiceGender ? { voiceGender: req.voiceGender } : {}) }),
+        body: JSON.stringify({ topic: req.topic, customization: req.customization, mediaUploadIds, ...(req.voices ? { voices: req.voices } : req.voiceGender ? { voiceGender: req.voiceGender } : {}), ...(req.language ? { language: req.language } : {}) }),
       });
       saveDraft('');
       navigate(`/generations/${id}`);

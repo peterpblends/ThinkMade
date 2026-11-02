@@ -1,3 +1,4 @@
+import { languageInfo } from './languages.ts';
 import { castableByDefault, voiceInfo, VOICE_CATALOG, type Heritage, type VoiceInfo, type VoiceProfile } from './settings.ts';
 
 export const HOST_IDS = ['A', 'B', 'C', 'D'] as const;
@@ -38,6 +39,8 @@ export interface ChooseHostsInput {
   pool: string[];
   /** Female or male voices for hosts whose description doesn't say. */
   gender?: 'female' | 'male' | null;
+  /** The podcast's language: only voices that speak it are cast (English when left out). */
+  language?: string;
   /** What administrators noted about voices: age band and whether to cast automatically. */
   profiles?: Record<string, VoiceProfile>;
   /** The accent the show should use unless a host says otherwise (e.g. British for a UK audience). */
@@ -80,9 +83,11 @@ function qualityScore(v: VoiceInfo): number {
 export function chooseHosts(input: ChooseHostsInput): Host[] {
   const random = input.random ?? Math.random;
   const profiles = input.profiles ?? {};
-  const pool = input.pool.map(voiceInfo).filter((v): v is VoiceInfo => !!v);
-  const all = pool.length ? pool : [...VOICE_CATALOG];
-  const castable = all.filter((v) => profiles[v.id]?.autoCast ?? castableByDefault(v));
+  const language = languageInfo(input.language).code;
+  const pool = input.pool.map(voiceInfo).filter((v): v is VoiceInfo => !!v && v.speaks.includes(language));
+  const all = pool.length ? pool : VOICE_CATALOG.filter((v) => v.speaks.includes(language));
+  // In another language every voice that speaks it is a native voice, so all of them may be cast.
+  const castable = language === 'en' ? all.filter((v) => profiles[v.id]?.autoCast ?? castableByDefault(v)) : all;
   const usable = castable.length ? castable : all;
   const recent = new Set(input.recent ?? []);
   const ids = input.ids ?? [...HOST_IDS];

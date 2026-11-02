@@ -11,6 +11,8 @@ export interface SpeakOptions {
   speed?: number;
   /** How freely the voice varies its delivery, 0 (flat) to 1 (very expressive). */
   expressiveness?: number;
+  /** The language of the text (a LANGUAGES code); English when left out. */
+  language?: string;
 }
 
 export interface TtsEngine {

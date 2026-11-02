@@ -161,6 +161,39 @@ describe('CreateForm voice choices', () => {
   });
 });
 
+describe('CreateForm languages', () => {
+  const multilingual = [
+    ...voices,
+    { id: 'ef_dora', name: 'Dora', accent: 'US' as const, gender: 'female' as const, speaks: ['en', 'es'], sampleUrls: { es: '/api/voices/ef_dora/sample?lang=es' } },
+    { id: 'em_alex', name: 'Alejandro', accent: 'US' as const, gender: 'male' as const, speaks: ['en', 'es'] },
+    { id: 'ff_siwis', name: 'Camille', accent: 'US' as const, gender: 'female' as const, speaks: ['fr'] },
+  ];
+
+  it('offers languages that have voices, and only their voices, and sends the language', async () => {
+    const onCreate = vi.fn();
+    render(<CreateForm defaults={defaults} voices={multilingual} onCreate={onCreate} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Customize' }));
+    expect(screen.getAllByRole('radio', { name: /English|Español|Français/ }).map((r) => r.getAttribute('id'))).toEqual(['language-en', 'language-es', 'language-fr']);
+    expect(screen.queryByRole('radio', { name: 'Italiano' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('radio', { name: 'Español' }));
+    expect(screen.getByRole('button', { name: 'Language Español (customized)' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('radio', { name: 'Choose voices' }));
+    const host1 = screen.getByRole('combobox', { name: 'Host 1' });
+    expect(Array.from(host1.querySelectorAll('option')).map((o) => o.textContent)).toEqual(['Dora', 'Alejandro']);
+    expect(host1.querySelector('optgroup')!.getAttribute('label')).toBe('Spanish, female');
+    expect(screen.getByRole('button', { name: 'Play a sample of Dora' })).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox', { name: /your topic/i }), 'Decisiones');
+    await userEvent.click(screen.getByRole('button', { name: 'Create My Podcasts' }));
+    expect(onCreate.mock.calls[0]![0]).toMatchObject({ language: 'es', voices: ['ef_dora', 'em_alex'] });
+  });
+
+  it('hides other languages while they are switched off', async () => {
+    render(<CreateForm defaults={defaults} voices={multilingual} features={{ languages: false }} onCreate={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Customize' }));
+    expect(screen.queryByRole('radio', { name: 'Español' })).not.toBeInTheDocument();
+  });
+});
+
 describe('CreateForm', () => {
   it('asks the core question and offers one primary action plus Customize', () => {
     render(<CreateForm defaults={defaults} onCreate={vi.fn()} />);

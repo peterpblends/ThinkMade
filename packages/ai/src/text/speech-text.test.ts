@@ -13,3 +13,11 @@ describe('toSpeechText', () => {
     expect(toSpeechText('It works—.')).toBe('It works.');
   });
 });
+
+describe('speech text in other languages', () => {
+  it('leaves abbreviations to the engine and keeps the language’s own punctuation', () => {
+    expect(toSpeechText('Por ejemplo, el 50% (pausa) de la gente…', 'es')).toBe('Por ejemplo, el 50% de la gente,');
+    expect(toSpeechText('etc. & more', 'fr')).toBe('etc. & more');
+    expect(toSpeechText('etc. & more')).toBe('and so on and more');
+  });
+});
