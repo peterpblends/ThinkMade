@@ -16,6 +16,11 @@ describe('show artwork', () => {
     expect(fills.size).toBeGreaterThan(2);
   });
 
+  it('keeps a show’s colours when its title is translated', () => {
+    const colour = (svg: string) => svg.match(/stop-color="(#[0-9A-F]+)"/)![1];
+    expect(colour(coverSvg({ title: 'Habit Loops', seed: 's1' }))).toBe(colour(coverSvg({ title: 'Bucles de hábitos', seed: 's1' })));
+  });
+
   it('fits long titles on at most five lines', () => {
     const svg = coverSvg({ title: 'Why Smart People Make Bad Decisions and How to Avoid Making the Same Mistakes Every Single Week of the Year Forever', seed: 'x' });
     const titleLines = svg.match(/<g fill="[^"]+" transform="translate\(110 \d+\) scale/g)!.length - 2; // minus label and subtitle

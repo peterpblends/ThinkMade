@@ -85,7 +85,7 @@ function textLine(s: string, x: number, y: number, size: number, fill: string, w
 
 export interface CoverOptions {
   title: string;
-  /** Varies the palette and symbol between shows with similar titles (e.g. the series id). */
+  /** Picks the palette and symbol angle (the series id), so a show looks the same whatever its title's language. */
   seed?: string;
   /** Line under the title. */
   subtitle?: string;
@@ -94,7 +94,8 @@ export interface CoverOptions {
 /** A 1400 × 1400 SVG cover for a podcast show. */
 export function coverSvg({ title, seed = '', subtitle = `A ${BRAND.name} podcast` }: CoverOptions): string {
   const S = COVER_SIZE;
-  const h = hash(`${seed}|${title}`);
+  // A show keeps its look in every language: with a seed (the series id) the title doesn't change it.
+  const h = hash(seed || title);
   const p = PALETTES[h % PALETTES.length]!;
   const text = typeset(title) || BRAND.name;
   const width = S - MARGIN * 2;
