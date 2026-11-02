@@ -31,12 +31,15 @@ export interface CreateRequest {
 }
 
 const MAX_HOSTS = 4;
-const VOICE_GROUPS = [
-  ['US', 'female', 'American, female'],
-  ['US', 'male', 'American, male'],
-  ['UK', 'female', 'British, female'],
-  ['UK', 'male', 'British, male'],
-] as const;
+/** How voices are grouped in the picker: by accent (American, British, then American with another heritage's accent) and gender. */
+const VOICE_GROUPS: ReadonlyArray<{ label: string; match: (v: VoiceOption) => boolean }> = [
+  ...([['US', 'American'], ['UK', 'British']] as const).flatMap(([accent, name]) =>
+    (['female', 'male'] as const).map((g) => ({ label: `${name}, ${g}`, match: (v: VoiceOption) => v.accent === accent && !v.heritage && v.gender === g })),
+  ),
+  ...([['latino', 'American, Latino accent'], ['south-asian', 'American, South Asian accent'], ['east-asian', 'American, East Asian accent']] as const).flatMap(([heritage, name]) =>
+    (['female', 'male'] as const).map((g) => ({ label: `${name}, ${g}`, match: (v: VoiceOption) => v.heritage === heritage && v.gender === g })),
+  ),
+];
 
 /**
  * Plays a voice's short sample. One sample plays at a time across the page; pressing again stops it.
@@ -158,10 +161,10 @@ function VoicePicker({
               <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm text-ink">
                 Host {i + 1}
                 <select value={id} onChange={(e) => pick(i, e.target.value)} className="min-h-11 w-full rounded-xl border border-line bg-surface px-3 text-[0.95rem] text-ink">
-                  {VOICE_GROUPS.map(([accent, g, label]) => (
+                  {VOICE_GROUPS.filter((grp) => voices.some(grp.match)).map(({ label, match }) => (
                     <optgroup key={label} label={label}>
                       {voices
-                        .filter((v) => v.accent === accent && v.gender === g)
+                        .filter(match)
                         .map((v) => (
                           <option key={v.id} value={v.id} disabled={v.id !== id && value.includes(v.id)}>
                             {v.name}
@@ -313,7 +316,7 @@ function FilePicker({ label, accept, icon, onFiles }: { label: string; accept: s
   );
 }
 
-function VoiceControls({ voice, onFiles }: { voice: VoiceInput; onFiles: (files: File[], kind: 'image' | 'video') => void }) {
+function VoiceControls({ voice, onFiles, allowVoice = true, allowMedia = true }: { voice: VoiceInput; onFiles: (files: File[], kind: 'image' | 'video') => void; allowVoice?: boolean; allowMedia?: boolean }) {
   const unsupportedId = useId();
   if (voice.state === 'recording') {
     return (
@@ -333,26 +336,33 @@ function VoiceControls({ voice, onFiles }: { voice: VoiceInput; onFiles: (files:
   if (voice.state === 'transcribing') {
     return <span role="status" className="px-2 text-sm text-muted">{voice.onDevice ? 'Turning your words into text on this device…' : 'Turning your words into text…'}</span>;
   }
+  const hint = allowVoice && allowMedia ? 'Type, speak, or show us.' : allowVoice ? 'Type or speak.' : allowMedia ? 'Type, or show us.' : null;
   return (
     <>
-      <button
-        type="button"
-        onClick={voice.start}
-        disabled={!voice.supported}
-        aria-label="Speak your topic"
-        aria-describedby={voice.supported ? undefined : unsupportedId}
-        className="flex h-11 w-11 items-center justify-center rounded-full text-ink hover:bg-surface-2 disabled:cursor-not-allowed disabled:text-muted disabled:opacity-60"
-      >
-        <Mic aria-hidden size={22} />
-      </button>
-      {!voice.supported && (
+      {allowVoice && (
+        <button
+          type="button"
+          onClick={voice.start}
+          disabled={!voice.supported}
+          aria-label="Speak your topic"
+          aria-describedby={voice.supported ? undefined : unsupportedId}
+          className="flex h-11 w-11 items-center justify-center rounded-full text-ink hover:bg-surface-2 disabled:cursor-not-allowed disabled:text-muted disabled:opacity-60"
+        >
+          <Mic aria-hidden size={22} />
+        </button>
+      )}
+      {allowVoice && !voice.supported && (
         <span id={unsupportedId} className="sr-only">
           Voice input is not supported in this browser.
         </span>
       )}
-      <FilePicker label="Add a photo" accept="image/*" icon={<Camera aria-hidden size={22} />} onFiles={(f) => onFiles(f, 'image')} />
-      <FilePicker label="Add a video" accept="video/*" icon={<Video aria-hidden size={22} />} onFiles={(f) => onFiles(f, 'video')} />
-      <span className="ml-1 text-xs text-muted">Type, speak, or show us.</span>
+      {allowMedia && (
+        <>
+          <FilePicker label="Add a photo" accept="image/*" icon={<Camera aria-hidden size={22} />} onFiles={(f) => onFiles(f, 'image')} />
+          <FilePicker label="Add a video" accept="video/*" icon={<Video aria-hidden size={22} />} onFiles={(f) => onFiles(f, 'video')} />
+        </>
+      )}
+      {hint && <span className="ml-1 text-xs text-muted">{hint}</span>}
     </>
   );
 }
@@ -378,7 +388,10 @@ export function CreateForm({
   media = FALLBACK_MEDIA,
   voices: voiceOptions = [],
   status,
+  features,
 }: {
+  /** Features an administrator switched on; all on when left out. */
+  features?: Partial<Record<'voiceInput' | 'mediaUploads', boolean>>;
   defaults: PublicPodcastSettings;
   media?: PublicSettings['media'];
   /** Voices listeners may pick; the picker is hidden without them. */
@@ -494,7 +507,7 @@ export function CreateForm({
           className="block min-h-[5.5rem] w-full resize-none rounded-t-[var(--radius-card)] bg-transparent px-4 pb-2 pt-3.5 text-[1.05rem] sm:min-h-[7.5rem] leading-relaxed text-ink [overflow-wrap:anywhere] placeholder:text-muted focus:outline-none"
         />
         <div className="flex min-h-12 flex-wrap items-center gap-1 border-t border-line/70 px-2 py-1">
-          <VoiceControls voice={voice} onFiles={addFiles} />
+          <VoiceControls voice={voice} onFiles={addFiles} allowVoice={features?.voiceInput !== false} allowMedia={features?.mediaUploads !== false} />
         </div>
         {attachments.length > 0 && (
           <ul className="flex flex-wrap gap-2 border-t border-line/70 p-3" aria-label="Attached photos and videos">

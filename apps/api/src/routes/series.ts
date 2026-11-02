@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { FollowUpError, startFollowUp, type FollowUp } from '../generation/follow-up';
 import { requireSession, requireVerified, type AppVariables } from '../middleware/session';
 import { dailyLimitMessage } from './generation';
+import { coverSvg } from '@thinkmade/brand/cover';
 
 /** Owner, or anyone when the series is public. Returns null otherwise so callers answer 404. */
 export async function readableSeries(db: Db, seriesId: string, userId: string | null) {
@@ -112,6 +113,18 @@ export function seriesRoutes(ctx: AppContext) {
       )
       .orderBy(desc(schema.podcastSeries.createdAt));
     return c.json({ series: rows });
+  });
+
+  // Show artwork: a square cover with the show's title (the app adds ?v=<title hash> so a renamed show refreshes).
+  r.get('/series/:id/cover.svg', async (c) => {
+    const { features } = (await ctx.settings.getActive()).settings;
+    if (!features.showArtwork) return c.json({ error: 'not_found' }, 404);
+    const s = await readableSeries(ctx.db, c.req.param('id'), c.var.session?.user.id ?? null);
+    if (!s) return c.json({ error: 'not_found' }, 404);
+    return c.body(coverSvg({ title: s.title, seed: s.id }), 200, {
+      'Content-Type': 'image/svg+xml; charset=utf-8',
+      'Cache-Control': s.visibility === 'public' ? 'public, max-age=86400' : 'private, max-age=86400',
+    });
   });
 
   r.get('/series/:id', async (c) => {

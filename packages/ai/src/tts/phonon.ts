@@ -130,6 +130,8 @@ export function createPhononTts(options: PhononOptions = {}): TtsEngine {
 export function kokoroFallbackVoice(voice: string): string {
   const v = phononVoice(voice);
   if (!v) return voice;
+  // A Latino voice falls back to Kokoro's Spanish voice of the same gender.
+  if ('heritage' in v) return v.gender === 'female' ? 'ef_dora' : 'em_alex';
   const peers = PHONON_VOICES.filter((p) => p.accent === v.accent && p.gender === v.gender);
   const options = KOKORO_VOICE_INFO.filter((k) => k.accent === v.accent && k.gender === v.gender);
   return options[peers.findIndex((p) => p.key === v.key) % options.length]!.id;

@@ -1,8 +1,12 @@
-import { render, screen, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render as rtlRender, screen, within } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { PodcastList } from './library';
 import type { SeriesListItem } from '../lib/types';
+
+const render = (ui: ReactElement) => rtlRender(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, enabled: false } } })}>{ui}</QueryClientProvider>);
 
 const series = (over: Partial<SeriesListItem>): SeriesListItem => ({
   id: 's1', title: 'Heart & Faith', description: 'A lively, faith-centered podcast.', status: 'ready', visibility: 'private', createdAt: '2026-10-25T00:00:00Z',

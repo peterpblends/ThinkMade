@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { AppContext } from '../create-context';
+import { requireFeature } from '../middleware/feature';
 import { rateLimit } from '../middleware/rate-limit';
 import { requireVerified, type AppVariables } from '../middleware/session';
 
@@ -11,6 +12,7 @@ export function transcribeRoutes(ctx: AppContext) {
   r.post(
     '/transcribe',
     requireVerified(),
+    requireFeature(ctx, 'voiceInput'),
     rateLimit({ db: ctx.db, name: 'stt', key: (c) => (c.var as AppVariables).session!.user.id, limit: 30, windowSeconds: 15 * 60, now: ctx.now }),
     async (c) => {
       if (!ctx.stt) {

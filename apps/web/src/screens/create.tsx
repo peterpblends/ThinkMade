@@ -124,7 +124,7 @@ export function CreateScreen() {
       </section>
 
       {settings.data ? (
-        <CreateForm defaults={settings.data.podcast} media={settings.data.media} voices={settings.data.voices ?? []} onCreate={(r) => void onCreate(r)} initialTopic={readDraft()} busy={busy} status={status} />
+        <CreateForm defaults={settings.data.podcast} media={settings.data.media} voices={settings.data.voices ?? []} {...(settings.data.features ? { features: settings.data.features } : {})} onCreate={(r) => void onCreate(r)} initialTopic={readDraft()} busy={busy} status={status} />
       ) : settings.isError ? (
         <Notice tone="error" role="alert">
           ThinkMade can't reach its server right now. Check your connection and try again.

@@ -189,7 +189,11 @@ export function PlayerProvider({ children, sendProgress = sendProgressOnline, re
       title: state.current.title,
       artist: state.current.primaryModelName ? `ThinkMade · ${state.current.primaryModelName}` : 'ThinkMade',
       album: state.current.seriesTitle,
-      artwork: [192, 512].map((s) => ({ src: `/icons/icon-${s}.png`, sizes: `${s}x${s}`, type: 'image/png' })),
+      artwork: [
+        // The show's cover where the system can show SVG; the app icon otherwise.
+        { src: `/api/series/${encodeURIComponent(state.current.seriesId)}/cover.svg`, sizes: '1400x1400', type: 'image/svg+xml' },
+        ...[192, 512].map((s) => ({ src: `/icons/icon-${s}.png`, sizes: `${s}x${s}`, type: 'image/png' })),
+      ],
     });
     const handlers: Array<[MediaSessionAction, MediaSessionActionHandler]> = [
       ['play', () => api.toggle()],

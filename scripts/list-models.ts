@@ -35,3 +35,13 @@ for (const p of providers) {
     console.info(`\n## ${p.name}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
+
+// Phonon's voice catalog: every ready-made voice with its language (and any description), to choose voices from.
+try {
+  const res = await fetch('https://huggingface.co/gradium/phonon-voices/raw/main/voices.jsonl', { signal: AbortSignal.timeout(20_000) });
+  const text = await res.text();
+  console.info(`\n## phonon voices: ${res.status}, ${text.split('\n').filter(Boolean).length} entries`);
+  console.info(text);
+} catch (err) {
+  console.info(`\n## phonon voices: ${err instanceof Error ? err.message : String(err)}`);
+}

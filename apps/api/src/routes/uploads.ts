@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { sniffMediaType } from '@thinkmade/ai';
 import { schema } from '@thinkmade/db';
 import type { AppContext } from '../create-context';
+import { requireFeature } from '../middleware/feature';
 import { rateLimit } from '../middleware/rate-limit';
 import { requireVerified, type AppVariables } from '../middleware/session';
 
@@ -19,7 +20,7 @@ export function uploadRoutes(ctx: AppContext) {
   const expiry = (days: number) => new Date(ctx.now().getTime() + days * 86400_000);
 
   // Direct upload through the API (local storage, or small files).
-  r.post('/uploads', requireVerified(), limiter, async (c) => {
+  r.post('/uploads', requireVerified(), requireFeature(ctx, 'mediaUploads'), limiter, async (c) => {
     const media = await limits();
     const maxAny = Math.max(media.maxImageBytes, media.maxVideoBytes);
     if (Number(c.req.header('content-length') ?? 0) > maxAny + 64_000) return c.json({ error: 'too_large' }, 413);
@@ -40,7 +41,7 @@ export function uploadRoutes(ctx: AppContext) {
   });
 
   // Presigned direct-to-storage upload for large files (needed on Vercel, which caps request bodies).
-  r.post('/uploads/presign', requireVerified(), limiter, async (c) => {
+  r.post('/uploads/presign', requireVerified(), requireFeature(ctx, 'mediaUploads'), limiter, async (c) => {
     if (!ctx.storage.presignPut) return c.json({ error: 'use_direct_upload' }, 400);
     const parsed = presignBody.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);

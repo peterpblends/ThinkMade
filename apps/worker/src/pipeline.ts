@@ -381,7 +381,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     // A British audience (or a request for British voices) gets British voices unless a host says otherwise.
     const preferAccent = /\b(british|uk|united kingdom|england|english accents?)\b/i.test([u.audience, ...prefs.requests].join(' ')) ? ('UK' as const) : null;
     if (!state.hosts) {
-      const described = prefs.hosts.filter((h) => h.name || h.role || h.gender);
+      const described = prefs.hosts.filter((h) => h.name || h.role || h.gender || h.heritage);
       // Interviews keep one host throughout and bring a new guest each episode, unless the listener described
       // their own cast or picked voices for it.
       state.rotatingGuests = state.showFormat === 'interview' && production.rotateGuests && described.length === 0 && !options.chosenVoices?.length;
@@ -409,7 +409,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         ...(h.kind ? { kind: h.kind } : {}),
         ...(h.simulated ? { simulated: true } : {}),
       }));
-    const listener = { audience: u.audience, listenerRequests: prefs.requests };
+    const listener = { audience: u.audience, listenerRequests: prefs.requests, ...(options.naturalDelivery ? { naturalDelivery: true } : {}) };
     /**
      * The people in one episode: the series' hosts (just the first in a single-host episode) and, in an
      * interview series with rotating guests, that episode's own guest, cast once to suit the episode and never
@@ -890,6 +890,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           pacing: production.pacing,
           expressiveness: production.expressiveness,
           roomTone: production.roomTone,
+          natural: options.naturalDelivery === true,
           tts: deps.tts,
           outFile,
           workDir,

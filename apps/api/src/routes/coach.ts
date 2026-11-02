@@ -4,12 +4,20 @@ import { z } from 'zod';
 import { LlmError, ProviderNotConfiguredError, type ChatMessage } from '@thinkmade/ai';
 import { getActivePrompts, schema } from '@thinkmade/db';
 import type { AppContext } from '../create-context';
+import { SPOKEN_COACH_INSTRUCTIONS } from '@thinkmade/shared';
 import { COACH_INSTRUCTIONS, selectExcerpts } from '../coach/context';
+import { requireFeature } from '../middleware/feature';
 import { rateLimit } from '../middleware/rate-limit';
 import { requireVerified, type AppVariables } from '../middleware/session';
 import { episodeDetails, readableSeries } from './series';
 
-const messageBody = z.strictObject({ content: z.string().trim().min(1).max(2000) });
+const messageBody = z.strictObject({
+  content: z.string().trim().min(1).max(2000),
+  /** Said aloud in the hands-free conversation: the coach answers briefly, to be spoken. */
+  spoken: z.boolean().optional(),
+  /** The listener cut the coach off after it had said this much of its last reply. */
+  interruptedAfter: z.string().trim().max(2000).optional(),
+});
 const HISTORY = 12;
 
 export function coachRoutes(ctx: AppContext) {
@@ -32,7 +40,7 @@ export function coachRoutes(ctx: AppContext) {
     return s ?? null;
   }
 
-  r.get('/coach/:episodeId', requireVerified(), async (c) => {
+  r.get('/coach/:episodeId', requireVerified(), requireFeature(ctx, 'coach'), async (c) => {
     const userId = c.var.session!.user.id;
     const found = await readable(c.req.param('episodeId'), userId);
     if (!found) return c.json({ error: 'not_found' }, 404);
@@ -50,11 +58,17 @@ export function coachRoutes(ctx: AppContext) {
   r.post(
     '/coach/:episodeId/messages',
     requireVerified(),
-    rateLimit({ db: ctx.db, name: 'coach', key: (c) => (c.var as AppVariables).session!.user.id, limit: 40, windowSeconds: 15 * 60, now: ctx.now }),
+    requireFeature(ctx, 'coach'),
+    // A spoken conversation takes many short turns, so the allowance is generous.
+    rateLimit({ db: ctx.db, name: 'coach', key: (c) => (c.var as AppVariables).session!.user.id, limit: 120, windowSeconds: 15 * 60, now: ctx.now }),
     async (c) => {
       const userId = c.var.session!.user.id;
       const parsed = messageBody.safeParse(await c.req.json().catch(() => null));
       if (!parsed.success) return c.json({ error: 'invalid_request', message: 'Ask a question of up to 2,000 characters.' }, 400);
+      const spoken = parsed.data.spoken === true;
+      if (spoken && !(await ctx.settings.getActive()).settings.features.voiceCoaching) {
+        return c.json({ error: 'feature_off', feature: 'voiceCoaching', message: 'Talking with your coach is turned off right now. You can still type.' }, 403);
+      }
       const found = await readable(c.req.param('episodeId'), userId);
       if (!found) return c.json({ error: 'not_found' }, 404);
       const { episode, series } = found;
@@ -84,18 +98,23 @@ export function coachRoutes(ctx: AppContext) {
         verifiedBooks: details?.sources.map((s) => s.title) ?? [],
       };
       const instructions = (await getActivePrompts(ctx.db)).get('coach') ?? COACH_INSTRUCTIONS;
-      const system = `STAGE: coach\n${instructions}\n\nEpisode context (JSON):\n${JSON.stringify(context, null, 2)}\n\nTranscript excerpts:\n${excerpts.map((x, i) => `[${i + 1}] ${x}`).join('\n\n') || '(none)'}`;
+      const system = `STAGE: coach\n${instructions}${spoken ? `\n\n${SPOKEN_COACH_INSTRUCTIONS}` : ''}\n\nEpisode context (JSON):\n${JSON.stringify(context, null, 2)}\n\nTranscript excerpts:\n${excerpts.map((x, i) => `[${i + 1}] ${x}`).join('\n\n') || '(none)'}`;
       const messages: ChatMessage[] = [
         { role: 'system', content: system },
         ...history.map((m) => ({ role: m.role === 'coach' ? ('assistant' as const) : ('user' as const), content: m.content })),
-        { role: 'user', content: parsed.data.content },
+        {
+          role: 'user',
+          content: parsed.data.interruptedAfter
+            ? `(I interrupted you after you said: "${parsed.data.interruptedAfter.slice(-300)}")\n\n${parsed.data.content}`
+            : parsed.data.content,
+        },
       ];
 
       let replyText: string;
       let tokens = 0;
       try {
         const llm = await ctx.llm('coach');
-        const res = await llm.chat(messages, { temperature: 0.6, maxTokens: 600 });
+        const res = await llm.chat(messages, spoken ? { temperature: 0.7, maxTokens: 400 } : { temperature: 0.6, maxTokens: 600 });
         replyText = res.content.trim();
         tokens = res.usage.promptTokens + res.usage.completionTokens;
       } catch (err) {

@@ -12,6 +12,8 @@ import { Button, Card, Notice, PageHeader } from '../components/ui';
 import { SeriesOwnerActions, shareLink } from './series-actions';
 import { useSession } from '../lib/auth-client';
 import { useNavigate } from 'react-router';
+import { useFeatures } from '../lib/features';
+import { ShowArt } from '../components/show-art';
 
 export function toPlayable(ep: EpisodeSummary, seriesTitle: string): PlayableEpisode {
   return {
@@ -46,6 +48,7 @@ function PlayButton({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTitl
 }
 
 function EpisodeCard({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTitle: string; queue: PlayableEpisode[] }) {
+  const features = useFeatures();
   return (
     <article id={ep.id} aria-labelledby={`${ep.id}-title`} className="scroll-mt-20 rounded-[var(--radius-card)] border border-line bg-surface p-5 shadow-card">
       <p className="text-sm font-semibold text-muted">
@@ -66,9 +69,11 @@ function EpisodeCard({ ep, seriesTitle, queue }: { ep: EpisodeSummary; seriesTit
       {ep.status === 'ready' && ep.audioUrl ? (
         <div className="flex flex-wrap items-center gap-2">
           <PlayButton ep={ep} seriesTitle={seriesTitle} queue={queue} />
-          <Link to={`/coach/${ep.id}`} className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line px-4 text-sm font-semibold">
-            <MessageCircleQuestion aria-hidden size={18} /> Coach Me
-          </Link>
+          {features.coach && (
+            <Link to={`/coach/${ep.id}`} className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line px-4 text-sm font-semibold">
+              <MessageCircleQuestion aria-hidden size={18} /> Coach Me
+            </Link>
+          )}
           <span className="mt-4">
             <DownloadButton ep={toPlayable(ep, seriesTitle)} compact loadDetail={() => fetch(`/api/episodes/${ep.id}`, { credentials: 'same-origin' }).then((r) => r.json())} />
           </span>
@@ -253,6 +258,7 @@ function SeriesView({ s }: { s: SeriesDetail }) {
   ].sort((a, b) => a.number - b.number);
   return (
     <div>
+      <ShowArt seriesId={s.id} title={s.title} decorative className="mb-4 w-40 rounded-2xl shadow-card sm:w-48" />
       <PageHeader title={s.title} subtitle={s.description} />
       {!s.isOwner && s.visibility === 'public' && <PublicActions s={s} />}
       {busy && (

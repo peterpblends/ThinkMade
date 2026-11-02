@@ -5,6 +5,7 @@ import { Compass, Search, Star } from 'lucide-react';
 import { api } from '../lib/api';
 import { formatDuration } from '../lib/format';
 import { Notice, PageHeader } from '../components/ui';
+import { ShowArt } from '../components/show-art';
 
 export interface DiscoverResult {
   id: string;
@@ -30,7 +31,9 @@ function useDebounced<T>(value: T, ms = 300): T {
 export function ResultCard({ r }: { r: DiscoverResult }) {
   return (
     <li>
-      <Link to={`/p/${r.publicSlug}`} className="flex flex-col gap-1.5 rounded-2xl border border-line bg-surface p-4 shadow-card hover:bg-surface-2">
+      <Link to={`/p/${r.publicSlug}`} className="flex items-start gap-3 rounded-2xl border border-line bg-surface p-4 shadow-card hover:bg-surface-2">
+        <ShowArt seriesId={r.id} title={r.title} decorative className="h-16 w-16 rounded-xl sm:h-20 sm:w-20" />
+        <span className="flex min-w-0 flex-col gap-1.5">
         <span className="font-serif text-lg font-semibold">{r.title}</span>
         <span className="line-clamp-2 text-sm text-muted">{r.description}</span>
         <span className="flex flex-wrap gap-1.5 pt-1">
@@ -48,6 +51,7 @@ export function ResultCard({ r }: { r: DiscoverResult }) {
             </>
           ) : null}
           {r.saves ? ` · saved ${r.saves} time${r.saves === 1 ? '' : 's'}` : ''}
+        </span>
         </span>
       </Link>
     </li>

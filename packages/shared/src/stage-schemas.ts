@@ -26,6 +26,7 @@ export const understandingSchema = z.object({
             name: z.string().max(40).nullish(),
             gender: z.enum(['female', 'male']).nullish().catch(null),
             accent: z.enum(['US', 'UK']).nullish().catch(null),
+            heritage: z.enum(['latino', 'south-asian', 'east-asian']).nullish().catch(null),
             age: z.number().int().min(5).max(110).nullish().catch(null),
             role: z.string().max(400).nullish(),
           }),

@@ -12,6 +12,7 @@ import { useDownloads, useOnline, announceDownloadsChanged } from '../offline/ho
 import { removeAllDownloads, removeDownload } from '../offline/downloads';
 import { Trash2 } from 'lucide-react';
 import type { DownloadRecord } from '../offline/db';
+import { ShowArt } from '../components/show-art';
 
 export interface LibraryEpisode {
   id: string;
@@ -80,13 +81,16 @@ export function EpisodeRow({ e, queue, extra }: { e: LibraryEpisode; queue: Libr
 }
 
 /** One podcast in My Podcasts: the same card whether it is ready, still being made, or couldn't be finished. */
-export function SeriesCard({ to, title, description, status }: { to: string; title: string; description: string; status: React.ReactNode }) {
+export function SeriesCard({ to, title, description, status, seriesId }: { to: string; title: string; description: string; status: React.ReactNode; seriesId?: string }) {
   return (
     <li>
-      <Link to={to} className="flex flex-col gap-1 rounded-2xl border border-line bg-surface p-4 shadow-card hover:bg-surface-2">
-        <span className="font-serif text-lg font-semibold leading-snug">{title}</span>
-        {description && <span className="line-clamp-2 text-[0.95rem] text-muted">{description}</span>}
-        <span className="mt-1 flex flex-wrap items-center gap-x-1.5 text-sm text-muted">{status}</span>
+      <Link to={to} className="flex items-start gap-3 rounded-2xl border border-line bg-surface p-4 shadow-card hover:bg-surface-2">
+        {seriesId && <ShowArt seriesId={seriesId} title={title} decorative className="h-16 w-16 rounded-xl sm:h-20 sm:w-20" />}
+        <span className="flex min-w-0 flex-col gap-1">
+          <span className="font-serif text-lg font-semibold leading-snug">{title}</span>
+          {description && <span className="line-clamp-2 text-[0.95rem] text-muted">{description}</span>}
+          <span className="mt-1 flex flex-wrap items-center gap-x-1.5 text-sm text-muted">{status}</span>
+        </span>
       </Link>
     </li>
   );
@@ -141,7 +145,7 @@ export function PodcastList({ series, generations }: { series: SeriesListItem[];
       if (s.visibility === 'public') status = <>{status}<span>· Public</span></>;
       // Until an episode is ready, the progress page says more than an empty series page.
       const to = (busy || s.status === 'failed') && s.readyCount === 0 && gen ? `/generations/${gen.id}` : `/series/${s.id}`;
-      return <SeriesCard key={s.id} to={to} title={s.title} description={s.description} status={status} />;
+      return <SeriesCard key={s.id} to={to} title={s.title} description={s.description} status={status} seriesId={s.id} />;
     }),
   ];
   return cards.length ? <ul className="flex flex-col gap-3">{cards}</ul> : null;
