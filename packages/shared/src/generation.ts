@@ -68,6 +68,8 @@ export interface GenerationOptions {
   chosenVoices?: string[];
   /** Natural delivery (conversational phrasing and the natural mastering chain), as switched on when the podcast was requested. */
   naturalDelivery?: boolean;
+  /** A job that voices an existing series in another language (its text is already translated). */
+  translate?: { language: string };
   /** Female or male voices for every host and guest, unless the listener described a host otherwise. */
   voiceGender?: 'female' | 'male';
   /** True when the listener set length, episodes and format themselves; otherwise requests in their words apply. */

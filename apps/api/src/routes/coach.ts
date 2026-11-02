@@ -30,15 +30,10 @@ export function coachRoutes(ctx: AppContext) {
     return s ? { episode: e, series: s } : null;
   }
 
-  /** The language the series was made in (English for series made before languages). */
+  /** The language the series is shown in now (its owner can switch it). */
   async function seriesLanguage(seriesId: string): Promise<string> {
-    const [job] = await ctx.db
-      .select({ options: schema.generationJob.options })
-      .from(schema.generationJob)
-      .where(eq(schema.generationJob.seriesId, seriesId))
-      .orderBy(asc(schema.generationJob.createdAt))
-      .limit(1);
-    return languageInfo((job?.options as { language?: string } | undefined)?.language).code;
+    const [s] = await ctx.db.select({ language: schema.podcastSeries.language }).from(schema.podcastSeries).where(eq(schema.podcastSeries.id, seriesId));
+    return languageInfo(s?.language).code;
   }
 
   async function latestSession(userId: string, episodeId: string) {

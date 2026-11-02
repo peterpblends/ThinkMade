@@ -6,6 +6,7 @@ import { BRAND } from '@thinkmade/shared';
 import type { AppContext } from '../create-context';
 import { requireVerified, type AppVariables } from '../middleware/session';
 import { episodeDetails, serialiseEpisode } from './series';
+import { inLanguage, languageView } from '../generation/translation';
 
 type Hit = {
   id: string;
@@ -150,16 +151,20 @@ export function discoverRoutes(ctx: AppContext) {
     if (!s) return c.json({ error: 'not_found' }, 404);
     const eps = await ctx.db.select().from(schema.episode).where(eq(schema.episode.seriesId, s.id)).orderBy(schema.episode.number);
     const details = await episodeDetails(ctx.db, eps.map((e) => e.id));
+    const view = await languageView(ctx, s, eps.map((e) => e.id));
     return c.json({
       id: s.id,
-      title: s.title,
-      description: s.description,
+      title: view.title,
+      description: view.description,
       status: s.status,
       visibility: s.visibility,
       publicSlug: s.publicSlug,
       isOwner: s.userId === c.var.session?.user.id,
       createdAt: s.createdAt,
-      episodes: eps.filter((e) => e.status === 'ready').map((e) => serialiseEpisode(e, details.get(e.id))),
+      language: view.language,
+      originalLanguage: view.originalLanguage,
+      languages: view.languages,
+      episodes: eps.filter((e) => e.status === 'ready').map((e) => inLanguage(serialiseEpisode(e, details.get(e.id)), view.episodes.get(e.id), view.originalLanguage)),
     });
   });
 

@@ -165,3 +165,20 @@ describe('show artwork', () => {
     expect((await app.request(`/api/series/${ep.seriesId}/cover.svg`, { headers: { cookie } })).status).toBe(404);
   });
 });
+
+describe('shared episode links', () => {
+  it("open with that episode's own title in link previews, only for a public podcast", async () => {
+    const { app, headers, ep } = await withEpisode();
+    const url = (n: number | string) => `/p/${slug}/e/${n}`;
+    let slug = '';
+    const pub = (await (await app.request(`/api/series/${ep.seriesId}`, { method: 'PATCH', headers, body: JSON.stringify({ visibility: 'public' }) })).json()) as { publicSlug: string };
+    slug = pub.publicSlug;
+    const page = await app.request(url(ep.number));
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain(`<title>${ep.title} — `);
+    expect((await app.request(url(99))).status).toBe(404);
+    expect((await app.request(url('x'))).status).toBe(404);
+    await app.request(`/api/series/${ep.seriesId}`, { method: 'PATCH', headers, body: JSON.stringify({ visibility: 'private' }) });
+    expect((await app.request(url(ep.number))).status).toBe(404);
+  });
+});

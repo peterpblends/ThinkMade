@@ -14,6 +14,7 @@ import { getActivePrompts, indexSeriesEmbedding, queryRows, schema, settleCancel
 import { castHosts, chooseHosts, chooseShowFormat, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, HOST_IDS, languageInfo, languageInstruction, speaksLanguage, voiceInfo, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowFormat } from '@thinkmade/shared';
 import { JobCancelledError, LostLeaseError, PermanentJobError, type WorkerDeps } from './deps';
 import { overusedModels, rankForVariety } from './model-variety';
+import { voiceTranslation } from './translate';
 import { input, PLAN_TASK, RESEARCH_TASK, SCRIPT_TASK, SELECT_MODELS_TASK, stageSystem, UNDERSTAND_TASK } from './prompts';
 import type { ClaimedJob } from './queue';
 import { analyseUploads, type MediaAnalysis } from './media';
@@ -255,7 +256,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
   const languageRule = languageInstruction(language);
   const state = (job.state ?? {}) as JobState;
   state.tokens ??= 0;
-  let seriesId = job.series_id;
+  // Voicing an existing series in another language never changes the series itself, so it isn't tracked here.
+  let seriesId = options.translate ? null : job.series_id;
 
   const overrides = await getActivePrompts(db);
   // Cancelling marks the job cancelled (and clears our lease) at once. Notice within seconds and interrupt
@@ -294,6 +296,28 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
   try {
     const [request] = await db.select().from(schema.learningRequest).where(eq(schema.learningRequest.id, job.learning_request_id));
     if (!request) throw new PermanentJobError('The learning request no longer exists.');
+
+    // A finished series in another language: its text is already translated; voice each episode.
+    if (options.translate) {
+      if (!job.series_id) throw new PermanentJobError('The series no longer exists.');
+      const result = await voiceTranslation({
+        db,
+        deps,
+        seriesId: job.series_id,
+        options,
+        signal: stop.signal,
+        onTokens: (n) => (state.tokens! += n),
+        keepAlive: () => extendLease(db, job.id, deps.workerId, lease),
+        log,
+      });
+      log('translation voiced', { jobId: job.id, language: options.translate.language, ...result });
+      await db.insert(schema.usageMetric).values({ metric: 'llm_tokens', value: state.tokens ?? 0, userId: job.user_id, jobId: job.id });
+      await db
+        .update(schema.generationJob)
+        .set({ status: 'succeeded', currentStage: 'publish', finishedAt: new Date(), lockedBy: null, lockedUntil: null, error: null, state: state as Record<string, unknown> })
+        .where(and(eq(schema.generationJob.id, job.id), eq(schema.generationJob.lockedBy, deps.workerId)));
+      return 'succeeded';
+    }
 
     // 0. Photos and videos
     if (!state.media && request.mediaUploadIds.length) {
@@ -459,7 +483,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     if (!seriesId) {
       const [s] = await db
         .insert(schema.podcastSeries)
-        .values({ userId: job.user_id, learningRequestId: request.id, title: u.seriesTitle, description: u.seriesDescription, visibility: options.visibility, status: 'generating' })
+        .values({ userId: job.user_id, learningRequestId: request.id, title: u.seriesTitle, description: u.seriesDescription, visibility: options.visibility, status: 'generating', originalLanguage: language, language })
         .returning({ id: schema.podcastSeries.id });
       seriesId = s!.id;
       await db.update(schema.generationJob).set({ seriesId }).where(eq(schema.generationJob.id, job.id));
@@ -1002,6 +1026,16 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
 
   async function finalise(status: 'failed' | 'cancelled', error: string): Promise<'failed' | 'partial' | 'cancelled'> {
     let final: 'failed' | 'partial' | 'cancelled' = status;
+    // Voicing another language stopped for good: its episodes still waiting are marked failed (the series is untouched).
+    if (options.translate && job.series_id) {
+      const ids = (await db.select({ id: schema.episode.id }).from(schema.episode).where(eq(schema.episode.seriesId, job.series_id))).map((e) => e.id);
+      if (ids.length) {
+        await db
+          .update(schema.episodeTranslation)
+          .set({ status: 'failed', updatedAt: new Date() })
+          .where(and(inArray(schema.episodeTranslation.episodeId, ids), eq(schema.episodeTranslation.language, options.translate.language), eq(schema.episodeTranslation.status, 'voicing')));
+      }
+    }
     if (seriesId && status === 'cancelled') {
       await settleCancelledSeries(db, seriesId);
     } else if (seriesId) {

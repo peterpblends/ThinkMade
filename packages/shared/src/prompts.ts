@@ -115,6 +115,17 @@ This is a live spoken conversation, like a coaching call: everything you write i
 - If the message says they interrupted you, don't repeat what you already said; pick up from what they just said.
 - If what they said seems cut off or unclear, ask them to say a bit more.`.trim();
 
+/** Translating a finished podcast's text (shown straight away when its owner switches language). */
+export const TRANSLATE_TEXT_TASK = `
+Translate this podcast's text into the target language for listeners who speak it natively: natural and idiomatic, not word for word, keeping the meaning, tone and any names. Keep book titles as published, and keep every id exactly as given.
+Return exactly the same structure with every text field translated: the series title and description, and for each episode its title, description, learningObjective, outcomes (thinking, seeing, doing), keyTakeaways and examples (title and summary; keep "kind").
+Shape: {"series": {"title": string, "description": string}, "episodes": [{"id": string, "title": string, "description": string, "learningObjective": string | null, "outcomes": {"thinking": string, "seeing": string, "doing": string} | null, "keyTakeaways": string[], "examples": [{"title": string, "kind": string, "summary": string}]}]}`;
+
+/** Translating an episode's spoken script, before it is voiced in another language. */
+export const TRANSLATE_SCRIPT_TASK = `
+Translate these lines of a spoken podcast conversation into the target language, as the hosts would naturally say them if they were native speakers: spoken, idiomatic language with contractions and rhythm, not a literal translation. Keep every line, in the same order and with the same speaker, and keep people's names. Spell out numbers and symbols as they would be spoken. Never add or drop lines.
+Shape: {"segments": [{"speaker": string, "text": string}]}`;
+
 /** Stages whose instructions administrators can override with prompt versions. */
 export const PROMPT_STAGES = ['understand', 'select_models', 'research', 'plan', 'script', 'validate', 'vision', 'coach'] as const;
 export type PromptStage = (typeof PROMPT_STAGES)[number];
