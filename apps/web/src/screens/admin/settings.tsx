@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import { castableByDefault, DEFAULT_APP_SETTINGS, DEFAULT_FEATURES, DEFAULT_PRODUCTION, DEFAULT_SPLASH_SECONDS, FEATURE_INFO, FEATURE_KEYS, type FeatureKey, voiceInfo, voiceLabel, type ProductionSettings, type VoiceProfile } from '@thinkmade/shared';
+import { castableByDefault, DEFAULT_APP_SETTINGS, HERITAGE_LABEL, DEFAULT_FEATURES, DEFAULT_PRODUCTION, DEFAULT_SPLASH_SECONDS, FEATURE_INFO, FEATURE_KEYS, type FeatureKey, voiceInfo, voiceLabel, type ProductionSettings, type VoiceProfile } from '@thinkmade/shared';
 import { api, ApiError } from '../../lib/api';
 import { Button, Card, Field, Notice, PageHeader } from '../../components/ui';
 
@@ -240,7 +240,8 @@ export function AdminSettingsScreen() {
                     <div className="min-w-0 flex-1 text-sm">
                       <span className="font-semibold">{v.name}</span>{' '}
                       <span className="text-muted">
-                        {v.accent} {v.gender} · {v.engine}
+                        {v.accent}
+                        {v.heritage ? ` ${HERITAGE_LABEL[v.heritage]} accent` : ''} {v.gender} · {v.engine}
                         {v.grade ? ` · grade ${v.grade}` : ''}
                         {v.style ? ` · ${v.style}` : ''}
                       </span>
