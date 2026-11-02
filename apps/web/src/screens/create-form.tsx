@@ -31,12 +31,15 @@ export interface CreateRequest {
 }
 
 const MAX_HOSTS = 4;
-const VOICE_GROUPS = [
-  ['US', 'female', 'American, female'],
-  ['US', 'male', 'American, male'],
-  ['UK', 'female', 'British, female'],
-  ['UK', 'male', 'British, male'],
-] as const;
+/** How voices are grouped in the picker: by accent (American, British, then American with another heritage's accent) and gender. */
+const VOICE_GROUPS: ReadonlyArray<{ label: string; match: (v: VoiceOption) => boolean }> = [
+  ...([['US', 'American'], ['UK', 'British']] as const).flatMap(([accent, name]) =>
+    (['female', 'male'] as const).map((g) => ({ label: `${name}, ${g}`, match: (v: VoiceOption) => v.accent === accent && !v.heritage && v.gender === g })),
+  ),
+  ...([['latino', 'American, Latino accent'], ['south-asian', 'American, South Asian accent'], ['east-asian', 'American, East Asian accent']] as const).flatMap(([heritage, name]) =>
+    (['female', 'male'] as const).map((g) => ({ label: `${name}, ${g}`, match: (v: VoiceOption) => v.heritage === heritage && v.gender === g })),
+  ),
+];
 
 /**
  * Plays a voice's short sample. One sample plays at a time across the page; pressing again stops it.
@@ -158,10 +161,10 @@ function VoicePicker({
               <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm text-ink">
                 Host {i + 1}
                 <select value={id} onChange={(e) => pick(i, e.target.value)} className="min-h-11 w-full rounded-xl border border-line bg-surface px-3 text-[0.95rem] text-ink">
-                  {VOICE_GROUPS.map(([accent, g, label]) => (
+                  {VOICE_GROUPS.filter((grp) => voices.some(grp.match)).map(({ label, match }) => (
                     <optgroup key={label} label={label}>
                       {voices
-                        .filter((v) => v.accent === accent && v.gender === g)
+                        .filter(match)
                         .map((v) => (
                           <option key={v.id} value={v.id} disabled={v.id !== id && value.includes(v.id)}>
                             {v.name}

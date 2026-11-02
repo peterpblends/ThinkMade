@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { appSettingsSchema, DEFAULT_APP_SETTINGS, type AppSettings } from '@thinkmade/shared';
+import { appSettingsSchema, DEFAULT_APP_SETTINGS, upgradeAppSettings, type AppSettings } from '@thinkmade/shared';
 import type { Db } from '../client';
 import { aiModelConfig, appSetting } from '../schema/index';
 
@@ -9,7 +9,7 @@ export async function getActiveAppSettings(db: Db): Promise<AppSettings> {
     .select({ document: appSetting.document })
     .from(appSetting)
     .where(and(eq(appSetting.name, 'app'), eq(appSetting.active, true)));
-  return row ? appSettingsSchema.parse(row.document) : DEFAULT_APP_SETTINGS;
+  return row ? upgradeAppSettings(appSettingsSchema.parse(row.document)) : DEFAULT_APP_SETTINGS;
 }
 
 export const MODEL_STAGES = ['understand', 'select_models', 'research', 'plan', 'script', 'validate', 'coach', 'vision', 'embed'] as const;

@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream';
 import { Hono } from 'hono';
-import { EPISODE_COUNT_CHOICES, PODCAST_LENGTH_CHOICES, VOICE_SAMPLE_MANIFEST_KEY, voiceInfo, voiceSampleKey } from '@thinkmade/shared';
+import { EPISODE_COUNT_CHOICES, PODCAST_LENGTH_CHOICES, usableVoices, VOICE_SAMPLE_MANIFEST_KEY, voiceInfo, voiceSampleKey } from '@thinkmade/shared';
 import type { AppContext } from '../create-context';
 
 /** The voices with a rendered sample, read from the worker's manifest and kept for a few minutes. */
@@ -47,9 +47,9 @@ export function publicSettingsRoutes(ctx: AppContext) {
         splash: { seconds: settings.appearance.splashSeconds },
         features: settings.features,
         // Voices listeners may pick for their hosts, with a sample to hear where one has been rendered.
-        voices: settings.voices.available.flatMap((id) => {
+        voices: usableVoices(settings).flatMap((id) => {
           const v = voiceInfo(id);
-          return v ? [{ id, name: v.name, accent: v.accent, gender: v.gender, ...(withSample.has(id) ? { sampleUrl: `/api/voices/${encodeURIComponent(id)}/sample` } : {}) }] : [];
+          return v ? [{ id, name: v.name, accent: v.accent, gender: v.gender, ...(v.heritage ? { heritage: v.heritage } : {}), ...(withSample.has(id) ? { sampleUrl: `/api/voices/${encodeURIComponent(id)}/sample` } : {}) }] : [];
         }),
       });
     })
@@ -57,7 +57,7 @@ export function publicSettingsRoutes(ctx: AppContext) {
     .get('/voices/:id/sample', async (c) => {
       const id = c.req.param('id');
       const { settings } = await ctx.settings.getActive();
-      if (!voiceInfo(id) || !settings.voices.available.includes(id)) return c.json({ error: 'not_found' }, 404);
+      if (!voiceInfo(id) || !usableVoices(settings).includes(id)) return c.json({ error: 'not_found' }, 404);
       const key = voiceSampleKey(id);
       const head = await ctx.storage.head(key);
       if (!head) return c.json({ error: 'not_ready', message: "This voice's sample isn't ready yet." }, 404);

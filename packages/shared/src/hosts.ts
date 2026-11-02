@@ -1,4 +1,4 @@
-import { castableByDefault, voiceInfo, VOICE_CATALOG, type VoiceInfo, type VoiceProfile } from './settings.ts';
+import { castableByDefault, voiceInfo, VOICE_CATALOG, type Heritage, type VoiceInfo, type VoiceProfile } from './settings.ts';
 
 export const HOST_IDS = ['A', 'B', 'C', 'D'] as const;
 export type HostId = (typeof HOST_IDS)[number];
@@ -22,6 +22,8 @@ export interface RequestedHost {
   name?: string | null | undefined;
   gender?: 'female' | 'male' | null | undefined;
   accent?: 'US' | 'UK' | null | undefined;
+  /** An accent from another heritage the listener asked for (e.g. a Latina co-host). */
+  heritage?: Heritage | null | undefined;
   age?: number | null | undefined;
   role?: string | null | undefined;
 }
@@ -109,7 +111,10 @@ export function chooseHosts(input: ChooseHostsInput): Host[] {
         (contrast && v.gender === contrast ? 2 : 0) +
         (recent.has(v.id) ? 0 : 2) +
         qualityScore(v);
+      // Asked for by the listener, so any allowed voice of that heritage will do (they aren't cast otherwise).
+      const heritageMatch = want.heritage ? all.filter((v) => v.heritage === want.heritage && !used.has(v.id) && (!want.gender || v.gender === want.gender)) : [];
       const candidates = [
+        heritageMatch,
         usable.filter((v) => !used.has(v.id) && (!want.gender || v.gender === want.gender) && nameFree(v)),
         usable.filter((v) => !used.has(v.id) && (!want.gender || v.gender === want.gender)),
         all.filter((v) => !used.has(v.id)),

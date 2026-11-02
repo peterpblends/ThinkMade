@@ -227,10 +227,36 @@ export const PHONON_VOICES = [
   { key: 'teddy', id: 'Zn7g6NxLqXlJb7Qi', name: 'Teddy', accent: 'UK', gender: 'male' },
 ] as const;
 
-export type PhononVoice = (typeof PHONON_VOICES)[number];
+/** American English with another heritage's accent: the voice of a native speaker of another language. */
+export type Heritage = 'latino' | 'south-asian' | 'east-asian';
+export const HERITAGE_LABEL: Record<Heritage, string> = { latino: 'Latino', 'south-asian': 'South Asian', 'east-asian': 'East Asian' };
+
+/**
+ * Phonon voices of native Mexican Spanish speakers (from Phonon's voice catalog), speaking English through the
+ * English model: American English with a Latino accent. Not cast automatically until an administrator has
+ * listened and switched them on, since the catalog made them for Spanish.
+ */
+export const PHONON_HERITAGE_VOICES = [
+  { key: 'regina', id: 's58clrg2fe0MO7Y-', name: 'Regina', accent: 'US', gender: 'female', heritage: 'latino' },
+  { key: 'ximena', id: 'VDwnGxAo68C8U8vC', name: 'Ximena', accent: 'US', gender: 'female', heritage: 'latino' },
+  { key: 'rebeca', id: 'Sx8m6WdXBG06zwZT', name: 'Rebeca', accent: 'US', gender: 'female', heritage: 'latino' },
+  { key: 'danae', id: 'evfxKSxpDIhmsNoq', name: 'Danae', accent: 'US', gender: 'female', heritage: 'latino' },
+  { key: 'jimena', id: 'qG5BXOJYrKEnXLIX', name: 'Jimena', accent: 'US', gender: 'female', heritage: 'latino' },
+  { key: 'azucena', id: 'KJpIQlbYrZPA4aLq', name: 'Azucena', accent: 'US', gender: 'female', heritage: 'latino' },
+  { key: 'lalo', id: 'F05gqkzX7WhKVpSL', name: 'Lalo', accent: 'US', gender: 'male', heritage: 'latino' },
+  { key: 'aldo', id: 'ax7dW1XB0eiMfHgO', name: 'Aldo', accent: 'US', gender: 'male', heritage: 'latino' },
+  { key: 'yael', id: 'ALczEazoF4n6PmGl', name: 'Yael', accent: 'US', gender: 'male', heritage: 'latino' },
+  { key: 'nico', id: 'PwgPEaweQILZdGc4', name: 'Nico', accent: 'US', gender: 'male', heritage: 'latino' },
+  { key: 'ulises', id: 'G5HLUsQd659UtRe7', name: 'Ulises', accent: 'US', gender: 'male', heritage: 'latino' },
+  { key: 'leonel', id: 'BkuASiOJRrJEB5qA', name: 'Leonel', accent: 'US', gender: 'male', heritage: 'latino' },
+] as const;
+
+export type PhononVoice = (typeof PHONON_VOICES)[number] | (typeof PHONON_HERITAGE_VOICES)[number];
 
 export function phononVoice(voice: string): PhononVoice | undefined {
-  return voice.startsWith('phonon:') ? PHONON_VOICES.find((v) => v.key === voice.slice(7)) : undefined;
+  if (!voice.startsWith('phonon:')) return undefined;
+  const key = voice.slice(7);
+  return PHONON_VOICES.find((v) => v.key === key) ?? PHONON_HERITAGE_VOICES.find((v) => v.key === key);
 }
 
 /**
@@ -268,6 +294,29 @@ export const KOKORO_VOICE_INFO = [
   { id: 'bm_lewis', name: 'Lewis', accent: 'UK', gender: 'male', grade: 'D+' },
 ] as const;
 
+/**
+ * Kokoro's voices for other languages (bundled with kokoro-js), speaking English: American English with a
+ * South Asian (Hindi voices), East Asian (Japanese and Mandarin voices) or Latino (Spanish voices) accent.
+ * `grade` is the model card's grade in the voice's own language. Not cast automatically until an
+ * administrator has listened and switched them on.
+ */
+export const KOKORO_HERITAGE_VOICES = [
+  { id: 'hf_alpha', name: 'Priya', accent: 'US', gender: 'female', heritage: 'south-asian', grade: 'C' },
+  { id: 'hf_beta', name: 'Anika', accent: 'US', gender: 'female', heritage: 'south-asian', grade: 'C' },
+  { id: 'hm_omega', name: 'Arjun', accent: 'US', gender: 'male', heritage: 'south-asian', grade: 'C' },
+  { id: 'hm_psi', name: 'Rohan', accent: 'US', gender: 'male', heritage: 'south-asian', grade: 'C' },
+  { id: 'jf_alpha', name: 'Yuki', accent: 'US', gender: 'female', heritage: 'east-asian', grade: 'C+' },
+  { id: 'jf_gongitsune', name: 'Hana', accent: 'US', gender: 'female', heritage: 'east-asian', grade: 'C' },
+  { id: 'jf_tebukuro', name: 'Aiko', accent: 'US', gender: 'female', heritage: 'east-asian', grade: 'C' },
+  { id: 'jm_kumo', name: 'Kenji', accent: 'US', gender: 'male', heritage: 'east-asian', grade: 'C-' },
+  { id: 'zf_xiaoxiao', name: 'Mei', accent: 'US', gender: 'female', heritage: 'east-asian', grade: 'D' },
+  { id: 'zf_xiaoyi', name: 'Lin', accent: 'US', gender: 'female', heritage: 'east-asian', grade: 'D' },
+  { id: 'zm_yunxi', name: 'Wei', accent: 'US', gender: 'male', heritage: 'east-asian', grade: 'D' },
+  { id: 'zm_yunjian', name: 'Jian', accent: 'US', gender: 'male', heritage: 'east-asian', grade: 'D' },
+  { id: 'ef_dora', name: 'Dora', accent: 'US', gender: 'female', heritage: 'latino' },
+  { id: 'em_alex', name: 'Alejandro', accent: 'US', gender: 'male', heritage: 'latino' },
+] as const;
+
 /** Kokoro voice ids. af_heart is the highest-rated voice in the Kokoro model card. */
 export const KOKORO_VOICES = KOKORO_VOICE_INFO.map((v) => v.id);
 
@@ -283,6 +332,8 @@ export interface VoiceInfo {
   grade?: string;
   /** A voice made for a special style (e.g. whispering), unsuited to most podcasts. */
   style?: 'whisper';
+  /** American English with another heritage's accent (a native speaker of another language). */
+  heritage?: Heritage;
 }
 
 /**
@@ -290,7 +341,8 @@ export interface VoiceInfo {
  * Kokoro voices graded C- or better that aren't a special style. Anything can still be picked by hand.
  */
 export function castableByDefault(v: VoiceInfo): boolean {
-  if (v.style) return false;
+  // Made for other styles or languages: an administrator switches these on after listening.
+  if (v.style || v.heritage) return false;
   return !v.grade || /^[ABC]/.test(v.grade);
 }
 
@@ -298,7 +350,14 @@ export function castableByDefault(v: VoiceInfo): boolean {
 export const VOICE_CATALOG: readonly VoiceInfo[] = [
   ...PHONON_VOICES.map((v) => ({ id: `phonon:${v.key}`, name: v.name, engine: 'Phonon' as const, accent: v.accent, gender: v.gender })),
   ...KOKORO_VOICE_INFO.map((v) => ({ id: v.id, name: v.name, engine: 'Kokoro' as const, accent: v.accent, gender: v.gender, grade: v.grade, ...('style' in v ? { style: v.style } : {}) })),
+  ...PHONON_HERITAGE_VOICES.map((v) => ({ id: `phonon:${v.key}`, name: v.name, engine: 'Phonon' as const, accent: v.accent, gender: v.gender, heritage: v.heritage })),
+  ...KOKORO_HERITAGE_VOICES.map((v) => ({ id: v.id, name: v.name, engine: 'Kokoro' as const, accent: v.accent, gender: v.gender, heritage: v.heritage, ...('grade' in v ? { grade: v.grade } : {}) })),
 ];
+
+/** The voices listeners and casting may use: the administrator's list, without accent voices while those are switched off. */
+export function usableVoices(settings: Pick<AppSettings, 'voices' | 'features'>): string[] {
+  return settings.features.accentVoices ? settings.voices.available : settings.voices.available.filter((id) => !voiceInfo(id)?.heritage);
+}
 
 export function voiceInfo(voice: string): VoiceInfo | undefined {
   return VOICE_CATALOG.find((v) => v.id === voice);
@@ -315,10 +374,10 @@ export function voiceSampleText(name: string): string {
   return `Hi, I'm ${name}. Let's think this through together, one idea at a time, and find what really matters.`;
 }
 
-/** A readable label for a stored voice id, e.g. "Zoey (Phonon, US female)". */
+/** A readable label for a stored voice id, e.g. "Zoey (Phonon, US female)" or "Regina (Phonon, US Latino female)". */
 export function voiceLabel(voice: string): string {
   const v = voiceInfo(voice);
-  return v ? `${v.name} (${v.engine}, ${v.accent} ${v.gender})` : `${voice} (Kokoro)`;
+  return v ? `${v.name} (${v.engine}, ${v.accent}${v.heritage ? ` ${HERITAGE_LABEL[v.heritage]}` : ''} ${v.gender})` : `${voice} (Kokoro)`;
 }
 
 /** The voices offered before the full Kokoro set was added; a stored list equal to this is upgraded. */
@@ -327,13 +386,17 @@ const LEGACY_AVAILABLE_VOICES = [
   ...['af_heart', 'af_bella', 'af_nicole', 'af_sarah', 'af_sky', 'am_adam', 'am_michael', 'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis'],
 ];
 
+/** Every voice before the accent voices were added; a stored list equal to this gains them. */
+const CATALOG_BEFORE_ACCENTS = [...PHONON_VOICES.map((v) => `phonon:${v.key}`), ...KOKORO_VOICE_INFO.map((v) => v.id)];
+
 /**
  * Brings a stored settings document up to date: a voice list that still matches an earlier default gains the
  * voices added since. A list an administrator changed is left alone.
  */
 export function upgradeAppSettings(settings: AppSettings): AppSettings {
   const a = settings.voices.available;
-  if (a.length === LEGACY_AVAILABLE_VOICES.length && LEGACY_AVAILABLE_VOICES.every((v) => a.includes(v))) {
+  const matches = (list: readonly string[]) => a.length === list.length && list.every((v) => a.includes(v));
+  if (matches(LEGACY_AVAILABLE_VOICES) || matches(CATALOG_BEFORE_ACCENTS)) {
     return { ...settings, voices: { ...settings.voices, available: VOICE_CATALOG.map((v) => v.id) } };
   }
   return settings;

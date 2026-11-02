@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { chooseHosts } from './hosts';
-import { castableByDefault, DEFAULT_APP_SETTINGS, upgradeAppSettings, voiceInfo, VOICE_CATALOG } from './settings';
+import { castableByDefault, DEFAULT_APP_SETTINGS, KOKORO_VOICE_INFO, PHONON_VOICES, upgradeAppSettings, usableVoices, voiceInfo, VOICE_CATALOG } from './settings';
 
 const pool = DEFAULT_APP_SETTINGS.voices.available;
 const seq = (...xs: number[]) => {
@@ -108,12 +108,46 @@ describe('casting voices for a professional show', () => {
   });
 });
 
+describe('accent voices', () => {
+  it('are American English with another heritage, not cast unless asked for', () => {
+    expect(voiceInfo('phonon:regina')).toMatchObject({ engine: 'Phonon', accent: 'US', gender: 'female', heritage: 'latino' });
+    expect(voiceInfo('hm_omega')).toMatchObject({ engine: 'Kokoro', heritage: 'south-asian', gender: 'male' });
+    expect(castableByDefault(voiceInfo('jf_alpha')!)).toBe(false);
+    for (let i = 0; i < 20; i++) {
+      for (const h of chooseHosts({ count: 2, pool })) expect(voiceInfo(h.voice)!.heritage).toBeUndefined();
+    }
+  });
+
+  it('casts a host the listener described with a heritage from those voices', () => {
+    for (let i = 0; i < 10; i++) {
+      const [a, b] = chooseHosts({ count: 2, pool, requested: [{ name: 'Sofia', gender: 'female', heritage: 'latino' }, { name: 'Dev', gender: 'male', heritage: 'south-asian' }] });
+      expect(voiceInfo(a!.voice)).toMatchObject({ heritage: 'latino', gender: 'female' });
+      expect(voiceInfo(b!.voice)).toMatchObject({ heritage: 'south-asian', gender: 'male' });
+    }
+  });
+
+  it('are left out of usable voices while the feature is off', () => {
+    const on = usableVoices(DEFAULT_APP_SETTINGS);
+    const off = usableVoices({ ...DEFAULT_APP_SETTINGS, features: { ...DEFAULT_APP_SETTINGS.features, accentVoices: false } });
+    expect(on).toContain('phonon:ximena');
+    expect(off).not.toContain('phonon:ximena');
+    expect(off).not.toContain('hf_beta');
+    expect(off).toContain('phonon:zoey');
+  });
+});
+
 describe('upgradeAppSettings', () => {
   it('adds the new voices to a list that still matches the old default', () => {
-    const legacy = [...DEFAULT_APP_SETTINGS.voices.available.filter((v) => v.startsWith('phonon:')), 'af_heart', 'af_bella', 'af_nicole', 'af_sarah', 'af_sky', 'am_adam', 'am_michael', 'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis'];
+    const legacy = [...PHONON_VOICES.map((v) => `phonon:${v.key}`), 'af_heart', 'af_bella', 'af_nicole', 'af_sarah', 'af_sky', 'am_adam', 'am_michael', 'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis'];
     const up = upgradeAppSettings({ ...DEFAULT_APP_SETTINGS, voices: { ...DEFAULT_APP_SETTINGS.voices, available: legacy } });
     expect(up.voices.available).toHaveLength(VOICE_CATALOG.length);
     expect(VOICE_CATALOG.length).toBeGreaterThanOrEqual(50);
+  });
+
+  it('adds the accent voices to a list that still matches the catalog before them', () => {
+    const before = [...PHONON_VOICES.map((v) => `phonon:${v.key}`), ...KOKORO_VOICE_INFO.map((v) => v.id)];
+    const up = upgradeAppSettings({ ...DEFAULT_APP_SETTINGS, voices: { ...DEFAULT_APP_SETTINGS.voices, available: before } });
+    expect(up.voices.available).toEqual(expect.arrayContaining(['phonon:regina', 'phonon:lalo', 'hf_alpha', 'jm_kumo', 'zf_xiaoxiao', 'em_alex']));
   });
 
   it("leaves an administrator's own list alone", () => {

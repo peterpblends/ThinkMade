@@ -1,4 +1,4 @@
-import type { AppSettings, CreateGenerationInput, GenerationOptions } from '@thinkmade/shared';
+import { usableVoices, type AppSettings, type CreateGenerationInput, type GenerationOptions } from '@thinkmade/shared';
 
 const BITRATE = { compact: 48, balanced: 64, high: 96 } as const;
 
@@ -11,7 +11,8 @@ export function resolveOptions(settings: AppSettings, input: Pick<CreateGenerati
   if (c && (c.lengthMinutes > p.maxEpisodeMinutes || c.episodes > p.maxEpisodesPerSeries)) {
     throw new LimitError(`Episodes can be up to ${p.maxEpisodeMinutes} minutes and a series up to ${p.maxEpisodesPerSeries} episodes.`);
   }
-  const unavailable = (input.voices ?? []).filter((v) => !settings.voices.available.includes(v));
+  const usable = usableVoices(settings);
+  const unavailable = (input.voices ?? []).filter((v) => !usable.includes(v));
   if (unavailable.length) throw new LimitError(`These voices aren't available: ${unavailable.join(', ')}.`);
   return {
     lengthMinutes: c?.lengthMinutes ?? p.defaultLengthMinutes,
@@ -22,7 +23,7 @@ export function resolveOptions(settings: AppSettings, input: Pick<CreateGenerati
     language: p.language,
     teachingStyle: p.teachingStyle,
     voices: { single: settings.voices.single, hostA: settings.voices.hostA, hostB: settings.voices.hostB },
-    voicePool: settings.voices.available,
+    voicePool: usable,
     voiceProfiles: settings.voices.profiles,
     ...(input.voices?.length ? { chosenVoices: input.voices } : input.voiceGender ? { voiceGender: input.voiceGender } : {}),
     customized: !!c,

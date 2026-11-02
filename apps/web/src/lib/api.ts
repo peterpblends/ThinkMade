@@ -41,6 +41,8 @@ export interface VoiceOption {
   name: string;
   accent: 'US' | 'UK';
   gender: 'female' | 'male';
+  /** American English with another heritage's accent. */
+  heritage?: 'latino' | 'south-asian' | 'east-asian';
   /** A short spoken sample, once the worker has rendered one. */
   sampleUrl?: string;
 }
