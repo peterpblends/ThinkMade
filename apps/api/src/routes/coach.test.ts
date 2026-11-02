@@ -46,6 +46,34 @@ describe('Coach Me', () => {
     expect(seen.at(-1)).toEqual({ role: 'user', content: 'How do I spot this at work?' });
   });
 
+  it('answers briefly, to be spoken, in a hands-free conversation, knowing where it was interrupted', async () => {
+    const { app, headers, cookie, ep } = await withEpisode();
+    let seen: ChatMessage[] = [];
+    setFakeResponder((m) => (textOf(m[0]!.content).startsWith('STAGE: coach') ? ((seen = m), 'Good. What would you give up first?') : fakeResponder(m)));
+    const res = await app.request(`/api/coach/${ep.id}/messages`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ content: 'Wait, what about my manager?', spoken: true, interruptedAfter: 'The first thing to notice is' }),
+    });
+    expect(res.status).toBe(200);
+    expect(textOf(seen[0]!.content)).toContain('This is a live spoken conversation');
+    expect(seen.at(-1)!.content).toBe('(I interrupted you after you said: "The first thing to notice is")\n\nWait, what about my manager?');
+    // The saved conversation keeps the listener's own words.
+    const hist = (await (await app.request(`/api/coach/${ep.id}`, { headers: { cookie } })).json()) as { messages: Array<{ content: string }> };
+    expect(hist.messages.map((m) => m.content)).toEqual(['Wait, what about my manager?', 'Good. What would you give up first?']);
+
+    // A typed question is not told to be brief.
+    await app.request(`/api/coach/${ep.id}/messages`, { method: 'POST', headers, body: JSON.stringify({ content: 'Typed question' }) });
+    expect(textOf(seen[0]!.content)).not.toContain('This is a live spoken conversation');
+
+    const [owner] = await ctx!.db.select().from(schema.user).where(eq(schema.user.email, 'coach@example.com'));
+    await ctx!.settings.update({ features: { voiceCoaching: false } }, { id: owner!.id });
+    const off = await app.request(`/api/coach/${ep.id}/messages`, { method: 'POST', headers, body: JSON.stringify({ content: 'Hello?', spoken: true }) });
+    expect(off.status).toBe(403);
+    expect(await off.json()).toMatchObject({ feature: 'voiceCoaching' });
+    expect((await app.request(`/api/coach/${ep.id}/messages`, { method: 'POST', headers, body: JSON.stringify({ content: 'Typed still works' }) })).status).toBe(200);
+  });
+
   it('keeps history privately and resumes it', async () => {
     const { app, headers, cookie, ep } = await withEpisode();
     await app.request(`/api/coach/${ep.id}/messages`, { method: 'POST', headers, body: JSON.stringify({ content: 'First question' }) });

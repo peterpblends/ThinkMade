@@ -3,6 +3,7 @@
  * phones never contact a third party, and the content security policy needs no extra hosts.
  *   - Moonshine base (MIT), q8: about 67 MB, downloaded once into .data/models and checked by SHA-256.
  *   - The ONNX Runtime WebAssembly files that Transformers.js loads.
+ *   - Phonon 31m (Apache-2.0), q8: about 65 MB, and the coach's voice, for the spoken coaching conversation.
  * Runs before `vite` and `vite build`. Set SKIP_SPEECH_MODEL=1 to skip the download (voice input
  * then uses the server or the browser's own recogniser).
  */
@@ -31,10 +32,19 @@ const FILES: Array<[string, string?]> = [
 ];
 const ORT_FILES = ['ort-wasm-simd-threaded.asyncify.mjs', 'ort-wasm-simd-threaded.asyncify.wasm'];
 
-async function fetchModelFile(path: string, sha256?: string): Promise<string> {
-  const local = join(cache, REVISION, path);
+/** Phonon 31m and the coach's voice, pinned to the commits the worker uses (packages/ai/src/tts/phonon.ts). */
+const PHONON_REPO = 'gradium/phonon-31m-en';
+const PHONON_REVISION = '92741c5b07d085ff840e26fea8ce43110b87852f';
+const PHONON_FILES = ['model.q8.gguf', 'tokenizer.json', 'config.json'];
+const VOICES_REPO = 'gradium/phonon-voices';
+const VOICES_REVISION = '0ee17205f254b5abc43b266c8a0f215565c352f7';
+/** Hadley: "settled, even-toned and genuinely kind". Keep in step with COACH_VOICE in src/lib/coach-voice.ts. */
+const COACH_VOICE_FILE = 'voices/bXwrkHhURL1VFJdG.safetensors';
+
+async function fetchModelFile(path: string, sha256?: string, repo = REPO, revision = REVISION): Promise<string> {
+  const local = repo === REPO ? join(cache, revision, path) : join(cache, repo.replace('/', '_'), revision, path);
   if (!existsSync(local)) {
-    const res = await fetch(`https://huggingface.co/${REPO}/resolve/${REVISION}/${path}`);
+    const res = await fetch(`https://huggingface.co/${repo}/resolve/${revision}/${path}`);
     if (!res.ok) throw new Error(`Download of ${path} failed with ${res.status}`);
     const bytes = Buffer.from(await res.arrayBuffer());
     mkdirSync(dirname(local), { recursive: true });
@@ -60,5 +70,11 @@ if (process.env.SKIP_SPEECH_MODEL === '1') {
   const ortDist = dirname(require.resolve('onnxruntime-web'));
   mkdirSync(join(out, 'ort'), { recursive: true });
   for (const f of ORT_FILES) copyFileSync(join(ortDist, f), join(out, 'ort', f));
-  console.info(`[speech] Moonshine base and ONNX Runtime ready in ${out}`);
+  for (const path of PHONON_FILES) {
+    const dest = join(out, 'phonon', path);
+    mkdirSync(dirname(dest), { recursive: true });
+    copyFileSync(await fetchModelFile(path, undefined, PHONON_REPO, PHONON_REVISION), dest);
+  }
+  copyFileSync(await fetchModelFile(COACH_VOICE_FILE, undefined, VOICES_REPO, VOICES_REVISION), join(out, 'phonon', 'coach-voice.safetensors'));
+  console.info(`[speech] Moonshine base, ONNX Runtime and Phonon ready in ${out}`);
 }

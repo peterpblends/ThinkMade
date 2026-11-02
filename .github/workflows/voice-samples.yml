@@ -5,6 +5,11 @@ name: Voice samples
 
 on:
   workflow_dispatch:
+    inputs:
+      check:
+        description: Also transcribe every sample to check each voice speaks clear English
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -16,7 +21,7 @@ concurrency:
 jobs:
   render:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 90
     env:
       NODE_ENV: production
       MODEL_CACHE_DIR: ${{ github.workspace }}/.models
@@ -25,6 +30,8 @@ jobs:
       S3_BUCKET: ${{ secrets.S3_BUCKET }}
       S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
       S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      VOICE_SAMPLES_CHECK: ${{ inputs.check && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
