@@ -5,6 +5,7 @@ import { LlmError, ProviderNotConfiguredError, type ChatMessage } from '@thinkma
 import { getActivePrompts, schema } from '@thinkmade/db';
 import type { AppContext } from '../create-context';
 import { COACH_INSTRUCTIONS, selectExcerpts } from '../coach/context';
+import { requireFeature } from '../middleware/feature';
 import { rateLimit } from '../middleware/rate-limit';
 import { requireVerified, type AppVariables } from '../middleware/session';
 import { episodeDetails, readableSeries } from './series';
@@ -32,7 +33,7 @@ export function coachRoutes(ctx: AppContext) {
     return s ?? null;
   }
 
-  r.get('/coach/:episodeId', requireVerified(), async (c) => {
+  r.get('/coach/:episodeId', requireVerified(), requireFeature(ctx, 'coach'), async (c) => {
     const userId = c.var.session!.user.id;
     const found = await readable(c.req.param('episodeId'), userId);
     if (!found) return c.json({ error: 'not_found' }, 404);
@@ -50,6 +51,7 @@ export function coachRoutes(ctx: AppContext) {
   r.post(
     '/coach/:episodeId/messages',
     requireVerified(),
+    requireFeature(ctx, 'coach'),
     rateLimit({ db: ctx.db, name: 'coach', key: (c) => (c.var as AppVariables).session!.user.id, limit: 40, windowSeconds: 15 * 60, now: ctx.now }),
     async (c) => {
       const userId = c.var.session!.user.id;

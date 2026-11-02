@@ -110,6 +110,31 @@ describe('settings routes', () => {
     expect(bad.status).toBe(400);
   });
 
+  it('an admin switches features off, and the server refuses them', async () => {
+    ctx = await createTestContext();
+    const app = createApp(ctx);
+    const admin = await signUpVerified(app, ctx, { email: 'root@example.com', role: 'admin', twoFactorEnabled: true });
+    const user = await signUpVerified(app, ctx, { email: 'u@example.com' });
+    const h = (cookie: string) => ({ cookie, 'content-type': 'application/json', origin: ctx!.env.APP_URL });
+    const features = async () => ((await (await app.request('/api/settings/public')).json()) as { features: Record<string, boolean> }).features;
+    expect(await features()).toMatchObject({ coach: true, voiceCoaching: true, voiceInput: true, mediaUploads: true, accentVoices: true, naturalDelivery: true, showArtwork: true });
+
+    const off = { coach: false, voiceInput: false, mediaUploads: false };
+    expect((await app.request('/api/admin/settings', { method: 'PUT', headers: h(admin), body: JSON.stringify({ patch: { features: off } }) })).status).toBe(200);
+    expect(await features()).toMatchObject({ ...off, voiceCoaching: true });
+
+    const coach = await app.request('/api/coach/any-episode', { headers: { cookie: user } });
+    expect(coach.status).toBe(403);
+    expect(await coach.json()).toMatchObject({ error: 'feature_off', feature: 'coach' });
+    expect((await app.request('/api/coach/any-episode/messages', { method: 'POST', headers: h(user), body: JSON.stringify({ content: 'hi' }) })).status).toBe(403);
+    expect((await app.request('/api/uploads/presign', { method: 'POST', headers: h(user), body: JSON.stringify({ kind: 'image', contentType: 'image/png', size: 10 }) })).status).toBe(403);
+    expect((await app.request('/api/transcribe', { method: 'POST', headers: { cookie: user, origin: ctx.env.APP_URL }, body: new FormData() })).status).toBe(403);
+    const gen = await app.request('/api/generations', { method: 'POST', headers: h(user), body: JSON.stringify({ topic: 'With a photo', mediaUploadIds: ['5f0c8c9e-1d2b-4c3a-9e8f-7a6b5c4d3e2f'] }) });
+    expect(gen.status).toBe(403);
+    // Unknown features are rejected.
+    expect((await app.request('/api/admin/settings', { method: 'PUT', headers: h(admin), body: JSON.stringify({ patch: { features: { teleport: true } } }) })).status).toBe(400);
+  });
+
   it('a normal user cannot read admin settings', async () => {
     ctx = await createTestContext();
     const app = createApp(ctx);

@@ -12,6 +12,7 @@ import { DownloadButton } from '../offline/download-button';
 import { getDownload } from '../offline/downloads';
 import { db } from '../offline/db';
 import { flushOutbox, queueFavorite, queueRating } from '../offline/sync';
+import { useFeatures } from '../lib/features';
 
 interface PlaybackInfo {
   positionMs: number;
@@ -41,6 +42,7 @@ function Stars({ value, onChange }: { value: number | null; onChange: (n: number
 }
 
 export function PlayerScreen() {
+  const features = useFeatures();
   const p = usePlayer();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -218,13 +220,15 @@ export function PlayerScreen() {
         <Stars value={info.data?.rating ?? null} onChange={(n) => void setRating(n)} />
       </div>
 
-      <button
-        type="button"
-        onClick={() => navigate(`/coach/${ep.id}`)}
-        className="inline-flex min-h-14 items-center justify-center gap-2 rounded-full border-2 border-accent-strong px-5 text-[1.05rem] font-semibold text-accent-ink"
-      >
-        <MessageCircleQuestion aria-hidden size={22} /> Coach Me
-      </button>
+      {features.coach && (
+        <button
+          type="button"
+          onClick={() => navigate(`/coach/${ep.id}`)}
+          className="inline-flex min-h-14 items-center justify-center gap-2 rounded-full border-2 border-accent-strong px-5 text-[1.05rem] font-semibold text-accent-ink"
+        >
+          <MessageCircleQuestion aria-hidden size={22} /> Coach Me
+        </button>
+      )}
 
       {detail.data && (
         <section className="flex flex-col gap-4 rounded-[var(--radius-card)] border border-line bg-surface p-5">

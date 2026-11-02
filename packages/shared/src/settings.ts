@@ -116,6 +116,21 @@ const alertsSchema = z.strictObject({
   monthlyEmails: z.number().int().min(0),
 });
 
+/** Features an administrator can switch on or off. */
+export const FEATURE_KEYS = ['coach', 'voiceCoaching', 'voiceInput', 'mediaUploads', 'accentVoices', 'naturalDelivery', 'showArtwork'] as const;
+export type FeatureKey = (typeof FEATURE_KEYS)[number];
+export const FEATURE_INFO: Record<FeatureKey, { label: string; description: string }> = {
+  coach: { label: 'Coach Me', description: 'Listeners can ask a coach about any episode.' },
+  voiceCoaching: { label: 'Talk with your coach', description: 'A hands-free spoken conversation with the coach (needs Coach Me).' },
+  voiceInput: { label: 'Voice input', description: 'Listeners can speak their question instead of typing it.' },
+  mediaUploads: { label: 'Photos and videos', description: 'Listeners can add photos and videos to their request.' },
+  accentVoices: { label: 'More accents', description: 'American voices with Latino, South Asian and East Asian accents.' },
+  naturalDelivery: { label: 'Natural delivery', description: 'Conversational phrasing, breathing room and a warmer, less synthetic sound in new episodes.' },
+  showArtwork: { label: 'Show artwork', description: 'A cover image with the title for every podcast show.' },
+};
+const featuresSchema = z.strictObject(Object.fromEntries(FEATURE_KEYS.map((k) => [k, z.boolean()])) as Record<FeatureKey, z.ZodBoolean>);
+export const DEFAULT_FEATURES: Record<FeatureKey, boolean> = Object.fromEntries(FEATURE_KEYS.map((k) => [k, true])) as Record<FeatureKey, boolean>;
+
 /** How the app looks and opens. */
 const appearanceSchema = z.strictObject({
   /** How long the opening splash shows, in seconds (0 turns it off). */
@@ -138,6 +153,8 @@ const settingsShape = {
   costs: costsSchema.default({ llmPerMillionTokensUsd: 0, ttsPerHourUsd: 0, storagePerGbMonthUsd: 0 }),
   alerts: alertsSchema.default({ storageGb: 10, databaseMb: 1024, dailyLlmTokens: 100_000, monthlyEmails: 3000 }),
   appearance: appearanceSchema.default({ splashSeconds: DEFAULT_SPLASH_SECONDS }),
+  // Older documents get any feature added since switched on.
+  features: z.preprocess((v) => ({ ...DEFAULT_FEATURES, ...(v as object | undefined) }), featuresSchema),
   bugReports: bugReportsSchema,
 };
 
@@ -172,6 +189,7 @@ export const appSettingsPatchSchema = z.strictObject({
   costs: costsSchema.partial().optional(),
   alerts: alertsSchema.partial().optional(),
   appearance: appearanceSchema.partial().optional(),
+  features: featuresSchema.partial().optional(),
   bugReports: bugReportsSchema.partial().optional(),
 });
 
@@ -378,6 +396,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   appearance: {
     splashSeconds: DEFAULT_SPLASH_SECONDS,
   },
+  features: DEFAULT_FEATURES,
   bugReports: {
     email: '',
   },
@@ -396,6 +415,7 @@ export function applySettingsPatch(current: AppSettings, patch: AppSettingsPatch
     costs: { ...current.costs, ...patch.costs },
     alerts: { ...current.alerts, ...patch.alerts },
     appearance: { ...current.appearance, ...patch.appearance },
+    features: { ...current.features, ...patch.features },
     bugReports: { ...current.bugReports, ...patch.bugReports },
   };
   return appSettingsSchema.parse(merged);

@@ -46,6 +46,9 @@ export function generationRoutes(ctx: AppContext) {
     const parsed = createGenerationSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
     const { settings } = await ctx.settings.getActive();
+    if (parsed.data.mediaUploadIds.length && !settings.features.mediaUploads) {
+      return c.json({ error: 'feature_off', feature: 'mediaUploads', message: 'Photos and videos are turned off right now. Please describe it in words instead.' }, 403);
+    }
 
     const limited = await dailyLimitMessage(ctx, user, settings.limits.perUserDailyJobs);
     if (limited) return c.json({ error: 'daily_limit', message: limited }, 429);

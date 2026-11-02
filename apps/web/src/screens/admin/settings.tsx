@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import { castableByDefault, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, DEFAULT_SPLASH_SECONDS, voiceInfo, voiceLabel, type ProductionSettings, type VoiceProfile } from '@thinkmade/shared';
+import { castableByDefault, DEFAULT_APP_SETTINGS, DEFAULT_FEATURES, DEFAULT_PRODUCTION, DEFAULT_SPLASH_SECONDS, FEATURE_INFO, FEATURE_KEYS, type FeatureKey, voiceInfo, voiceLabel, type ProductionSettings, type VoiceProfile } from '@thinkmade/shared';
 import { api, ApiError } from '../../lib/api';
 import { Button, Card, Field, Notice, PageHeader } from '../../components/ui';
 
@@ -15,6 +15,7 @@ interface AdminSettings {
     quality: Record<string, number>;
     production?: ProductionSettings;
     appearance?: { splashSeconds: number };
+    features?: Partial<Record<FeatureKey, boolean>>;
     bugReports: { email: string };
   };
 }
@@ -128,6 +129,7 @@ export function AdminSettingsScreen() {
         roomTone: f.get('production.roomTone') === 'on',
       },
       appearance: { splashSeconds: num('appearance.splashSeconds') },
+      features: Object.fromEntries(FEATURE_KEYS.map((k) => [k, f.get(`features.${k}`) === 'on'])),
       bugReports: { email: String(f.get('bugReports.email') ?? '').trim() },
     };
     setBusy(true);
@@ -267,6 +269,19 @@ export function AdminSettingsScreen() {
           <h2 className="text-xl">Media, usage and quality limits</h2>
           {NUMBER_FIELDS.filter(([sec]) => sec !== 'podcast').map(([sec, k, label]) => (
             <Field key={k} label={label} name={`${sec}.${k}`} type="number" inputMode="numeric" defaultValue={s[sec][k]} min={0} required />
+          ))}
+        </Card>
+        <Card className="flex flex-col gap-4">
+          <h2 className="text-xl">Features</h2>
+          <p className="text-sm text-muted">Switch features on or off for everyone. A feature that is off disappears from the app and the server refuses it.</p>
+          {FEATURE_KEYS.map((k) => (
+            <label key={k} className="flex items-start gap-3">
+              <input type="checkbox" name={`features.${k}`} defaultChecked={{ ...DEFAULT_FEATURES, ...s.features }[k]} className="mt-1 h-5 w-5 shrink-0 accent-[var(--tm-accent-strong)]" />
+              <span className="flex flex-col">
+                <span className="font-medium">{FEATURE_INFO[k].label}</span>
+                <span className="text-sm text-muted">{FEATURE_INFO[k].description}</span>
+              </span>
+            </label>
           ))}
         </Card>
         <Card className="flex flex-col gap-4">

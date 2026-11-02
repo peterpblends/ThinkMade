@@ -45,6 +45,7 @@ export function publicSettingsRoutes(ctx: AppContext) {
         },
         media: settings.media,
         splash: { seconds: settings.appearance.splashSeconds },
+        features: settings.features,
         // Voices listeners may pick for their hosts, with a sample to hear where one has been rendered.
         voices: settings.voices.available.flatMap((id) => {
           const v = voiceInfo(id);

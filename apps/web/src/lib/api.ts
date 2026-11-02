@@ -1,3 +1,5 @@
+import type { FeatureKey } from '@thinkmade/shared';
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -47,6 +49,8 @@ export interface PublicSettings {
   podcast: PublicPodcastSettings;
   media: { maxImages: number; maxImageBytes: number; maxVideoSeconds: number; maxVideoBytes: number };
   voices?: VoiceOption[];
+  /** Features an administrator has switched on or off. */
+  features?: Partial<Record<FeatureKey, boolean>>;
   /** The opening splash's length, set by an administrator (0: no splash). */
   splash?: { seconds: number };
 }
