@@ -6,6 +6,7 @@ import { createDb, runMigrations } from '@thinkmade/db';
 import { createEmbedServer } from './embed-server';
 import { secondsUntilNextJob } from './queue';
 import { cleanupExpiredUploads, createWorkerDeps, reindexPublicSeries, runNextJob, startWorker } from './index';
+import { ensureVoiceSamples } from './voice-samples';
 
 if (!process.env.DATABASE_URL) {
   console.error('[worker] DATABASE_URL is required. Locally, the API runs the worker in-process instead.');
@@ -29,6 +30,9 @@ if (process.env.WORKER_DRAIN === 'true') {
     await new Promise((r) => setTimeout(r, Math.max(5, wait) * 1000));
   }
   await cleanupExpiredUploads(deps).catch((err) => console.warn('[worker] cleanup failed', String(err)));
+  // Samples listeners can play when picking voices: only voices without one yet, after the podcasts are done.
+  const samples = await ensureVoiceSamples(deps, 10 * 60_000).catch((err) => (console.warn('[worker] voice samples failed', String(err)), 0));
+  if (samples) console.info(`[worker] ${samples} voice sample(s) rendered`);
   const indexed = await reindexPublicSeries(deps).catch((err) => (console.warn('[worker] indexing failed', String(err)), 0));
   console.info(`[worker] queue drained: ${jobs} job(s) run, ${indexed} series indexed`);
   await handle.close();

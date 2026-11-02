@@ -23,6 +23,7 @@ import { fakeResponder, fakeVerifyBook } from './testing/fake-responder';
 
 export { runJob } from './pipeline';
 export { cleanupExpiredUploads } from './media';
+export { ensureVoiceSamples } from './voice-samples';
 export { claimNextJob } from './queue';
 export type { WorkerDeps } from './deps';
 export { fakeResponder, fakeVerifyBook, setFakeValidation } from './testing/fake-responder';

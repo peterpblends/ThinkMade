@@ -68,7 +68,7 @@ describe('CreateForm voices', () => {
     const onCreate = vi.fn();
     render(<CreateForm defaults={defaults} voices={voices} onCreate={onCreate} />);
     await userEvent.click(screen.getByRole('button', { name: 'Customize' }));
-    expect(screen.getByRole('radio', { name: 'Different each series' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Any voices' })).toBeChecked();
     await userEvent.type(screen.getByRole('textbox', { name: /your topic/i }), 'Five episodes about patience');
     await userEvent.click(screen.getByRole('button', { name: 'Create My Podcasts' }));
     // Opening Customize without changing anything leaves the request's own numbers in charge.
@@ -90,6 +90,74 @@ describe('CreateForm voices', () => {
     expect(req.voices).toHaveLength(3);
     expect(req.voices.slice(0, 2)).toEqual(['phonon:zoey', 'bm_george']);
     expect(new Set(req.voices).size).toBe(3);
+  });
+});
+
+describe('CreateForm voice choices', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const sampled = voices.map((v) => ({ ...v, sampleUrl: `/api/voices/${v.id}/sample` }));
+
+  it('asks for female or male voices', async () => {
+    const onCreate = vi.fn();
+    render(<CreateForm defaults={defaults} voices={voices} onCreate={onCreate} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Customize' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Male' }));
+    expect(screen.getByText(/Every host and guest will have a male voice/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hosts Mixed · Male (customized)' })).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox', { name: /your topic/i }), 'Calm voices please');
+    await userEvent.click(screen.getByRole('button', { name: 'Create My Podcasts' }));
+    expect(onCreate.mock.calls[0]![0]).toMatchObject({ voiceGender: 'male', customization: null });
+    expect(onCreate.mock.calls[0]![0].voices).toBeUndefined();
+  });
+
+  it('starts chosen voices from the gender asked for', async () => {
+    const onCreate = vi.fn();
+    render(<CreateForm defaults={defaults} voices={voices} onCreate={onCreate} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Customize' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Female' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Choose voices' }));
+    expect(screen.getByRole('combobox', { name: 'Host 1' })).toHaveValue('phonon:zoey');
+    expect(screen.getByRole('combobox', { name: 'Host 2' })).toHaveValue('phonon:freya');
+    await userEvent.type(screen.getByRole('textbox', { name: /your topic/i }), 'Two women');
+    await userEvent.click(screen.getByRole('button', { name: 'Create My Podcasts' }));
+    const req = onCreate.mock.calls[0]![0];
+    expect(req.voices).toEqual(['phonon:zoey', 'phonon:freya']);
+    expect(req.voiceGender).toBeUndefined();
+  });
+
+  it('plays a sample of the chosen voice, and stops it', async () => {
+    const play = vi.fn(() => Promise.resolve());
+    const pause = vi.fn();
+    const made: string[] = [];
+    vi.stubGlobal(
+      'Audio',
+      vi.fn(function (this: Record<string, unknown>, url: string) {
+        made.push(url);
+        this.play = play;
+        this.pause = pause;
+      }),
+    );
+    render(<CreateForm defaults={defaults} voices={sampled} onCreate={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Customize' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Choose voices' }));
+    expect(screen.getByText('Press play to hear a voice before you choose it.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Play a sample of Zoey' }));
+    expect(made).toEqual(['/api/voices/phonon:zoey/sample']);
+    expect(play).toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Stop the sample of Zoey' }));
+    expect(pause).toHaveBeenCalled();
+    // Changing the voice offers that voice's sample.
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Host 1' }), 'bm_george');
+    await userEvent.click(screen.getByRole('button', { name: 'Play a sample of George' }));
+    expect(made.at(-1)).toBe('/api/voices/bm_george/sample');
+  });
+
+  it('has no play button for a voice without a sample yet', async () => {
+    render(<CreateForm defaults={defaults} voices={voices} onCreate={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Customize' }));
+    await userEvent.click(screen.getByRole('radio', { name: 'Choose voices' }));
+    expect(screen.queryByRole('button', { name: /Play a sample/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Voice samples are being prepared.')).toBeInTheDocument();
   });
 });
 

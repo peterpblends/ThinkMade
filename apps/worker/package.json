@@ -10,7 +10,8 @@
     "start": "tsx --env-file-if-exists=../../.env src/main.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
-    "live-check": "tsx --env-file-if-exists=../../.env scripts/live-check.ts"
+    "live-check": "tsx --env-file-if-exists=../../.env scripts/live-check.ts",
+    "voice-samples": "tsx --env-file-if-exists=../../.env scripts/voice-samples.ts"
   },
   "dependencies": {
     "@thinkmade/ai": "*",
