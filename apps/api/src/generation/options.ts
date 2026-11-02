@@ -5,7 +5,7 @@ const BITRATE = { compact: 48, balanced: 64, high: 96 } as const;
 export class LimitError extends Error {}
 
 /** Admin defaults, overridden by the user's customisation, never beyond admin limits. */
-export function resolveOptions(settings: AppSettings, input: Pick<CreateGenerationInput, 'customization' | 'visibility' | 'voices'>): GenerationOptions {
+export function resolveOptions(settings: AppSettings, input: Pick<CreateGenerationInput, 'customization' | 'visibility' | 'voices' | 'voiceGender'>): GenerationOptions {
   const p = settings.podcast;
   const c = input.customization ?? null;
   if (c && (c.lengthMinutes > p.maxEpisodeMinutes || c.episodes > p.maxEpisodesPerSeries)) {
@@ -24,7 +24,7 @@ export function resolveOptions(settings: AppSettings, input: Pick<CreateGenerati
     voices: { single: settings.voices.single, hostA: settings.voices.hostA, hostB: settings.voices.hostB },
     voicePool: settings.voices.available,
     voiceProfiles: settings.voices.profiles,
-    ...(input.voices?.length ? { chosenVoices: input.voices } : {}),
+    ...(input.voices?.length ? { chosenVoices: input.voices } : input.voiceGender ? { voiceGender: input.voiceGender } : {}),
     customized: !!c,
     limits: { maxEpisodes: p.maxEpisodesPerSeries, maxMinutes: p.maxEpisodeMinutes },
     bitrateKbps: BITRATE[p.audioQuality],

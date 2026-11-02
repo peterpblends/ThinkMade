@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { VOICE_SAMPLE_MANIFEST_KEY, voiceSampleKey } from '@thinkmade/shared';
+import { schema } from '@thinkmade/db';
 import { createApp } from '../app';
 import { createTestContext, signUpVerified } from '../test-helpers';
 
@@ -71,6 +73,41 @@ describe('settings routes', () => {
       const res = await app.request('/api/admin/settings', { method: 'PUT', headers, body: JSON.stringify({ patch: { appearance: { splashSeconds: bad } } }) });
       expect(res.status).toBe(400);
     }
+  });
+
+  it('serves a sample of each voice once the worker has rendered it', async () => {
+    ctx = await createTestContext();
+    const app = createApp(ctx);
+    const voices = async () => ((await (await app.request('/api/settings/public')).json()) as { voices: Array<{ id: string; sampleUrl?: string }> }).voices;
+    expect((await voices()).some((v) => v.sampleUrl)).toBe(false);
+    expect((await app.request('/api/voices/phonon:zoey/sample')).status).toBe(404);
+
+    await ctx.storage.put(voiceSampleKey('phonon:zoey'), Buffer.from('ID3fake-mp3-bytes'), 'audio/mpeg');
+    await ctx.storage.put(VOICE_SAMPLE_MANIFEST_KEY, Buffer.from(JSON.stringify({ voices: ['phonon:zoey'] })), 'application/json');
+    // A fresh app reads the manifest (each app keeps it for a few minutes).
+    const fresh = createApp(ctx);
+    const list = ((await (await fresh.request('/api/settings/public')).json()) as { voices: Array<{ id: string; sampleUrl?: string }> }).voices;
+    expect(list.find((v) => v.id === 'phonon:zoey')?.sampleUrl).toBe('/api/voices/phonon%3Azoey/sample');
+    expect(list.find((v) => v.id === 'bm_george')?.sampleUrl).toBeUndefined();
+
+    const res = await fresh.request('/api/voices/phonon%3Azoey/sample');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('audio/mpeg');
+    expect(Buffer.from(await res.arrayBuffer()).toString()).toBe('ID3fake-mp3-bytes');
+    expect((await fresh.request('/api/voices/not-a-voice/sample')).status).toBe(404);
+  });
+
+  it("passes the listener's female or male choice to the podcast", async () => {
+    ctx = await createTestContext();
+    const app = createApp(ctx);
+    const cookie = await signUpVerified(app, ctx, { email: 'u@example.com' });
+    const headers = { cookie, 'content-type': 'application/json', origin: ctx.env.APP_URL };
+    const res = await app.request('/api/generations', { method: 'POST', headers, body: JSON.stringify({ topic: 'Female voices please', voiceGender: 'female' }) });
+    expect(res.status).toBe(202);
+    const [job] = await ctx.db.select().from(schema.generationJob);
+    expect((job!.options as { voiceGender?: string }).voiceGender).toBe('female');
+    const bad = await app.request('/api/generations', { method: 'POST', headers, body: JSON.stringify({ topic: 'Robot voices', voiceGender: 'robot' }) });
+    expect(bad.status).toBe(400);
   });
 
   it('a normal user cannot read admin settings', async () => {

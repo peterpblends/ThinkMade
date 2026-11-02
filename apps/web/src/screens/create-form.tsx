@@ -1,5 +1,5 @@
-import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
-import { Camera, Mic, Square, SlidersHorizontal, Video, X } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Camera, Mic, Play, Square, SlidersHorizontal, Video, X } from 'lucide-react';
 import { useVoiceInput, type VoiceInput } from '../lib/voice';
 import type { PublicPodcastSettings, PublicSettings, VoiceOption } from '../lib/api';
 import { Button } from '../components/ui';
@@ -26,6 +26,8 @@ export interface CreateRequest {
   attachments: Attachment[];
   /** Voices picked for the hosts, in order; left out for different voices each series. */
   voices?: string[];
+  /** Female or male voices, when no exact voices were picked. */
+  voiceGender?: VoiceGender;
 }
 
 const MAX_HOSTS = 4;
@@ -36,24 +38,107 @@ const VOICE_GROUPS = [
   ['UK', 'male', 'British, male'],
 ] as const;
 
-/** Optional: pick a voice for each host. By default every series gets its own voices. */
-function VoicePicker({ voices, hostCount, value, onChange }: { voices: VoiceOption[]; hostCount: number; value: string[] | null; onChange: (v: string[] | null) => void }) {
+/**
+ * Plays a voice's short sample. One sample plays at a time across the page; pressing again stops it.
+ */
+function useSamplePlayer() {
+  const [playing, setPlaying] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const audio = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => () => audio.current?.pause(), []);
+  const stop = () => {
+    audio.current?.pause();
+    setPlaying(null);
+  };
+  const toggle = (v: VoiceOption) => {
+    if (playing === v.id) return stop();
+    audio.current?.pause();
+    if (!v.sampleUrl) return;
+    const a = new Audio(v.sampleUrl);
+    audio.current = a;
+    a.onended = () => setPlaying((p) => (p === v.id ? null : p));
+    setFailed(null);
+    setPlaying(v.id);
+    void Promise.resolve(a.play()).catch(() => {
+      setPlaying((p) => (p === v.id ? null : p));
+      setFailed(v.id);
+    });
+  };
+  return { playing, failed, toggle, stop };
+}
+
+function SampleButton({ voice, player }: { voice: VoiceOption | undefined; player: ReturnType<typeof useSamplePlayer> }) {
+  if (!voice?.sampleUrl) return <span className="flex h-11 w-11 shrink-0" aria-hidden />;
+  const on = player.playing === voice.id;
+  return (
+    <button
+      type="button"
+      onClick={() => player.toggle(voice)}
+      aria-label={on ? `Stop the sample of ${voice.name}` : `Play a sample of ${voice.name}`}
+      aria-pressed={on}
+      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition ${on ? 'border-accent-strong bg-accent-strong text-on-accent' : 'border-line bg-surface text-ink hover:bg-surface-2'}`}
+    >
+      {on ? <Square aria-hidden size={16} /> : <Play aria-hidden size={18} />}
+    </button>
+  );
+}
+
+export type VoiceGender = 'female' | 'male';
+
+/**
+ * Optional: the hosts' voices. By default every series gets its own voices; listeners can ask for female or
+ * male voices, or pick a voice for each host (hearing a sample of each).
+ */
+function VoicePicker({
+  voices,
+  hostCount,
+  value,
+  onChange,
+  gender,
+  onGender,
+}: {
+  voices: VoiceOption[];
+  hostCount: number;
+  value: string[] | null;
+  onChange: (v: string[] | null) => void;
+  gender: VoiceGender | null;
+  onGender: (g: VoiceGender | null) => void;
+}) {
+  const player = useSamplePlayer();
   const choosing = value !== null;
-  const pick = (i: number, id: string) => onChange((value ?? []).map((v, j) => (j === i ? id : v)));
+  const pick = (i: number, id: string) => {
+    player.stop();
+    onChange((value ?? []).map((v, j) => (j === i ? id : v)));
+  };
+  const has = (g: VoiceGender) => voices.some((v) => v.gender === g);
+  const modes = [
+    { key: 'auto', label: 'Any voices', on: !choosing && !gender, select: () => (onChange(null), onGender(null)) },
+    ...(has('female') ? [{ key: 'female', label: 'Female', on: !choosing && gender === 'female', select: () => (onChange(null), onGender('female')) }] : []),
+    ...(has('male') ? [{ key: 'male', label: 'Male', on: !choosing && gender === 'male', select: () => (onChange(null), onGender('male')) }] : []),
+    {
+      key: 'choose',
+      label: 'Choose voices',
+      on: choosing,
+      // Start with distinct voices: of the gender asked for, or alternating female and male.
+      select: () => {
+        const start = gender ? voices.filter((v) => v.gender === gender) : [];
+        onGender(null);
+        onChange(Array.from({ length: hostCount }, (_, i) => (start[i] ?? voices.filter((v) => v.gender === (i % 2 ? 'male' : 'female'))[Math.floor(i / 2)] ?? voices[i] ?? voices[0]!).id));
+      },
+    },
+  ];
+  const hint = choosing
+    ? voices.some((v) => v.sampleUrl)
+      ? 'Press play to hear a voice before you choose it.'
+      : 'Voice samples are being prepared.'
+    : gender
+      ? `Every host and guest will have a ${gender} voice, unless your request describes someone differently.`
+      : 'Each series gets its own voices. Hosts you name in your request keep their names, with voices to match.';
   return (
     <fieldset className="flex flex-col gap-2">
       <legend className="mb-2 text-sm font-semibold text-ink">Voices</legend>
       <div className="flex flex-wrap gap-2">
-        {[
-          { key: 'auto', label: 'Different each series', on: !choosing, select: () => onChange(null) },
-          {
-            key: 'choose',
-            label: 'Choose voices',
-            on: choosing,
-            // Start with distinct voices, alternating female and male.
-            select: () => onChange(Array.from({ length: hostCount }, (_, i) => (voices.filter((v) => v.gender === (i % 2 ? 'male' : 'female'))[Math.floor(i / 2)] ?? voices[i] ?? voices[0]!).id)),
-          },
-        ].map((o) => (
+        {modes.map((o) => (
           <div key={o.key}>
             <input type="radio" id={`voices-${o.key}`} name="voices" className="peer sr-only" checked={o.on} onChange={o.select} />
             <label
@@ -65,7 +150,7 @@ function VoicePicker({ voices, hostCount, value, onChange }: { voices: VoiceOpti
           </div>
         ))}
       </div>
-      {!choosing && <p className="text-xs text-muted">Hosts you name in your request keep their names, with voices to match.</p>}
+      <p className="text-xs text-muted">{hint}</p>
       {choosing && (
         <div className="flex flex-col gap-3">
           {value.map((id, i) => (
@@ -73,10 +158,10 @@ function VoicePicker({ voices, hostCount, value, onChange }: { voices: VoiceOpti
               <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm text-ink">
                 Host {i + 1}
                 <select value={id} onChange={(e) => pick(i, e.target.value)} className="min-h-11 w-full rounded-xl border border-line bg-surface px-3 text-[0.95rem] text-ink">
-                  {VOICE_GROUPS.map(([accent, gender, label]) => (
+                  {VOICE_GROUPS.map(([accent, g, label]) => (
                     <optgroup key={label} label={label}>
                       {voices
-                        .filter((v) => v.accent === accent && v.gender === gender)
+                        .filter((v) => v.accent === accent && v.gender === g)
                         .map((v) => (
                           <option key={v.id} value={v.id} disabled={v.id !== id && value.includes(v.id)}>
                             {v.name}
@@ -86,6 +171,7 @@ function VoicePicker({ voices, hostCount, value, onChange }: { voices: VoiceOpti
                   ))}
                 </select>
               </label>
+              <SampleButton voice={voices.find((v) => v.id === id)} player={player} />
               {value.length > 1 && (
                 <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} aria-label={`Remove host ${i + 1}`} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted hover:bg-surface-2">
                   <X aria-hidden size={18} />
@@ -93,6 +179,11 @@ function VoicePicker({ voices, hostCount, value, onChange }: { voices: VoiceOpti
               )}
             </div>
           ))}
+          {player.failed && (
+            <p role="alert" className="text-sm text-danger">
+              That sample could not be played. Please try again.
+            </p>
+          )}
           {value.length < MAX_HOSTS && (
             <button
               type="button"
@@ -353,6 +444,7 @@ export function CreateForm({
     learningMode: defaults.learningMode,
   });
   const [chosenVoices, setChosenVoices] = useState<string[] | null>(null);
+  const [voiceGender, setVoiceGender] = useState<VoiceGender | null>(null);
   const ids = { topic: useId(), error: useId(), panel: useId(), hint: useId() };
   // Example questions rotate in the empty box, but never while someone is typing, focused or recording.
   const [focused, setFocused] = useState(false);
@@ -372,7 +464,7 @@ export function CreateForm({
     }
     setError(null);
     // Only choices the listener actually changed override what they wrote (for example "five episodes").
-    onCreate({ topic: trimmed, customization: touchedCustom ? custom : null, attachments, ...(chosenVoices ? { voices: chosenVoices } : {}) });
+    onCreate({ topic: trimmed, customization: touchedCustom ? custom : null, attachments, ...(chosenVoices ? { voices: chosenVoices } : voiceGender ? { voiceGender } : {}) });
   };
 
   return (
@@ -461,8 +553,8 @@ export function CreateForm({
           { label: 'Episodes', value: String(custom.episodes), changed: custom.episodes !== defaults.defaultEpisodes },
           {
             label: 'Hosts',
-            value: chosenVoices ? String(chosenVoices.length) : HOST_TAG[custom.speakerFormat],
-            changed: custom.speakerFormat !== defaults.speakerFormat || chosenVoices !== null,
+            value: chosenVoices ? String(chosenVoices.length) : `${HOST_TAG[custom.speakerFormat]}${voiceGender ? (voiceGender === 'female' ? ' · Female' : ' · Male') : ''}`,
+            changed: custom.speakerFormat !== defaults.speakerFormat || chosenVoices !== null || voiceGender !== null,
           },
           { label: 'Learning Mode', value: MODES.find((o) => o.value === custom.learningMode)!.label, changed: custom.learningMode !== defaults.learningMode },
         ].map((t) => (
@@ -501,7 +593,7 @@ export function CreateForm({
           />
           <ChoiceGroup legend="Hosts" name="speakers" options={SPEAKERS} value={custom.speakerFormat} onChange={(v) => update('speakerFormat', v)} />
           {voiceOptions.length > 1 && (
-            <VoicePicker voices={voiceOptions} hostCount={touchedCustom && custom.speakerFormat === 'single' ? 1 : 2} value={chosenVoices} onChange={setChosenVoices} />
+            <VoicePicker voices={voiceOptions} hostCount={touchedCustom && custom.speakerFormat === 'single' ? 1 : 2} value={chosenVoices} onChange={setChosenVoices} gender={voiceGender} onGender={setVoiceGender} />
           )}
           <ChoiceGroup legend="Learning mode" name="mode" options={MODES} value={custom.learningMode} onChange={(v) => update('learningMode', v)} />
         </div>

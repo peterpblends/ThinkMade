@@ -38,6 +38,8 @@ export const createGenerationSchema = z.strictObject({
   coachingSessionId: z.string().uuid().optional(),
   /** Voices picked for the hosts, in order. Left out, each series gets its own voices. */
   voices: z.array(z.string().min(1).max(40)).min(1).max(4).optional(),
+  /** Female or male voices for the hosts (and guests), when the listener didn't pick exact voices. */
+  voiceGender: z.enum(['female', 'male']).optional(),
 }).refine((v) => v.topic.length >= 3 || v.mediaUploadIds.length > 0 || !!v.coachingSessionId || !!v.parentSeriesId, {
   path: ['topic'],
   message: 'Tell us a little more about what you want to think through, or add a photo or video.',
@@ -61,6 +63,8 @@ export interface GenerationOptions {
   voiceProfiles?: Record<string, VoiceProfile>;
   /** Voices the listener picked for their hosts, in order. */
   chosenVoices?: string[];
+  /** Female or male voices for every host and guest, unless the listener described a host otherwise. */
+  voiceGender?: 'female' | 'male';
   /** True when the listener set length, episodes and format themselves; otherwise requests in their words apply. */
   customized?: boolean;
   /** Administrator maximums, for requests taken from the listener's words. */

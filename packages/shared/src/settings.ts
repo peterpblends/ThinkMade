@@ -286,6 +286,17 @@ export function voiceInfo(voice: string): VoiceInfo | undefined {
   return VOICE_CATALOG.find((v) => v.id === voice);
 }
 
+/** Where a voice's short sample lives in storage (rendered by the worker), and the list of those rendered. */
+export const VOICE_SAMPLE_PREFIX = 'voice-samples/v1';
+export const VOICE_SAMPLE_MANIFEST_KEY = `${VOICE_SAMPLE_PREFIX}/manifest.json`;
+export function voiceSampleKey(voice: string): string {
+  return `${VOICE_SAMPLE_PREFIX}/${voice.replace(/[^a-zA-Z0-9_-]/g, '-')}.mp3`;
+}
+/** What each voice says in its sample. */
+export function voiceSampleText(name: string): string {
+  return `Hi, I'm ${name}. Let's think this through together, one idea at a time, and find what really matters.`;
+}
+
 /** A readable label for a stored voice id, e.g. "Zoey (Phonon, US female)". */
 export function voiceLabel(voice: string): string {
   const v = voiceInfo(voice);

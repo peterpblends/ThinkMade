@@ -39,6 +39,8 @@ export interface VoiceOption {
   name: string;
   accent: 'US' | 'UK';
   gender: 'female' | 'male';
+  /** A short spoken sample, once the worker has rendered one. */
+  sampleUrl?: string;
 }
 
 export interface PublicSettings {

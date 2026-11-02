@@ -390,6 +390,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         count,
         requested: described,
         ...(options.chosenVoices ? { chosenVoices: options.chosenVoices } : {}),
+        ...(options.voiceGender ? { gender: options.voiceGender } : {}),
         pool,
         ...(options.voiceProfiles ? { profiles: options.voiceProfiles } : {}),
         preferAccent,
@@ -425,7 +426,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         const others = [...base, ...Object.values(state.episodeGuests)];
         const [guest] = chooseHosts({
           count: 1,
-          requested: [{ gender: ep.guest?.gender ?? null, age: ep.guest?.age ?? null }],
+          // The listener's female or male preference covers guests too.
+          requested: [{ gender: options.voiceGender ?? ep.guest?.gender ?? null, age: ep.guest?.age ?? null }],
           pool,
           ...(options.voiceProfiles ? { profiles: options.voiceProfiles } : {}),
           preferAccent: preferAccent ?? voiceInfo(base[0]!.voice)?.accent ?? null,

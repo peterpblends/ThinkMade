@@ -34,6 +34,8 @@ export interface ChooseHostsInput {
   chosenVoices?: string[];
   /** Voices allowed for this series. */
   pool: string[];
+  /** Female or male voices for hosts whose description doesn't say. */
+  gender?: 'female' | 'male' | null;
   /** What administrators noted about voices: age band and whether to cast automatically. */
   profiles?: Record<string, VoiceProfile>;
   /** The accent the show should use unless a host says otherwise (e.g. British for a UK audience). */
@@ -90,13 +92,14 @@ export function chooseHosts(input: ChooseHostsInput): Host[] {
   );
 
   for (let i = 0; i < count; i++) {
-    const want = input.requested?.[i] ?? {};
+    const requested = input.requested?.[i] ?? {};
+    const want = { ...requested, gender: requested.gender ?? input.gender ?? null };
     const picked = input.chosenVoices?.[i];
     let voice = picked && all.some((v) => v.id === picked) && !used.has(picked) ? voiceInfo(picked)! : undefined;
     if (!voice) {
       const accent = want.accent ?? input.preferAccent ?? (hosts[0] ? voiceInfo(hosts[0].voice)?.accent : undefined);
       // Without a stated gender, a two-host show alternates voices for contrast.
-      const contrast = !input.requested?.length && hosts.length ? (voiceInfo(hosts.at(-1)!.voice)?.gender === 'female' ? 'male' : 'female') : undefined;
+      const contrast = !input.requested?.length && !input.gender && hosts.length ? (voiceInfo(hosts.at(-1)!.voice)?.gender === 'female' ? 'male' : 'female') : undefined;
       const band = ageBand(want.age);
       // An unnamed host is called by the voice's name, so it must not clash with another person's name.
       const nameFree = (v: VoiceInfo) => !!want.name?.trim() || !names.has(v.name.toLowerCase());

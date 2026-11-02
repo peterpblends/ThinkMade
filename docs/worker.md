@@ -31,6 +31,10 @@ The workflow `.github/workflows/worker.yml` drains the queue and exits. The API 
 3. Create a fine-grained GitHub token (**Settings → Developer settings → Fine-grained tokens**) for the ThinkMade repository only, with **Contents: Read and write** (needed to start workflow runs). In Vercel, add `WORKER_DISPATCH_REPO=peterpblends/ThinkMade` and `WORKER_DISPATCH_TOKEN=<token>` (Sensitive), then redeploy.
 4. Test it: **Actions → Worker → Run workflow**. The log ends with `queue drained`.
 
+### Voice samples
+
+Listeners can play a short sample of each voice when picking voices on the Create page. After each run, the worker renders samples for voices that don't have one yet (and for voices an administrator adds later) and stores them in object storage with a `manifest.json` the API reads. To render them all at once, run **Actions → Voice samples → Run workflow** (`npm run voice-samples -w apps/worker` does the same locally with the worker's settings). Until a voice has a sample, its play button simply doesn't appear.
+
 ## On your Mac (no card)
 
 1. `cp .env.worker.example .env.worker` and fill it in with the same values as in Vercel. It's git-ignored.

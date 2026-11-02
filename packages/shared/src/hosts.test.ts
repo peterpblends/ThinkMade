@@ -38,6 +38,18 @@ describe('chooseHosts', () => {
     expect(second.map((h) => h.voice)).not.toContain(first[1]!.voice);
   });
 
+  it('gives every host a female or male voice when the listener asks, unless a host is described otherwise', () => {
+    for (const gender of ['female', 'male'] as const) {
+      for (let i = 0; i < 10; i++) {
+        const hosts = chooseHosts({ count: 3, pool, gender });
+        expect(hosts.map((h) => voiceInfo(h.voice)!.gender)).toEqual([gender, gender, gender]);
+        expect(new Set(hosts.map((h) => h.voice)).size).toBe(3);
+      }
+    }
+    const described = chooseHosts({ count: 2, pool, gender: 'female', requested: [{ name: 'Tom', gender: 'male' }, { name: 'Ann' }] });
+    expect(described.map((h) => voiceInfo(h.voice)!.gender)).toEqual(['male', 'female']);
+  });
+
   it('picks from the whole range of voices', () => {
     const seen = new Set<string>();
     for (let i = 0; i < 400; i++) seen.add(chooseHosts({ count: 1, pool, random: seq(i / 400) })[0]!.voice);
