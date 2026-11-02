@@ -33,7 +33,7 @@ The workflow `.github/workflows/worker.yml` drains the queue and exits. The API 
 
 ### Voice samples
 
-Listeners can play a short sample of each voice when picking voices on the Create page. After each run, the worker renders samples for voices that don't have one yet (and for voices an administrator adds later) and stores them in object storage with a `manifest.json` the API reads. To render them all at once, run **Actions → Voice samples → Run workflow** (`npm run voice-samples -w apps/worker` does the same locally with the worker's settings). Until a voice has a sample, its play button simply doesn't appear.
+Listeners can play a short sample of each voice when picking voices on the Create page. After each run, the worker renders samples for voices that don't have one yet (and for voices an administrator adds later) and stores them in object storage with a `manifest.json` the API reads. To render them all at once, run **Actions → Voice samples → Run workflow** (`npm run voice-samples -w apps/worker` does the same locally with the worker's settings). Until a voice has a sample, its play button simply doesn't appear. Tick **check** when running the workflow to have each sample transcribed and see how much of the sentence came through for every voice (a quick way to spot a voice that doesn't speak clear English). The accent voices (Latino, South Asian, East Asian) all passed this check on 2026-11-02; they are only cast automatically once an administrator switches **Cast automatically** on for them in Admin → Defaults after listening.
 
 ## On your Mac (no card)
 
