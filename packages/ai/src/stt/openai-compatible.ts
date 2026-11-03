@@ -15,12 +15,14 @@ export function createOpenAiCompatibleStt(cfg: {
       form.set('model', cfg.model);
       form.set('response_format', 'json');
       if (meta.language) form.set('language', meta.language);
+      if (meta.prompt) form.set('prompt', meta.prompt.slice(0, 600));
+      form.set('temperature', '0');
       form.set('file', new File([new Uint8Array(audio)], meta.filename, { type: meta.contentType }));
       const res = await doFetch(`${cfg.baseUrl.replace(/\/$/, '')}/audio/transcriptions`, {
         method: 'POST',
         headers: cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {},
         body: form,
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(meta.timeoutMs ?? 120_000),
       });
       if (!res.ok) throw new Error(`Transcription failed with ${res.status}: ${(await res.text()).slice(0, 200)}`);
       const data = (await res.json()) as { text?: string };

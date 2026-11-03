@@ -77,6 +77,17 @@ export async function streamApi<T>(path: string, body: unknown, onText: (soFar: 
   return result;
 }
 
+/** One spoken turn of a conversation, transcribed accurately on the server. */
+export async function transcribeTurn(audio: Blob, opts: { language: string; hint?: string }, signal?: AbortSignal): Promise<string> {
+  const form = new FormData();
+  form.set('audio', new File([audio], 'turn.wav', { type: audio.type || 'audio/wav' }));
+  form.set('language', opts.language);
+  if (opts.hint) form.set('prompt', opts.hint);
+  const res = await fetch('/api/transcribe/turn', { method: 'POST', body: form, credentials: 'same-origin', ...(signal ? { signal } : {}) });
+  if (!res.ok) throw new ApiError(res.status, 'transcribe_failed', null);
+  return ((await res.json()) as { text?: string }).text ?? '';
+}
+
 export interface PublicPodcastSettings {
   defaultLengthMinutes: number;
   defaultEpisodes: number;

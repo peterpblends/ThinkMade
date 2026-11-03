@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { AudioLines, ChevronLeft, Dumbbell, HelpCircle, Mic, Send, Sparkles, Square, Swords, Theater, UserRound, Volume2, VolumeX } from 'lucide-react';
-import { api, ApiError, streamApi } from '../lib/api';
+import { api, ApiError, streamApi, transcribeTurn } from '../lib/api';
 import { createCoachSpeaker } from '../lib/coach-voice';
 import { useVoiceConversation, type ConversationTurn, type VoiceConversation } from '../lib/conversation';
 import { useFeatures } from '../lib/features';
@@ -295,6 +295,10 @@ export function CoachScreen() {
     },
     createCoachSpeaker,
     q.data?.speechLang ?? 'en-US',
+    {
+      // Names from the episode help the transcript spell them right.
+      transcribe: (audio, signal) => transcribeTurn(audio, { language: q.data?.speechLang ?? 'en-US', hint: q.data ? `${q.data.episode.seriesTitle}. ${q.data.episode.title}.` : '' }, signal),
+    },
   );
   // The reply streams in as the coach writes it.
   const [streaming, setStreaming] = useState<string | null>(null);

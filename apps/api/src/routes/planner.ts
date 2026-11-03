@@ -102,7 +102,7 @@ export function plannerRoutes(ctx: AppContext) {
       const allowed = choices(settings);
       const system = `STAGE: planner\n${PLANNER_INSTRUCTIONS}${parsed.data.spoken ? `\n\n${SPOKEN_COACH_INSTRUCTIONS}` : ''}\n\nchoices (JSON): ${JSON.stringify({ ...allowed, voiceAccents: ['american', 'british', 'latino', 'south-asian', 'east-asian'] })}\n\nThe Create form now (JSON): ${JSON.stringify(parsed.data.current)}`;
       const messages: ChatMessage[] = [{ role: 'system', content: system }, ...parsed.data.messages];
-      const options = { temperature: 0.6, maxTokens: 600 };
+      const options = { temperature: 0.6, maxTokens: 600, maxRateLimitWaitMs: 1500 };
       const failure = (err: unknown) => {
         if (err instanceof ProviderNotConfiguredError) return { status: 503 as const, body: { error: 'planner_unavailable', message: 'Planning by conversation is not configured on this server yet.' } };
         console.error('[planner] model call failed', err instanceof LlmError ? err.message : err);

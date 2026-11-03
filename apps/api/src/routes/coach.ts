@@ -20,6 +20,8 @@ const messageBody = z.strictObject({
   interruptedAfter: z.string().trim().max(2000).optional(),
 });
 const HISTORY = 12;
+/** A spoken conversation keeps fewer earlier turns, for a quicker reply. */
+const SPOKEN_HISTORY = 8;
 
 export function coachRoutes(ctx: AppContext) {
   const r = new Hono<{ Variables: AppVariables }>();
@@ -81,7 +83,15 @@ export function coachRoutes(ctx: AppContext) {
       if (!found) return c.json({ error: 'not_found' }, 404);
       const { episode, series } = found;
 
-      let session = await latestSession(userId, episode.id);
+      // Everything the coach needs, fetched at once: each lookup is a round trip to the database.
+      const [sessionFound, requestRows, detailMap, prompts, language] = await Promise.all([
+        latestSession(userId, episode.id),
+        ctx.db.select().from(schema.learningRequest).where(eq(schema.learningRequest.id, series.learningRequestId)),
+        episodeDetails(ctx.db, [episode.id]),
+        getActivePrompts(ctx.db),
+        seriesLanguage(series.id),
+      ]);
+      let session = sessionFound;
       const history = session
         ? (
             await ctx.db
@@ -89,14 +99,15 @@ export function coachRoutes(ctx: AppContext) {
               .from(schema.coachingMessage)
               .where(eq(schema.coachingMessage.sessionId, session.id))
               .orderBy(desc(schema.coachingMessage.createdAt), desc(schema.coachingMessage.id))
-              .limit(HISTORY)
+              .limit(spoken ? SPOKEN_HISTORY : HISTORY)
           ).reverse()
         : [];
 
-      const [request] = await ctx.db.select().from(schema.learningRequest).where(eq(schema.learningRequest.id, series.learningRequestId));
-      const details = (await episodeDetails(ctx.db, [episode.id])).get(episode.id);
+      const request = requestRows[0];
+      const details = detailMap.get(episode.id);
       const recent = [...history.slice(-2).map((m) => m.content), parsed.data.content].join(' ');
-      const excerpts = selectExcerpts(episode.transcript ?? '', recent);
+      // A spoken turn gets a shorter brief, so the first words come back sooner.
+      const excerpts = selectExcerpts(episode.transcript ?? '', recent, spoken ? 600 : 1200);
       const context = {
         // Only the owner's original question is shared with the coach; for public episodes we use the episode's own objective.
         originalQuestion: series.userId === userId ? (request?.inputText ?? request?.objective ?? null) : null,
@@ -105,9 +116,9 @@ export function coachRoutes(ctx: AppContext) {
         mentalModels: details?.models.map((m) => ({ name: m.name, summary: m.summary, role: m.role })) ?? [],
         verifiedBooks: details?.sources.map((s) => s.title) ?? [],
       };
-      const instructions = (await getActivePrompts(ctx.db)).get('coach') ?? COACH_INSTRUCTIONS;
-      const languageRule = languageInstruction(await seriesLanguage(series.id));
-      const system = `STAGE: coach\n${instructions}\n\n${PRACTICE_COACH_INSTRUCTIONS}${spoken ? `\n\n${SPOKEN_COACH_INSTRUCTIONS}` : ''}${languageRule ? `\n\n${languageRule} Reply in that language unless the listener writes in another.` : ''}\n\nEpisode context (JSON):\n${JSON.stringify(context, null, 2)}\n\nTranscript excerpts:\n${excerpts.map((x, i) => `[${i + 1}] ${x}`).join('\n\n') || '(none)'}`;
+      const instructions = prompts.get('coach') ?? COACH_INSTRUCTIONS;
+      const languageRule = languageInstruction(language);
+      const system = `STAGE: coach\n${instructions}\n\n${PRACTICE_COACH_INSTRUCTIONS}${spoken ? `\n\n${SPOKEN_COACH_INSTRUCTIONS}` : ''}${languageRule ? `\n\n${languageRule} Reply in that language unless the listener writes in another.` : ''}\n\nEpisode context (JSON):\n${JSON.stringify(context)}\n\nTranscript excerpts:\n${excerpts.map((x, i) => `[${i + 1}] ${x}`).join('\n\n') || '(none)'}`;
       const messages: ChatMessage[] = [
         { role: 'system', content: system },
         ...history.map((m) => ({ role: m.role === 'coach' ? ('assistant' as const) : ('user' as const), content: m.content })),
@@ -119,7 +130,8 @@ export function coachRoutes(ctx: AppContext) {
         },
       ];
 
-      const options = spoken ? { temperature: 0.7, maxTokens: 400 } : { temperature: 0.6, maxTokens: 700 };
+      // Someone is waiting: a model at its limit hands over to the next at once instead of waiting.
+      const options = spoken ? { temperature: 0.7, maxTokens: 350, maxRateLimitWaitMs: 1500 } : { temperature: 0.6, maxTokens: 700, maxRateLimitWaitMs: 1500 };
       const failure = (err: unknown) => {
         if (err instanceof ProviderNotConfiguredError) return { status: 503 as const, body: { error: 'coach_unavailable', message: 'Coaching is not configured on this server yet.' } };
         console.error('[coach] model call failed', err instanceof LlmError ? err.message : err);

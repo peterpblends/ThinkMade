@@ -90,7 +90,7 @@ export function createOpenAiCompatibleLlm(cfg: OpenAiCompatibleConfig): LlmClien
         // A per-minute limit resets within seconds: wait here rather than requeueing the whole job.
         // Daily limits (long waits) go back to the caller as a 429.
         const wait = res.status === 429 ? retryAfterMs(res.headers) : null;
-        if (wait === null || wait > MAX_INLINE_WAIT_MS || attempt >= MAX_INLINE_RETRIES) break;
+        if (wait === null || wait > (options.maxRateLimitWaitMs ?? MAX_INLINE_WAIT_MS) || attempt >= MAX_INLINE_RETRIES) break;
         await res.body?.cancel().catch(() => {});
         await (cfg.sleep ?? ((ms) => abortableSleep(ms, options.signal)))(wait + 250);
         options.signal?.throwIfAborted();

@@ -214,6 +214,25 @@ describe('voice transcription', () => {
     form.set('audio', new File([new Uint8Array(10)], 'x.exe', { type: 'application/octet-stream' }));
     expect((await app.request('/api/transcribe', { method: 'POST', headers: { cookie }, body: form })).status).toBe(415);
   });
+
+  it('transcribes one turn of a spoken conversation, with names to spell right', async () => {
+    const { app, cookie } = await setup();
+    const seen: Array<{ language?: string; prompt?: string }> = [];
+    const stt = ctx!.stt!;
+    ctx!.stt = { name: 'spy', transcribe: async (audio, meta) => (seen.push(meta), stt.transcribe(audio, meta)) };
+    const form = new FormData();
+    form.set('audio', new File([new Uint8Array(4000)], 'turn.wav', { type: 'audio/wav' }));
+    form.set('language', 'es-MX');
+    form.set('prompt', 'Opportunity cost.');
+    const res = await app.request('/api/transcribe/turn', { method: 'POST', headers: { cookie, origin: ctx!.env.APP_URL }, body: form });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ text: 'How can I become a better leader?' });
+    expect(seen[0]).toMatchObject({ language: 'es', prompt: 'Opportunity cost.' });
+    const bad = new FormData();
+    bad.set('audio', new File([new Uint8Array(10)], 'x.exe', { type: 'application/octet-stream' }));
+    expect((await app.request('/api/transcribe/turn', { method: 'POST', headers: { cookie, origin: ctx!.env.APP_URL }, body: bad })).status).toBe(415);
+    expect((await app.request('/api/transcribe/turn', { method: 'POST', headers: { origin: ctx!.env.APP_URL }, body: form })).status).toBe(401);
+  });
 });
 
 describe('progress steps', () => {

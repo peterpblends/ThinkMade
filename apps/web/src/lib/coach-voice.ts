@@ -23,6 +23,11 @@ export interface CoachSpeaker {
   prepare(): void;
   /** Speaks `text`; resolves when it has been said or `stop` was called. `onProgress` reports what has been said so far. */
   speak(text: string, onProgress?: (spokenSoFar: string) => void): Promise<void>;
+  /**
+   * Adds `text` after whatever is already being said, with no gap: the next sentence is prepared while the
+   * one before plays. Resolves when it has been said (or `stop` was called).
+   */
+  say(text: string, onProgress?: (spokenSoFar: string) => void): Promise<void>;
   /** Stops speaking at once. */
   stop(): void;
 }
@@ -61,16 +66,28 @@ export function sentences(text: string): string[] {
  * `lang` is the conversation's language (a BCP-47 tag such as "es-MX"). The on-device Phonon voice speaks
  * English; other languages use the device's own voice for that language.
  */
+/** Longest wait for the natural voice's first sound before the device voice takes over (ms). */
+const FIRST_SOUND_MS = 900;
+
+/**
+ * `lang` is the conversation's language (a BCP-47 tag such as "es-MX"). The on-device Phonon voice speaks
+ * English; other languages use the device's own voice for that language.
+ */
 export function createCoachSpeaker(lang = 'en-US'): CoachSpeaker {
   const english = lang.toLowerCase().startsWith('en');
   let phonon: Phonon | null = null;
   let loading: Promise<void> | null = null;
-  // If this device can't generate speech faster than it plays, the device voice takes over.
+  // If this device can't generate speech quickly enough, the device voice takes over for good.
   let tooSlow = false;
   let ctx: AudioContext | null = null;
   let sources: AudioBufferSourceNode[] = [];
-  let abort: AbortController | null = null;
-  let finish: (() => void) | null = null;
+  // When the natural voice's scheduled audio ends (AudioContext time).
+  let t = 0;
+  // Everything queued since the last stop shares this signal; stop aborts it.
+  let abort = new AbortController();
+  type Item = { text: string; onProgress?: ((s: string) => void) | undefined; resolve: () => void; signal: AbortSignal };
+  const queue: Item[] = [];
+  let draining = false;
 
   const loadPhonon = () =>
     (loading ??= (async () => {
@@ -93,60 +110,101 @@ export function createCoachSpeaker(lang = 'en-US'): CoachSpeaker {
       }
     }
     sources = [];
+    if (ctx) t = ctx.currentTime;
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel();
   };
 
-  const speakDevice = (text: string, signal: AbortSignal, onProgress?: (s: string) => void) =>
+  /** Waits until the natural voice's scheduled audio has played (or the signal aborts). */
+  const untilPlayed = (signal: AbortSignal) =>
     new Promise<void>((resolve) => {
-      if (!('speechSynthesis' in window) || signal.aborted) return resolve();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = lang;
-      const v = deviceVoice(lang);
-      if (v) u.voice = v;
-      u.rate = 1.03;
-      u.onboundary = (e) => onProgress?.(text.slice(0, e.charIndex));
-      u.onend = () => resolve();
-      u.onerror = () => resolve();
-      signal.addEventListener('abort', () => resolve(), { once: true });
-      window.speechSynthesis.speak(u);
-    });
-
-  const speakPhonon = async (text: string, signal: AbortSignal, onProgress?: (s: string) => void) => {
-    const tts = phonon!;
-    ctx ??= new AudioContext();
-    if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
-    const parts = sentences(text);
-    let t = ctx.currentTime + 0.05;
-    let late = 0;
-    let said = '';
-    for (const part of parts) {
-      if (signal.aborted) return;
-      const stream = tts.stream(part, { voice: 'coach', temperature: 0.4, signal });
-      for await (const pcm of stream) {
-        if (signal.aborted) return;
-        const buffer = ctx.createBuffer(1, pcm.length, tts.sampleRate);
-        buffer.getChannelData(0).set(pcm);
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(ctx.destination);
-        if (t < ctx.currentTime - 0.15) late++;
-        t = Math.max(t, ctx.currentTime);
-        source.start(t);
-        sources.push(source);
-        t += buffer.duration;
-      }
-      said = `${said} ${part}`.trim();
-      const at = said;
-      setTimeout(() => onProgress?.(at), Math.max(0, (t - ctx.currentTime) * 1000));
-      t += 0.12; // a breath between sentences
-    }
-    if (late > 2) tooSlow = true;
-    // Wait for the scheduled audio to finish playing (or for stop).
-    await new Promise<void>((resolve) => {
-      const wait = Math.max(0, (t - ctx!.currentTime) * 1000);
+      const wait = ctx ? Math.max(0, (t - ctx.currentTime) * 1000) : 0;
+      if (!wait || signal.aborted) return resolve();
       const timer = setTimeout(resolve, wait);
       signal.addEventListener('abort', () => (clearTimeout(timer), resolve()), { once: true });
     });
+
+  const speakDevice = async (item: Item) => {
+    // Never talk over natural-voice audio that is still playing.
+    await untilPlayed(item.signal);
+    await new Promise<void>((resolve) => {
+      if (!('speechSynthesis' in window) || item.signal.aborted) return resolve();
+      const u = new SpeechSynthesisUtterance(item.text);
+      u.lang = lang;
+      const v = deviceVoice(lang);
+      if (v) u.voice = v;
+      u.rate = 1.05;
+      u.onboundary = (e) => item.onProgress?.(item.text.slice(0, e.charIndex));
+      u.onend = () => resolve();
+      u.onerror = () => resolve();
+      item.signal.addEventListener('abort', () => resolve(), { once: true });
+      window.speechSynthesis.speak(u);
+    });
+    item.onProgress?.(item.text);
+    item.resolve();
+  };
+
+  /** Synthesises the item and schedules it after what is already playing; resolves it when it will have played. */
+  const speakPhonon = async (item: Item) => {
+    const tts = phonon!;
+    ctx ??= new AudioContext();
+    if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+    const idle = t <= ctx.currentTime + 0.05;
+    const asked = performance.now();
+    let first = true;
+    let late = 0;
+    const stream = tts.stream(item.text, { voice: 'coach', temperature: 0.4, signal: item.signal });
+    for await (const pcm of stream) {
+      if (item.signal.aborted) return item.resolve();
+      if (first && idle && performance.now() - asked > FIRST_SOUND_MS) tooSlow = true;
+      first = false;
+      const buffer = ctx.createBuffer(1, pcm.length, tts.sampleRate);
+      buffer.getChannelData(0).set(pcm);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      if (t < ctx.currentTime - 0.15) late++;
+      t = Math.max(t, ctx.currentTime + 0.03);
+      source.start(t);
+      sources.push(source);
+      t += buffer.duration;
+    }
+    if (late > 2) tooSlow = true;
+    t += 0.1; // a breath between sentences
+    const ends = Math.max(0, (t - ctx.currentTime) * 1000);
+    const timer = setTimeout(() => (item.onProgress?.(item.text), item.resolve()), ends);
+    item.signal.addEventListener('abort', () => (clearTimeout(timer), item.resolve()), { once: true });
+  };
+
+  const drain = async () => {
+    if (draining) return;
+    draining = true;
+    while (queue.length) {
+      const item = queue.shift()!;
+      if (item.signal.aborted) {
+        item.resolve();
+        continue;
+      }
+      if (phonon && !tooSlow) {
+        // The natural voice runs ahead: the next sentence is prepared while this one plays.
+        await speakPhonon(item).catch(() => (item.signal.aborted ? item.resolve() : ((tooSlow = true), speakDevice(item))));
+      } else {
+        await speakDevice(item);
+      }
+    }
+    draining = false;
+  };
+
+  const say = (text: string, onProgress?: (s: string) => void) =>
+    new Promise<void>((resolve) => {
+      queue.push({ text, onProgress, resolve, signal: abort.signal });
+      void drain();
+    });
+
+  const stop = () => {
+    abort.abort();
+    abort = new AbortController();
+    for (const item of queue.splice(0)) item.resolve();
+    stopSound();
   };
 
   return {
@@ -170,23 +228,11 @@ export function createCoachSpeaker(lang = 'en-US'): CoachSpeaker {
       }
       void loadPhonon();
     },
-    async speak(text, onProgress) {
-      abort?.abort();
-      const controller = new AbortController();
-      abort = controller;
-      const done = new Promise<void>((resolve) => (finish = resolve));
-      const run = (phonon && !tooSlow ? speakPhonon(text, controller.signal, onProgress) : speakDevice(text, controller.signal, onProgress)).catch(() =>
-        // The natural voice failed mid-reply: say it with the device voice instead.
-        controller.signal.aborted ? undefined : ((tooSlow = true), speakDevice(text, controller.signal, onProgress)),
-      );
-      await Promise.race([run, done]);
-      if (abort === controller) abort = null;
+    say,
+    speak(text, onProgress) {
+      stop();
+      return say(text, onProgress);
     },
-    stop() {
-      abort?.abort();
-      abort = null;
-      stopSound();
-      finish?.();
-    },
+    stop,
   };
 }
