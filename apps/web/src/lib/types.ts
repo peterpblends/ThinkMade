@@ -44,6 +44,8 @@ export interface SeriesDetail {
   language?: string;
   originalLanguage?: string;
   languages?: string[];
+  /** The show's artwork version in use, how many it has, and (owner only) how many more can be made. */
+  artwork?: { selected: number; count: number; regenerationsLeft?: number };
 }
 
 export interface SeriesListItem {
@@ -56,4 +58,6 @@ export interface SeriesListItem {
   episodeCount: number;
   readyCount: number;
   totalSeconds: number;
+  /** The show's artwork version in use. */
+  art?: number;
 }

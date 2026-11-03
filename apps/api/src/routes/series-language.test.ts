@@ -95,7 +95,7 @@ describe('changing a podcast’s language', () => {
       return {
         provider: client.provider,
         model: client.model,
-        requestTokenLimit: client.requestTokenLimit,
+        ...(client.requestTokenLimit !== undefined ? { requestTokenLimit: client.requestTokenLimit } : {}),
         chat: async (messages, options) => {
           if (String(messages[0]?.content).startsWith('STAGE: translate')) translations++;
           return client.chat(messages, options);

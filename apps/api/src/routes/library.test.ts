@@ -166,6 +166,49 @@ describe('show artwork', () => {
   });
 });
 
+describe('making new show artwork', () => {
+  it('lets the owner make new artwork three times and switch back to any version', async () => {
+    const { app, cookie, headers, ep } = await withEpisode();
+    const id = ep.seriesId;
+    const detail = async () => ((await (await app.request(`/api/series/${id}`, { headers: { cookie } })).json()) as { artwork: { selected: number; count: number; regenerationsLeft?: number } }).artwork;
+    const cover = async (q = '') => (await app.request(`/api/series/${id}/cover.svg${q}`, { headers: { cookie } })).text();
+    expect(await detail()).toEqual({ selected: 0, count: 1, regenerationsLeft: 3 });
+    const original = await cover();
+
+    const made: string[] = [];
+    for (let i = 1; i <= 3; i++) {
+      const res = await app.request(`/api/series/${id}/artwork`, { method: 'POST', headers });
+      expect(res.status).toBe(201);
+      expect(await res.json()).toEqual({ selected: i, count: i + 1, regenerationsLeft: 3 - i });
+      made.push(await cover());
+    }
+    // Each new version is new art, and the current cover is the newest.
+    expect(new Set([original, ...made]).size).toBe(4);
+    expect(await cover(`?a=3`)).toBe(made[2]);
+    // No more after three, but every version can still be chosen, including the original.
+    const fourth = await app.request(`/api/series/${id}/artwork`, { method: 'POST', headers });
+    expect(fourth.status).toBe(409);
+    expect(((await fourth.json()) as { message: string }).message).toMatch(/switch between/);
+    expect(await cover('?art=1')).toBe(made[0]);
+    const back = await app.request(`/api/series/${id}/artwork`, { method: 'PUT', headers, body: JSON.stringify({ selected: 0 }) });
+    expect(await back.json()).toEqual({ selected: 0, count: 4, regenerationsLeft: 0 });
+    expect(await cover()).toBe(original);
+    expect((await app.request(`/api/series/${id}/artwork`, { method: 'PUT', headers, body: JSON.stringify({ selected: 4 }) })).status).toBe(400);
+    // The library lists the version in use, so the app asks for the right cover.
+    await app.request(`/api/series/${id}/artwork`, { method: 'PUT', headers, body: JSON.stringify({ selected: 2 }) });
+    const list = (await (await app.request('/api/series', { headers: { cookie } })).json()) as { series: Array<{ id: string; art: number }> };
+    expect(list.series.find((x) => x.id === id)!.art).toBe(2);
+  });
+
+  it('is only for the owner', async () => {
+    const { app, ep } = await withEpisode();
+    const other = await signUpVerified(app, ctx!, { email: 'someone@example.com' });
+    const headers = { cookie: other, 'content-type': 'application/json', origin: ctx!.env.APP_URL };
+    expect((await app.request(`/api/series/${ep.seriesId}/artwork`, { method: 'POST', headers })).status).toBe(404);
+    expect((await app.request(`/api/series/${ep.seriesId}/artwork`, { method: 'PUT', headers, body: JSON.stringify({ selected: 0 }) })).status).toBe(404);
+  });
+});
+
 describe('shared episode links', () => {
   it("open with that episode's own title in link previews, only for a public podcast", async () => {
     const { app, headers, ep } = await withEpisode();

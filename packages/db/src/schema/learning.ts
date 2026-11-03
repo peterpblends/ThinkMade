@@ -127,6 +127,11 @@ export const podcastSeries = pgTable(
     title: text('title').notNull(),
     description: text('description').notNull().default(''),
     coverKey: text('cover_key'),
+    /**
+     * The show's artwork versions (each drawn from a seed; the first is the series id) and the one in use.
+     * Null until the owner makes a new one: the original artwork only.
+     */
+    artwork: jsonb('artwork').$type<{ seeds: string[]; selected: number }>(),
     visibility: text('visibility').notNull().default('private'),
     publicSlug: text('public_slug').unique(),
     status: text('status').notNull().default('pending'), // pending | generating | ready | partial | failed
