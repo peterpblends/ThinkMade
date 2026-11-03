@@ -17,6 +17,7 @@ import { transcribeRoutes } from './routes/transcribe';
 import { uploadRoutes } from './routes/uploads';
 import { libraryRoutes } from './routes/library';
 import { coachRoutes } from './routes/coach';
+import { plannerRoutes } from './routes/planner';
 import { discoverRoutes, sharePageRoutes } from './routes/discover';
 
 export function createApp(ctx: AppContext) {
@@ -63,6 +64,7 @@ export function createApp(ctx: AppContext) {
   api.route('/', uploadRoutes(ctx));
   api.route('/', libraryRoutes(ctx));
   api.route('/', coachRoutes(ctx));
+  api.route('/', plannerRoutes(ctx));
   api.route('/', discoverRoutes(ctx));
   if (ctx.env.NODE_ENV === 'test') api.route('/_test', testOnlyRoutes(ctx));
   api.route('/admin', adminRoutes(ctx));

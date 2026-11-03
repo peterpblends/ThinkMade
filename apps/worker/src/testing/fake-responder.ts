@@ -142,6 +142,13 @@ export function fakeResponder(messages: ChatMessage[]): string {
         assumptions: ['The queue may mean this station is the bottleneck'],
         visibleText: '',
       });
+    case 'planner': {
+      // Asks one clarifying question, then (once the listener has answered) sets up the podcast.
+      const turns = messages.filter((m) => m.role === 'user').length;
+      return turns < 2
+        ? 'Got it. What would you most like to be able to do differently once you have listened?\nSETTINGS: {}'
+        : 'Great, I have set up three short episodes with two hosts to help you decide with more confidence.\nSETTINGS: {"brief": "I want to make better decisions under pressure at work.", "episodes": 3, "lengthMinutes": 10, "speakerFormat": "two_hosts", "learningMode": "deepen", "ready": true}';
+    }
     case 'coach':
       return 'Start by naming the alternative you are giving up, then estimate its value. What would you be giving up here?';
     default:
