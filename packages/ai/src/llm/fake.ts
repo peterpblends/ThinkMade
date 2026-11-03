@@ -5,8 +5,10 @@ export function createFakeLlm(respond: (messages: ChatMessage[]) => string, mode
   return {
     provider: 'fake',
     model,
-    async chat(messages) {
+    async chat(messages, options) {
       const content = respond(messages);
+      // Streams word by word, as a real model does.
+      if (options?.onToken) for (const piece of content.match(/\S+\s*|\s+/g) ?? []) options.onToken(piece);
       return { content, usage: { promptTokens: 0, completionTokens: 0 } };
     },
   };

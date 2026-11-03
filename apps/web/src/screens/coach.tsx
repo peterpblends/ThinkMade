@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { AudioLines, Mic, Send, Sparkles, Square, Volume2, VolumeX } from 'lucide-react';
-import { api, ApiError } from '../lib/api';
+import { AudioLines, Dumbbell, HelpCircle, Mic, Send, Sparkles, Square, Swords, Theater, UserRound, Volume2, VolumeX } from 'lucide-react';
+import { api, ApiError, streamApi } from '../lib/api';
 import { createCoachSpeaker } from '../lib/coach-voice';
 import { useVoiceConversation, type ConversationTurn, type VoiceConversation } from '../lib/conversation';
 import { useFeatures } from '../lib/features';
@@ -16,6 +16,15 @@ interface CoachMessage {
 }
 
 const SPEAK_KEY = 'tm-coach-speak';
+
+/** Ways to practise the episode's thinking with the coach, each started with one tap (or by saying it). */
+export const PRACTICE = [
+  { label: 'Role-play', icon: Theater, prompt: "Let's role-play a realistic situation where this episode's thinking matters. You play the other person; set the scene briefly, then let me respond." },
+  { label: 'Scenario', icon: Dumbbell, prompt: 'Give me a short, concrete scenario to work through with this thinking. Ask me what I would do, then challenge my reasoning.' },
+  { label: 'Quiz me', icon: HelpCircle, prompt: 'Quiz me on this episode, one question at a time. Wait for my answer before the next one.' },
+  { label: 'Apply it to me', icon: UserRound, prompt: 'Help me apply this to a real situation in my life. Ask me about it first, one question at a time.' },
+  { label: 'Challenge me', icon: Swords, prompt: "Play devil's advocate: argue against how I'm thinking about this so I can test it. Start by asking what my view is." },
+] as const;
 
 /** Reads text aloud with the device's own voice (free and private; nothing leaves the device). */
 function speak(text: string) {
@@ -78,6 +87,7 @@ export function CoachView({
   onSend,
   onCreatePodcast,
   sending,
+  busy = sending,
   creating = false,
   error,
   voice,
@@ -88,7 +98,10 @@ export function CoachView({
   messages: CoachMessage[];
   onSend: (text: string) => void;
   onCreatePodcast: () => void;
+  /** The coach is thinking: shows the thinking note. */
   sending: boolean;
+  /** A reply is still on its way (thinking or streaming): no new question yet. */
+  busy?: boolean;
   creating?: boolean;
   error?: string | null;
   voice: VoiceInput;
@@ -116,7 +129,7 @@ export function CoachView({
     endRef.current?.scrollIntoView?.({ block: 'end' });
     const last = messages.at(-1);
     // In a spoken conversation the coach already says its replies.
-    if (speakReplies && !talking && last?.role === 'coach' && last.id !== lastSpoken.current) {
+    if (speakReplies && !talking && last?.role === 'coach' && last.id !== 'streaming' && last.id !== lastSpoken.current) {
       lastSpoken.current = last.id;
       speak(last.content);
     }
@@ -125,7 +138,7 @@ export function CoachView({
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const q = text.trim();
-    if (!q || sending) return;
+    if (!q || busy) return;
     onSend(q);
     setText('');
   };
@@ -137,7 +150,7 @@ export function CoachView({
       <header>
         <p className="text-sm font-semibold text-muted">Coach Me</p>
         <h1 className="text-2xl">{episodeTitle}</h1>
-        <p className="mt-1 text-[0.95rem] text-muted">Ask anything about this episode. Try: "How would this apply to my situation?" or "Give me a different example."</p>
+        <p className="mt-1 text-[0.95rem] text-muted">Ask anything about this episode, or practise the thinking: role-play a situation, work through a scenario, or get quizzed.</p>
       </header>
 
       {talk?.supported && <TalkPanel talk={talk} />}
@@ -165,6 +178,22 @@ export function CoachView({
       )}
       {voice.error && <p role="alert" className="text-sm text-danger">{voice.error}</p>}
 
+      {!talking && (
+        <div role="group" aria-label="Practise" className="-mx-1 flex flex-wrap gap-2 px-1">
+          {PRACTICE.map(({ label, icon: Icon, prompt }) => (
+            <button
+              key={label}
+              type="button"
+              disabled={busy}
+              onClick={() => onSend(prompt)}
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-line bg-surface px-3.5 text-sm font-semibold text-ink hover:bg-surface-2 disabled:opacity-50"
+            >
+              <Icon aria-hidden size={16} className="text-accent-ink" /> {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {!talking && <form onSubmit={submit} className="flex items-end gap-2 rounded-[var(--radius-card)] border border-line bg-surface p-2 shadow-card">
         <label htmlFor="coach-q" className="sr-only">Your question</label>
         <textarea
@@ -188,7 +217,7 @@ export function CoachView({
             <Mic aria-hidden size={20} />
           </button>
         )}
-        <button type="submit" disabled={sending || !text.trim()} aria-label="Send" className="flex h-11 w-11 items-center justify-center rounded-full bg-accent-strong text-on-accent disabled:opacity-50">
+        <button type="submit" disabled={busy || !text.trim()} aria-label="Send" className="flex h-11 w-11 items-center justify-center rounded-full bg-accent-strong text-on-accent disabled:opacity-50">
           <Send aria-hidden size={18} />
         </button>
       </form>}
@@ -238,13 +267,14 @@ export function CoachScreen() {
   });
   // Spoken turns go straight to the coach, in the podcast's language; the conversation log refreshes after each reply.
   const talk = useVoiceConversation(
-    async (turn: ConversationTurn, signal: AbortSignal) => {
+    async (turn: ConversationTurn, signal: AbortSignal, onText: (soFar: string) => void) => {
       try {
-        const res = await api<{ reply: CoachMessage }>(`/api/coach/${episodeId}/messages`, {
-          method: 'POST',
-          body: JSON.stringify({ content: turn.text, spoken: true, ...(turn.interruptedAfter ? { interruptedAfter: turn.interruptedAfter } : {}) }),
+        const res = await streamApi<{ reply: CoachMessage }>(
+          `/api/coach/${episodeId}/messages`,
+          { content: turn.text, spoken: true, ...(turn.interruptedAfter ? { interruptedAfter: turn.interruptedAfter } : {}) },
+          onText,
           signal,
-        });
+        );
         void qc.invalidateQueries({ queryKey: ['coach', episodeId] });
         return res.reply.content;
       } catch (err) {
@@ -255,18 +285,28 @@ export function CoachScreen() {
     createCoachSpeaker,
     q.data?.speechLang ?? 'en-US',
   );
+  // The reply streams in as the coach writes it.
+  const [streaming, setStreaming] = useState<string | null>(null);
   const send = useMutation({
-    mutationFn: (content: string) => api<{ message: CoachMessage; reply: CoachMessage }>(`/api/coach/${episodeId}/messages`, { method: 'POST', body: JSON.stringify({ content }) }),
+    mutationFn: (content: string) => streamApi<{ message: CoachMessage; reply: CoachMessage }>(`/api/coach/${episodeId}/messages`, { content }, setStreaming),
     onMutate: (content) => {
       setError(null);
+      setStreaming(null);
       setOptimistic({ id: 'pending', role: 'user', content });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['coach', episodeId] }),
+    onSuccess: async (res) => {
+      // Show the finished exchange straight away, then refresh from the server.
+      qc.setQueryData<{ messages: CoachMessage[] }>(['coach', episodeId], (old) => (old ? { ...old, messages: [...old.messages, res.message, res.reply] } : old));
+      await qc.invalidateQueries({ queryKey: ['coach', episodeId] });
+    },
     onError: (err) => {
       const body = err instanceof ApiError ? (err.body as { message?: string } | null) : null;
       setError(body?.message ?? 'You seem to be offline. Coaching needs a connection.');
     },
-    onSettled: () => setOptimistic(null),
+    onSettled: () => {
+      setOptimistic(null);
+      setStreaming(null);
+    },
   });
   const create = useMutation({
     mutationFn: () => api<{ id: string }>('/api/generations', { method: 'POST', body: JSON.stringify({ topic: '', coachingSessionId: q.data?.session?.id }) }),
@@ -287,14 +327,15 @@ export function CoachScreen() {
     );
   }
   if (!q.data) return <p role="status" className="text-muted">Loading…</p>;
-  const messages = optimistic ? [...q.data.messages, optimistic] : q.data.messages;
+  const messages = [...q.data.messages, ...(optimistic ? [optimistic] : []), ...(optimistic && streaming ? [{ id: 'streaming', role: 'coach' as const, content: streaming }] : [])];
   return (
     <CoachView
       episodeTitle={q.data.episode.title}
       messages={messages}
       onSend={(t) => send.mutate(t)}
       onCreatePodcast={() => create.mutate()}
-      sending={send.isPending}
+      sending={send.isPending && !streaming}
+      busy={send.isPending}
       creating={create.isPending}
       error={error}
       voice={voice}

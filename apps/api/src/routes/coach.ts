@@ -1,10 +1,11 @@
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { LlmError, ProviderNotConfiguredError, type ChatMessage } from '@thinkmade/ai';
 import { getActivePrompts, schema } from '@thinkmade/db';
 import type { AppContext } from '../create-context';
-import { languageInfo, languageInstruction, SPOKEN_COACH_INSTRUCTIONS } from '@thinkmade/shared';
+import { languageInfo, languageInstruction, PRACTICE_COACH_INSTRUCTIONS, SPOKEN_COACH_INSTRUCTIONS } from '@thinkmade/shared';
 import { COACH_INSTRUCTIONS, selectExcerpts } from '../coach/context';
 import { requireFeature } from '../middleware/feature';
 import { rateLimit } from '../middleware/rate-limit';
@@ -106,7 +107,7 @@ export function coachRoutes(ctx: AppContext) {
       };
       const instructions = (await getActivePrompts(ctx.db)).get('coach') ?? COACH_INSTRUCTIONS;
       const languageRule = languageInstruction(await seriesLanguage(series.id));
-      const system = `STAGE: coach\n${instructions}${spoken ? `\n\n${SPOKEN_COACH_INSTRUCTIONS}` : ''}${languageRule ? `\n\n${languageRule} Reply in that language unless the listener writes in another.` : ''}\n\nEpisode context (JSON):\n${JSON.stringify(context, null, 2)}\n\nTranscript excerpts:\n${excerpts.map((x, i) => `[${i + 1}] ${x}`).join('\n\n') || '(none)'}`;
+      const system = `STAGE: coach\n${instructions}\n\n${PRACTICE_COACH_INSTRUCTIONS}${spoken ? `\n\n${SPOKEN_COACH_INSTRUCTIONS}` : ''}${languageRule ? `\n\n${languageRule} Reply in that language unless the listener writes in another.` : ''}\n\nEpisode context (JSON):\n${JSON.stringify(context, null, 2)}\n\nTranscript excerpts:\n${excerpts.map((x, i) => `[${i + 1}] ${x}`).join('\n\n') || '(none)'}`;
       const messages: ChatMessage[] = [
         { role: 'system', content: system },
         ...history.map((m) => ({ role: m.role === 'coach' ? ('assistant' as const) : ('user' as const), content: m.content })),
@@ -118,36 +119,61 @@ export function coachRoutes(ctx: AppContext) {
         },
       ];
 
+      const options = spoken ? { temperature: 0.7, maxTokens: 400 } : { temperature: 0.6, maxTokens: 700 };
+      const failure = (err: unknown) => {
+        if (err instanceof ProviderNotConfiguredError) return { status: 503 as const, body: { error: 'coach_unavailable', message: 'Coaching is not configured on this server yet.' } };
+        console.error('[coach] model call failed', err instanceof LlmError ? err.message : err);
+        return { status: 502 as const, body: { error: 'coach_failed', message: 'The coach could not answer just now. Please try again.' } };
+      };
+      /** Saves the question and the reply, and returns them as the app shows them. */
+      const save = async (replyText: string, tokens: number) => {
+        if (!session) {
+          const [created] = await ctx.db.insert(schema.coachingSession).values({ userId, episodeId: episode.id, title: parsed.data.content.slice(0, 120) }).returning();
+          session = created!;
+        }
+        const now = Date.now();
+        const [userMsg] = await ctx.db.insert(schema.coachingMessage).values({ sessionId: session!.id, role: 'user', content: parsed.data.content, createdAt: new Date(now) }).returning();
+        const [reply] = await ctx.db.insert(schema.coachingMessage).values({ sessionId: session!.id, role: 'coach', content: replyText, createdAt: new Date(now + 1) }).returning();
+        await ctx.db.update(schema.coachingSession).set({ updatedAt: new Date() }).where(eq(schema.coachingSession.id, session!.id));
+        await ctx.db.insert(schema.usageMetric).values({ metric: 'llm_tokens', provider: 'coach', value: tokens, userId });
+        return {
+          sessionId: session!.id,
+          message: { id: userMsg!.id, role: 'user', content: userMsg!.content, createdAt: userMsg!.createdAt },
+          reply: { id: reply!.id, role: 'coach', content: reply!.content, createdAt: reply!.createdAt },
+        };
+      };
+
+      // Streamed: the reply appears (and is spoken) as the model writes it, the way a chat assistant answers.
+      if (c.req.header('accept')?.includes('text/event-stream')) {
+        return streamSSE(c, async (stream) => {
+          const abort = new AbortController();
+          stream.onAbort(() => abort.abort());
+          try {
+            const llm = await ctx.llm('coach');
+            const res = await llm.chat(messages, { ...options, signal: abort.signal, onToken: (text) => void stream.writeSSE({ event: 'delta', data: JSON.stringify({ text }) }) });
+            const replyText = res.content.trim();
+            if (!replyText) throw new LlmError('The coach returned an empty reply');
+            await stream.writeSSE({ event: 'done', data: JSON.stringify(await save(replyText, res.usage.promptTokens + res.usage.completionTokens)) });
+          } catch (err) {
+            if (abort.signal.aborted) return;
+            await stream.writeSSE({ event: 'error', data: JSON.stringify(failure(err).body) });
+          }
+        });
+      }
+
       let replyText: string;
       let tokens = 0;
       try {
         const llm = await ctx.llm('coach');
-        const res = await llm.chat(messages, spoken ? { temperature: 0.7, maxTokens: 400 } : { temperature: 0.6, maxTokens: 600 });
+        const res = await llm.chat(messages, options);
         replyText = res.content.trim();
         tokens = res.usage.promptTokens + res.usage.completionTokens;
       } catch (err) {
-        if (err instanceof ProviderNotConfiguredError) {
-          return c.json({ error: 'coach_unavailable', message: 'Coaching is not configured on this server yet.' }, 503);
-        }
-        console.error('[coach] model call failed', err instanceof LlmError ? err.message : err);
-        return c.json({ error: 'coach_failed', message: 'The coach could not answer just now. Please try again.' }, 502);
+        const f = failure(err);
+        return c.json(f.body, f.status);
       }
       if (!replyText) return c.json({ error: 'coach_failed', message: 'The coach could not answer just now. Please try again.' }, 502);
-
-      if (!session) {
-        const [created] = await ctx.db.insert(schema.coachingSession).values({ userId, episodeId: episode.id, title: parsed.data.content.slice(0, 120) }).returning();
-        session = created!;
-      }
-      const now = Date.now();
-      const [userMsg] = await ctx.db.insert(schema.coachingMessage).values({ sessionId: session!.id, role: 'user', content: parsed.data.content, createdAt: new Date(now) }).returning();
-      const [reply] = await ctx.db.insert(schema.coachingMessage).values({ sessionId: session!.id, role: 'coach', content: replyText, createdAt: new Date(now + 1) }).returning();
-      await ctx.db.update(schema.coachingSession).set({ updatedAt: new Date() }).where(eq(schema.coachingSession.id, session!.id));
-      await ctx.db.insert(schema.usageMetric).values({ metric: 'llm_tokens', provider: 'coach', value: tokens, userId });
-      return c.json({
-        sessionId: session!.id,
-        message: { id: userMsg!.id, role: 'user', content: userMsg!.content, createdAt: userMsg!.createdAt },
-        reply: { id: reply!.id, role: 'coach', content: reply!.content, createdAt: reply!.createdAt },
-      });
+      return c.json(await save(replyText, tokens));
     },
   );
 

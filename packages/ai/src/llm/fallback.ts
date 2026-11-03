@@ -42,14 +42,17 @@ export function createFallbackLlm(clients: LlmClient[], log: (message: string) =
           errors.push(new LlmError(`${client.provider}/${client.model} is resting after reaching its limit`, 429, until - now()));
           continue;
         }
+        // Once a reply has started streaming, another model can't take over without repeating it.
+        let streamed = false;
+        const opts = options?.onToken ? { ...options, onToken: (t: string) => ((streamed = true), options.onToken!(t)) } : options;
         try {
-          const res = await client.chat(messages, options);
+          const res = await client.chat(messages, opts);
           resting.delete(key(client));
           if (i > 0) log(`[llm] ${primary.provider}/${primary.model} unavailable; answered by ${client.provider}/${client.model}`);
           return res;
         } catch (err) {
           errors.push(err);
-          if (options?.signal?.aborted) throw err;
+          if (options?.signal?.aborted || streamed) throw err;
           const rest = restFor(err);
           if (rest) {
             resting.set(key(client), now() + rest);

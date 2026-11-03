@@ -24,6 +24,59 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
+/**
+ * POSTs JSON and reads a streamed reply (server-sent events): `onText` gets the reply so far as each piece
+ * arrives; resolves with the final "done" event's data. Falls back to a plain JSON reply.
+ */
+export async function streamApi<T>(path: string, body: unknown, onText: (soFar: string) => void, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+    body: JSON.stringify(body),
+    credentials: 'same-origin',
+    ...(signal ? { signal } : {}),
+  });
+  if (!res.ok || !res.headers.get('content-type')?.includes('text/event-stream') || !res.body) {
+    const text = await res.text();
+    const data: unknown = text ? JSON.parse(text) : null;
+    if (!res.ok) throw new ApiError(res.status, (data as { error?: string } | null)?.error ?? 'request_failed', data);
+    return data as T;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let soFar = '';
+  let result: T | undefined;
+  const handle = (block: string) => {
+    let event = 'message';
+    let data = '';
+    for (const line of block.split('\n')) {
+      if (line.startsWith('event:')) event = line.slice(6).trim();
+      else if (line.startsWith('data:')) data += line.slice(5).replace(/^ /, '');
+    }
+    if (!data) return;
+    const parsed = JSON.parse(data) as { text?: string; error?: string };
+    if (event === 'delta' && parsed.text) {
+      soFar += parsed.text;
+      onText(soFar);
+    } else if (event === 'done') result = parsed as T;
+    else if (event === 'error') throw new ApiError(502, parsed.error ?? 'request_failed', parsed);
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+    let end: number;
+    while ((end = buffer.indexOf('\n\n')) >= 0) {
+      handle(buffer.slice(0, end));
+      buffer = buffer.slice(end + 2);
+    }
+  }
+  if (buffer.trim()) handle(buffer);
+  if (result === undefined) throw new ApiError(502, 'stream_ended', { message: 'The reply was cut off. Please try again.' });
+  return result;
+}
+
 export interface PublicPodcastSettings {
   defaultLengthMinutes: number;
   defaultEpisodes: number;

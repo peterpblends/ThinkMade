@@ -65,6 +65,35 @@ describe('createOpenAiCompatibleLlm', () => {
     expect(body).toMatchObject({ model: 'm', temperature: 0.2, response_format: { type: 'json_object' } });
   });
 
+  it('streams a reply piece by piece, even when a chunk splits across network packets', async () => {
+    let sent: Record<string, unknown> = {};
+    const events = [
+      'data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"Hel"}}]}\n\ndata: {"choi',
+      'ces":[{"delta":{"content":"lo there."}}]}\n\n',
+      'data: {"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3}}\n\ndata: [DONE]\n\n',
+    ];
+    const fetchFn = (async (_url: string, init: RequestInit) => {
+      sent = JSON.parse(String(init.body));
+      const enc = new TextEncoder();
+      return new Response(new ReadableStream({ start(c) { for (const e of events) c.enqueue(enc.encode(e)); c.close(); } }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }) as typeof fetch;
+    const llm = createOpenAiCompatibleLlm({ provider: 'groq', baseUrl: 'https://api.example/v1', model: 'm', fetch: fetchFn });
+    const pieces: string[] = [];
+    const res = await llm.chat([{ role: 'user', content: 'hi' }], { onToken: (t) => pieces.push(t) });
+    expect(sent).toMatchObject({ stream: true });
+    expect(pieces).toEqual(['Hel', 'lo there.']);
+    expect(res).toEqual({ content: 'Hello there.', usage: { promptTokens: 7, completionTokens: 3 } });
+  });
+
+  it('passes a whole reply on at once from a provider that does not stream', async () => {
+    const fetchFn = (async () => new Response(JSON.stringify({ choices: [{ message: { content: 'All at once.' } }] }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+    const llm = createOpenAiCompatibleLlm({ provider: 'groq', baseUrl: 'https://api.example/v1', model: 'm', fetch: fetchFn });
+    const pieces: string[] = [];
+    expect((await llm.chat([{ role: 'user', content: 'hi' }], { onToken: (t) => pieces.push(t) })).content).toBe('All at once.');
+    expect(pieces).toEqual(['All at once.']);
+  });
+
   it('adds admin params such as reasoning effort but never lets them override core fields', async () => {
     let body: Record<string, unknown> = {};
     const fetchFn = (async (_url: string, init: RequestInit) => {

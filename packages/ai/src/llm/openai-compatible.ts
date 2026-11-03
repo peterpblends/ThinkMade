@@ -69,6 +69,10 @@ export function createOpenAiCompatibleLlm(cfg: OpenAiCompatibleConfig): LlmClien
         body.max_tokens = Math.min(options.maxTokens ?? room, room);
       }
       if (options.json) body.response_format = { type: 'json_object' };
+      if (options.onToken) {
+        body.stream = true;
+        body.stream_options = { include_usage: true };
+      }
       const timeout = AbortSignal.timeout(cfg.timeoutMs ?? 180_000);
       const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
       let res: Response;
@@ -95,18 +99,68 @@ export function createOpenAiCompatibleLlm(cfg: OpenAiCompatibleConfig): LlmClien
         const detail = (await res.text().catch(() => '')).slice(0, 300);
         throw new LlmError(`${cfg.provider} returned ${res.status}: ${detail}`, res.status, res.status === 429 ? (retryAfterMs(res.headers) ?? undefined) : undefined);
       }
+      if (options.onToken && res.headers.get('content-type')?.includes('text/event-stream') && res.body) return readStream(res.body, options.onToken, cfg.provider);
       const data = (await res.json()) as {
         choices?: Array<{ message?: { content?: string | null } }>;
         usage?: { prompt_tokens?: number; completion_tokens?: number };
       };
       const content = data.choices?.[0]?.message?.content;
       if (typeof content !== 'string') throw new LlmError(`${cfg.provider} returned no message content`);
+      options.onToken?.(content);
       return {
         content,
         usage: { promptTokens: data.usage?.prompt_tokens ?? 0, completionTokens: data.usage?.completion_tokens ?? 0 },
       };
     },
   };
+}
+
+/** Reads an OpenAI-style server-sent event stream, passing each piece of text on as it arrives. */
+async function readStream(body: ReadableStream<Uint8Array>, onToken: (text: string) => void, provider: string): Promise<ChatResult> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let content = '';
+  const usage = { promptTokens: 0, completionTokens: 0 };
+  const handle = (line: string) => {
+    if (!line.startsWith('data:')) return;
+    const data = line.slice(5).trim();
+    if (!data || data === '[DONE]') return;
+    let chunk: { choices?: Array<{ delta?: { content?: string | null } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } | null; error?: { message?: string } };
+    try {
+      chunk = JSON.parse(data);
+    } catch {
+      return;
+    }
+    if (chunk.error) throw new LlmError(`${provider} stream failed: ${chunk.error.message ?? 'unknown error'}`);
+    const piece = chunk.choices?.[0]?.delta?.content;
+    if (piece) {
+      content += piece;
+      onToken(piece);
+    }
+    if (chunk.usage) {
+      usage.promptTokens = chunk.usage.prompt_tokens ?? usage.promptTokens;
+      usage.completionTokens = chunk.usage.completion_tokens ?? usage.completionTokens;
+    }
+  };
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buffer.indexOf('\n')) >= 0) {
+        handle(buffer.slice(0, nl).replace(/\r$/, ''));
+        buffer = buffer.slice(nl + 1);
+      }
+    }
+    if (buffer) handle(buffer);
+  } catch (err) {
+    if (err instanceof LlmError) throw err;
+    throw new LlmError(`${provider} stream broke off: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!content) throw new LlmError(`${provider} returned no message content`);
+  return { content, usage };
 }
 
 /** Waits, but ends early when the signal aborts (for example when the listener cancels). */

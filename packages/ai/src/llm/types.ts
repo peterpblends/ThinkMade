@@ -13,6 +13,11 @@ export interface ChatOptions {
   temperature?: number;
   maxTokens?: number;
   signal?: AbortSignal;
+  /**
+   * Streams the reply: called with each piece of text as the model writes it (the full reply is still
+   * returned). Providers that can't stream call it once with the whole reply.
+   */
+  onToken?: (text: string) => void;
 }
 
 export interface ChatResult {
