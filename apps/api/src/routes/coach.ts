@@ -60,7 +60,7 @@ export function coachRoutes(ctx: AppContext) {
           .orderBy(asc(schema.coachingMessage.createdAt), asc(schema.coachingMessage.id))
       : [];
     const language = await seriesLanguage(found.series.id);
-    return c.json({ session: session && { id: session.id }, episode: { id: found.episode.id, title: found.episode.title, seriesTitle: found.series.title }, language, speechLang: languageInfo(language).speech, messages });
+    return c.json({ session: session && { id: session.id }, episode: { id: found.episode.id, title: found.episode.title, seriesId: found.series.id, seriesTitle: found.series.title }, language, speechLang: languageInfo(language).speech, messages });
   });
 
   r.post(

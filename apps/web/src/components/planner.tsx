@@ -158,8 +158,9 @@ export function PlannerPanel({
           <div key={i} className={`flex flex-col gap-1 ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
             <Bubble role={m.role}>{m.content}</Bubble>
             {m.changes && m.changes.length > 0 && (
-              <p className="flex flex-wrap items-center gap-1 pl-1 text-xs text-muted">
-                <Check aria-hidden size={13} className="text-sage-ink" /> {m.changes.join(' · ')}
+              <p className="flex items-start gap-1 pl-1 text-xs text-muted">
+                <Check aria-hidden size={13} className="mt-0.5 shrink-0 text-sage-ink" />
+                <span>{m.changes.join(' · ')}</span>
               </p>
             )}
           </div>

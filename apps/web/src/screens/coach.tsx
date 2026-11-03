@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { AudioLines, Dumbbell, HelpCircle, Mic, Send, Sparkles, Square, Swords, Theater, UserRound, Volume2, VolumeX } from 'lucide-react';
+import { AudioLines, ChevronLeft, Dumbbell, HelpCircle, Mic, Send, Sparkles, Square, Swords, Theater, UserRound, Volume2, VolumeX } from 'lucide-react';
 import { api, ApiError, streamApi } from '../lib/api';
 import { createCoachSpeaker } from '../lib/coach-voice';
 import { useVoiceConversation, type ConversationTurn, type VoiceConversation } from '../lib/conversation';
@@ -83,6 +83,7 @@ function TalkPanel({ talk }: { talk: VoiceConversation }) {
 
 export function CoachView({
   episodeTitle,
+  series,
   messages,
   onSend,
   onCreatePodcast,
@@ -95,6 +96,8 @@ export function CoachView({
   allowVoiceInput = true,
 }: {
   episodeTitle: string;
+  /** The podcast this episode is from, to go back to. */
+  series?: { id: string; title: string } | undefined;
   messages: CoachMessage[];
   onSend: (text: string) => void;
   onCreatePodcast: () => void;
@@ -148,6 +151,14 @@ export function CoachView({
   return (
     <div className="flex flex-col gap-4">
       <header>
+        {series && (
+          <Link to={`/series/${series.id}`} aria-label={`Back to the podcast: ${series.title}`} className="-ml-1 mb-1 inline-flex min-h-11 max-w-full items-center gap-1 rounded-full pr-3 text-[0.95rem] font-semibold text-accent-ink hover:bg-surface-2">
+            <ChevronLeft aria-hidden size={20} className="shrink-0" />
+            <span className="truncate">
+              {series.title}
+            </span>
+          </Link>
+        )}
         <p className="text-sm font-semibold text-muted">Coach Me</p>
         <h1 className="text-2xl">{episodeTitle}</h1>
         <p className="mt-1 text-[0.95rem] text-muted">Ask anything about this episode, or practise the thinking: role-play a situation, work through a scenario, or get quizzed.</p>
@@ -263,7 +274,7 @@ export function CoachScreen() {
   const q = useQuery({
     queryKey: ['coach', episodeId],
     queryFn: () =>
-      api<{ session: { id: string } | null; episode: { id: string; title: string; seriesTitle: string }; language?: string; speechLang?: string; messages: CoachMessage[] }>(`/api/coach/${episodeId}`),
+      api<{ session: { id: string } | null; episode: { id: string; title: string; seriesId?: string; seriesTitle: string }; language?: string; speechLang?: string; messages: CoachMessage[] }>(`/api/coach/${episodeId}`),
   });
   // Spoken turns go straight to the coach, in the podcast's language; the conversation log refreshes after each reply.
   const talk = useVoiceConversation(
@@ -295,7 +306,9 @@ export function CoachScreen() {
       setOptimistic({ id: 'pending', role: 'user', content });
     },
     onSuccess: async (res) => {
-      // Show the finished exchange straight away, then refresh from the server.
+      // Show the finished exchange straight away (in place of the streamed copy), then refresh from the server.
+      setOptimistic(null);
+      setStreaming(null);
       qc.setQueryData<{ messages: CoachMessage[] }>(['coach', episodeId], (old) => (old ? { ...old, messages: [...old.messages, res.message, res.reply] } : old));
       await qc.invalidateQueries({ queryKey: ['coach', episodeId] });
     },
@@ -331,6 +344,7 @@ export function CoachScreen() {
   return (
     <CoachView
       episodeTitle={q.data.episode.title}
+      series={q.data.episode.seriesId ? { id: q.data.episode.seriesId, title: q.data.episode.seriesTitle } : undefined}
       messages={messages}
       onSend={(t) => send.mutate(t)}
       onCreatePodcast={() => create.mutate()}

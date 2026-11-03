@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Camera, MessagesSquare, Mic, Play, Square, SlidersHorizontal, Video, X } from 'lucide-react';
+import { Camera, MessageCircleQuestion, MessagesSquare, Mic, Play, Square, SlidersHorizontal, Video, X } from 'lucide-react';
 import { useVoiceInput, type VoiceInput } from '../lib/voice';
 import type { PublicPodcastSettings, PublicSettings, VoiceOption } from '../lib/api';
 import { LANGUAGES, languageInfo, type LanguageCode } from '@thinkmade/shared';
@@ -410,7 +410,7 @@ export function CreateForm({
   features,
 }: {
   /** Features an administrator switched on; all on when left out. */
-  features?: Partial<Record<'voiceInput' | 'mediaUploads' | 'languages' | 'planner' | 'voiceCoaching', boolean>>;
+  features?: Partial<Record<'voiceInput' | 'mediaUploads' | 'languages' | 'planner' | 'voiceCoaching' | 'coach', boolean>>;
   defaults: PublicPodcastSettings;
   media?: PublicSettings['media'];
   /** Voices listeners may pick; the picker is hidden without them. */
@@ -722,6 +722,15 @@ export function CreateForm({
           )}
           <ChoiceGroup legend="Learning mode" name="mode" options={MODES} value={custom.learningMode} onChange={(v) => update('learningMode', v)} />
         </div>
+      )}
+
+      {features?.coach !== false && (
+        <p className="mt-1 flex items-start justify-center gap-1.5 text-center text-[0.8rem] leading-snug text-muted">
+          <MessageCircleQuestion aria-hidden size={15} className="mt-px shrink-0 text-accent-ink" />
+          <span>
+            Every episode comes with <span className="font-semibold text-ink">Coach Me</span>, an AI coach to question, role-play and practise the thinking with.
+          </span>
+        </p>
       )}
     </form>
   );

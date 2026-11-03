@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { BookOpen, CircleCheck, Heart, MessageCircleQuestion, Pause, Play, RotateCcw, RotateCw, Share2, SkipForward, Star } from 'lucide-react';
+import { BookOpen, ChevronLeft, CircleCheck, Heart, MessageCircleQuestion, Pause, Play, RotateCcw, RotateCw, Share2, SkipForward, Star } from 'lucide-react';
 import { api } from '../lib/api';
 import { formatClock } from '../lib/format';
 import type { EpisodeSummary } from '../lib/types';
@@ -129,7 +129,13 @@ export function PlayerScreen() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col items-center gap-4 pt-2 text-center">
+      <Link to={`/series/${ep.seriesId}`} aria-label={`Back to the podcast: ${ep.seriesTitle}`} className="-mb-2 inline-flex min-h-11 max-w-full items-center gap-1 self-start rounded-full pr-3 text-[0.95rem] font-semibold text-accent-ink hover:bg-surface-2">
+        <ChevronLeft aria-hidden size={20} className="shrink-0" />
+        <span className="truncate">
+          {ep.seriesTitle}
+        </span>
+      </Link>
+      <div className="flex flex-col items-center gap-4 text-center">
         <ShowArt
           seriesId={ep.seriesId}
           title={ep.seriesTitle}
@@ -243,6 +249,7 @@ export function PlayerScreen() {
           <MessageCircleQuestion aria-hidden size={22} /> Coach Me
         </button>
       )}
+      {features.coach && <p className="-mt-3 text-center text-sm text-muted">Talk this episode through with an AI coach: ask questions, role-play a situation, or practise applying it to your life.</p>}
 
       {detail.data && (
         <section className="flex flex-col gap-4 rounded-[var(--radius-card)] border border-line bg-surface p-5">

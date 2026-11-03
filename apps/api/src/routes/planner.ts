@@ -61,7 +61,7 @@ function choices(settings: AppSettings) {
 }
 
 /** Reads the settings line at the end of a reply, keeping only valid, allowed values. */
-export function parsePlannerSettings(text: string, allowed: ReturnType<typeof choices>): PlannerSettings {
+export function parsePlannerSettings(text: string, allowed: { episodes: readonly number[]; lengthMinutes: readonly number[]; languages: ReadonlyArray<{ code: string }> }): PlannerSettings {
   const at = text.lastIndexOf(MARKER);
   if (at < 0) return {};
   const raw = text.slice(at + MARKER.length).trim();
