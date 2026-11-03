@@ -73,97 +73,107 @@ export async function voiceTranslation(opts: {
   let failed = 0;
 
   for (const { episode: ep, translation: t } of rows.sort((a, b) => a.episode.number - b.episode.number)) {
-    signal.throwIfAborted();
-    try {
-      // 1. The script in the new language (kept once made, so a resumed run doesn't translate it again).
-      let script = t.script;
-      if (!script?.length) {
-        const original = ep.script ?? [];
-        if (!original.length) throw new Error('This episode has no script to translate.');
-        const names = Object.fromEntries((ep.hosts ?? []).map((h) => [h.id, h.name]));
-        script = [];
-        for (const part of chunks(original)) {
-          let lines: Line[] | null = null;
-          for (let attempt = 0; attempt < 2 && !lines; attempt++) {
-            const messages: ChatMessage[] = [
-              { role: 'system', content: stageSystem('translate', `${TRANSLATE_SCRIPT_TASK}${rule ? `\n\n${rule}` : ''}`) },
-              {
-                role: 'user',
-                content: input({
-                  targetLanguage: languageLabel(language),
-                  seriesTitle: series?.title,
-                  episodeTitle: ep.title,
-                  speakers: names,
-                  lineCount: part.length,
-                  segments: part,
-                }),
-              },
-            ];
-            const res = await completeJson(llm, messages, translatedScriptSchema, { temperature: 0.3, maxTokens: 6000, signal });
-            opts.onTokens(res.usage.promptTokens + res.usage.completionTokens);
-            // Every line must come back, by the same speaker; otherwise ask again.
-            if (res.data.segments.length === part.length) lines = res.data.segments.map((s, i) => ({ speaker: part[i]!.speaker, text: s.text }));
-          }
-          if (!lines) throw new Error('The translation dropped or added lines.');
-          script.push(...lines);
-          await opts.keepAlive();
-        }
-        await db
-          .update(schema.episodeTranslation)
-          .set({ script, transcript: script.map((l) => `${names[l.speaker] ?? l.speaker}: ${l.text}`).join('\n\n'), updatedAt: new Date() })
-          .where(and(eq(schema.episodeTranslation.episodeId, ep.id), eq(schema.episodeTranslation.language, language)));
-      }
-
-      // 2. Native voices for the hosts: same names, same gender where the language has one.
-      const hosts = ep.hosts ?? [];
-      const cast = chooseHosts({
-        count: hosts.length,
-        language,
-        pool,
-        requested: hosts.map((h) => ({ name: h.name, gender: voiceInfo(h.voice)?.gender ?? null })),
-        ids: hosts.map((h) => h.id as HostId),
-        ...(options.voiceProfiles ? { profiles: options.voiceProfiles } : {}),
-      });
-      const voiceOf = new Map<string, string>(cast.map((h) => [h.id, h.voice]));
-
-      // 3. The audio.
-      const dir = join(deps.workDir, `translate-${ep.id}-${language}`);
-      mkdirSync(dir, { recursive: true });
+    // The script in the new language (kept once made, so a retry or a resumed run doesn't translate it again).
+    let script = t.script;
+    // An episode that errors is started over from the step that failed, once, before it is marked failed.
+    for (let attempt = 0; ; attempt++) {
+      signal.throwIfAborted();
       try {
-        const outFile = join(dir, 'episode.mp3');
-        const audio = await assembleEpisode({
-          signal,
-          turns: script.map((l) => ({ voice: voiceOf.get(l.speaker) ?? cast[0]!.voice, text: l.text })),
-          pacing: production.pacing,
-          expressiveness: production.expressiveness,
-          roomTone: production.roomTone,
-          natural: options.naturalDelivery === true,
+        // 1. The script in the new language.
+        if (!script?.length) {
+          const original = ep.script ?? [];
+          if (!original.length) throw new Error('This episode has no script to translate.');
+          const names = Object.fromEntries((ep.hosts ?? []).map((h) => [h.id, h.name]));
+          script = [];
+          for (const part of chunks(original)) {
+            let lines: Line[] | null = null;
+            for (let attempt = 0; attempt < 2 && !lines; attempt++) {
+              const messages: ChatMessage[] = [
+                { role: 'system', content: stageSystem('translate', `${TRANSLATE_SCRIPT_TASK}${rule ? `\n\n${rule}` : ''}`) },
+                {
+                  role: 'user',
+                  content: input({
+                    targetLanguage: languageLabel(language),
+                    seriesTitle: series?.title,
+                    episodeTitle: ep.title,
+                    speakers: names,
+                    lineCount: part.length,
+                    segments: part,
+                  }),
+                },
+              ];
+              const res = await completeJson(llm, messages, translatedScriptSchema, { temperature: 0.3, maxTokens: 6000, signal });
+              opts.onTokens(res.usage.promptTokens + res.usage.completionTokens);
+              // Every line must come back, by the same speaker; otherwise ask again.
+              if (res.data.segments.length === part.length) lines = res.data.segments.map((s, i) => ({ speaker: part[i]!.speaker, text: s.text }));
+            }
+            if (!lines) throw new Error('The translation dropped or added lines.');
+            script.push(...lines);
+            await opts.keepAlive();
+          }
+          await db
+            .update(schema.episodeTranslation)
+            .set({ script, transcript: script.map((l) => `${names[l.speaker] ?? l.speaker}: ${l.text}`).join('\n\n'), updatedAt: new Date() })
+            .where(and(eq(schema.episodeTranslation.episodeId, ep.id), eq(schema.episodeTranslation.language, language)));
+        }
+
+        // 2. Native voices for the hosts: same names, same gender where the language has one.
+        const hosts = ep.hosts ?? [];
+        const cast = chooseHosts({
+          count: hosts.length,
           language,
-          tts: deps.tts,
-          outFile,
-          workDir: dir,
-          bitrateKbps: options.bitrateKbps,
-          onProgress: opts.keepAlive,
+          pool,
+          requested: hosts.map((h) => ({ name: h.name, gender: voiceInfo(h.voice)?.gender ?? null })),
+          ids: hosts.map((h) => h.id as HostId),
+          ...(options.voiceProfiles ? { profiles: options.voiceProfiles } : {}),
         });
-        const audioKey = `audio/${seriesId}/${ep.id}-${language}.mp3`;
-        await deps.storage.putFile(audioKey, outFile, 'audio/mpeg');
+        const voiceOf = new Map<string, string>(cast.map((h) => [h.id, h.voice]));
+
+        // 3. The audio.
+        const dir = join(deps.workDir, `translate-${ep.id}-${language}`);
+        mkdirSync(dir, { recursive: true });
+        try {
+          const outFile = join(dir, 'episode.mp3');
+          const audio = await assembleEpisode({
+            signal,
+            turns: script.map((l) => ({ voice: voiceOf.get(l.speaker) ?? cast[0]!.voice, text: l.text })),
+            pacing: production.pacing,
+            expressiveness: production.expressiveness,
+            roomTone: production.roomTone,
+            natural: options.naturalDelivery === true,
+            language,
+            tts: deps.tts,
+            outFile,
+            workDir: dir,
+            bitrateKbps: options.bitrateKbps,
+            onProgress: opts.keepAlive,
+          });
+          const audioKey = `audio/${seriesId}/${ep.id}-${language}.mp3`;
+          await deps.storage.putFile(audioKey, outFile, 'audio/mpeg');
+          await db
+            .update(schema.episodeTranslation)
+            .set({ status: 'ready', audioKey, audioBytes: audio.bytes, durationSeconds: audio.durationSeconds, hosts: cast.map((h) => ({ id: h.id, name: h.name, voice: h.voice })), updatedAt: new Date() })
+            .where(and(eq(schema.episodeTranslation.episodeId, ep.id), eq(schema.episodeTranslation.language, language)));
+          voiced++;
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+        break;
+      } catch (err) {
+        // Rate limits and cancellation stop the whole run (it resumes later); anything else fails this episode only.
+        if (signal.aborted || (err as { status?: number }).status === 429) throw err;
+        if (attempt < 1) {
+          opts.log('translation step failed; starting it over', { episodeId: ep.id, language, message: err instanceof Error ? err.message : String(err) });
+          continue;
+        }
+        opts.log('translation failed', { episodeId: ep.id, language, message: err instanceof Error ? err.message : String(err) });
         await db
           .update(schema.episodeTranslation)
-          .set({ status: 'ready', audioKey, audioBytes: audio.bytes, durationSeconds: audio.durationSeconds, hosts: cast.map((h) => ({ id: h.id, name: h.name, voice: h.voice })), updatedAt: new Date() })
+          .set({ status: 'failed', updatedAt: new Date() })
           .where(and(eq(schema.episodeTranslation.episodeId, ep.id), eq(schema.episodeTranslation.language, language)));
-        voiced++;
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
+        failed++;
+        break;
       }
-    } catch (err) {
-      // Rate limits and cancellation stop the whole run (it resumes later); anything else fails this episode only.
-      if (signal.aborted || (err as { status?: number }).status === 429) throw err;
-      opts.log('translation failed', { episodeId: ep.id, language, message: err instanceof Error ? err.message : String(err) });
-      await db
-        .update(schema.episodeTranslation)
-        .set({ status: 'failed', updatedAt: new Date() })
-        .where(and(eq(schema.episodeTranslation.episodeId, ep.id), eq(schema.episodeTranslation.language, language)));
-      failed++;
     }
   }
   return { voiced, failed };

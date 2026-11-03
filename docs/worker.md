@@ -12,6 +12,22 @@ The worker does all the long work, so Vercel's request time limits never matter:
 
 It claims jobs from the `generation_job` table in Postgres. It makes only outbound connections unless you turn on the optional embedding server below.
 
+## Quality review and recovery
+
+**Before any audio is made**, every script is reviewed: automatic checks (length, stock phrases, one host doing all the talking, markdown or stage directions that would be read aloud, repetition) and a language-model review that scores it against the episode's goals. A script that fails is fixed before it is voiced:
+
+1. The sections the review marked weak are rewritten with the reviewer's notes, up to **Section rewrites per draft** times (Admin → Settings → Quality, default 2).
+2. If it still fails, the whole episode is written again from scratch, told everything the failed drafts were marked down for, up to **Fresh drafts of the whole episode** times (default 2). Each fresh draft gets its own rewrites.
+3. Only a script that fails all of that is held for a person to review in Admin → Quality. It is never voiced.
+
+**When something errors partway**, only the step that failed is started over:
+
+- Each step (a section of script, a review, an episode's audio) is retried in place twice, a few seconds apart. Everything finished before it is kept.
+- If it still fails, the job is retried later (after 15 and 30 seconds), carrying on from its saved progress.
+- When those retries are used up, the job starts again on its own after 5 minutes, and once more after an hour, from the step that failed. Only then is the podcast marked as errored (an admin can still restart it).
+- Usage limits wait for the provider's allowance instead (up to a day and a half), and a rejected API key or missing configuration fails at once, since retrying can't fix them.
+- Voicing another language retries an episode that errors once, without translating it again, before marking it failed.
+
 ## Where to run it (all free)
 
 | Option | Card needed | Always available | Limits |

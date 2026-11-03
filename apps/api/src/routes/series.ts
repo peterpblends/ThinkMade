@@ -8,7 +8,8 @@ import { FollowUpError, startFollowUp, type FollowUp } from '../generation/follo
 import { requireSession, requireVerified, type AppVariables } from '../middleware/session';
 import { inLanguage, languageView, LanguageSwitchError, switchLanguage } from '../generation/translation';
 import { dailyLimitMessage } from './generation';
-import { coverSvg } from '@thinkmade/brand/cover';
+import { coverLook, coverSvg } from '@thinkmade/brand/cover';
+import { artworkOf, MAX_ARTWORK_REGENERATIONS } from '@thinkmade/shared';
 
 /** Owner, or anyone when the series is public. Returns null otherwise so callers answer 404. */
 export async function readableSeries(db: Db, seriesId: string, userId: string | null) {
@@ -98,6 +99,8 @@ export function seriesRoutes(ctx: AppContext) {
         status: schema.podcastSeries.status,
         visibility: schema.podcastSeries.visibility,
         createdAt: schema.podcastSeries.createdAt,
+        // The artwork version in use, so the app asks for the right cover.
+        art: sql<number>`coalesce(("podcast_series"."artwork"->>'selected')::int, 0)`,
         // Episodes a reviewer rejected are never shown to the listener.
         episodeCount: sql<number>`(select count(*)::int from episode e where e.series_id = "podcast_series"."id" and e.status <> 'rejected')`,
         readyCount: sql<number>`(select count(*)::int from episode e where e.series_id = "podcast_series"."id" and e.status = 'ready')`,
@@ -117,18 +120,66 @@ export function seriesRoutes(ctx: AppContext) {
     return c.json({ series: rows });
   });
 
-  // Show artwork: a square cover with the show's title (the app adds ?v=<title hash> so a renamed show refreshes).
+  // Show artwork: a square cover with the show's title. The app adds ?v=<title hash>&a=<artwork version>, so a
+  // renamed show or new artwork refreshes; ?art=<n> draws one of the owner's artwork versions to choose from.
   r.get('/series/:id/cover.svg', async (c) => {
     const { features } = (await ctx.settings.getActive()).settings;
     if (!features.showArtwork) return c.json({ error: 'not_found' }, 404);
     const s = await readableSeries(ctx.db, c.req.param('id'), c.var.session?.user.id ?? null);
     if (!s) return c.json({ error: 'not_found' }, 404);
-    // The title in the language the series is shown in (the seed keeps its colours across languages).
+    const { seeds, selected } = artworkOf(s);
+    const asked = c.req.query('art');
+    const n = asked !== undefined && /^\d+$/.test(asked) && Number(asked) < seeds.length ? Number(asked) : selected;
+    // The title in the language the series is shown in (the seed keeps its art the same in every language).
     const { title } = await languageView(ctx, s, []);
-    return c.body(coverSvg({ title, seed: s.id }), 200, {
+    // A versioned address never changes; an unversioned one may (new artwork), so it is kept only briefly.
+    const versioned = c.req.query('a') !== undefined || asked !== undefined;
+    return c.body(coverSvg({ title, seed: seeds[n]! }), 200, {
       'Content-Type': 'image/svg+xml; charset=utf-8',
-      'Cache-Control': s.visibility === 'public' ? 'public, max-age=86400' : 'private, max-age=86400',
+      'Cache-Control': `${s.visibility === 'public' ? 'public' : 'private'}, max-age=${versioned ? 86400 : 300}`,
     });
+  });
+
+  /** The artwork versions as the app shows them. */
+  const artworkView = (s: { id: string; artwork?: { seeds: string[]; selected: number } | null }, isOwner: boolean) => {
+    const { seeds, selected } = artworkOf(s);
+    return { selected, count: seeds.length, ...(isOwner ? { regenerationsLeft: Math.max(0, MAX_ARTWORK_REGENERATIONS + 1 - seeds.length) } : {}) };
+  };
+
+  // The owner makes new artwork for the show (a few times), which is then used.
+  r.post('/series/:id/artwork', requireVerified(), async (c) => {
+    const { features } = (await ctx.settings.getActive()).settings;
+    if (!features.showArtwork) return c.json({ error: 'feature_off', message: 'Show artwork is turned off right now.' }, 403);
+    const [s] = await ctx.db.select().from(schema.podcastSeries).where(and(eq(schema.podcastSeries.id, c.req.param('id')), eq(schema.podcastSeries.userId, c.var.session!.user.id)));
+    if (!s) return c.json({ error: 'not_found' }, 404);
+    const { seeds } = artworkOf(s);
+    if (seeds.length > MAX_ARTWORK_REGENERATIONS) {
+      return c.json({ error: 'limit_reached', message: `You've made new artwork ${MAX_ARTWORK_REGENERATIONS} times for this show. You can still switch between the versions you have.` }, 409);
+    }
+    // New art should look new: a different style and palette from every version so far, where one can be found.
+    const looks = seeds.map(coverLook);
+    let seed = crypto.randomUUID();
+    for (let i = 0; i < 50; i++) {
+      const look = coverLook(seed);
+      if (!looks.some((l) => l.style === look.style || l.palette === look.palette)) break;
+      seed = crypto.randomUUID();
+    }
+    const artwork = { seeds: [...seeds, seed], selected: seeds.length };
+    await ctx.db.update(schema.podcastSeries).set({ artwork }).where(eq(schema.podcastSeries.id, s.id));
+    return c.json(artworkView({ id: s.id, artwork }, true), 201);
+  });
+
+  // The owner picks which artwork version the show uses.
+  r.put('/series/:id/artwork', requireVerified(), async (c) => {
+    const body = z.strictObject({ selected: z.number().int().min(0) }).safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: 'invalid_request' }, 400);
+    const [s] = await ctx.db.select().from(schema.podcastSeries).where(and(eq(schema.podcastSeries.id, c.req.param('id')), eq(schema.podcastSeries.userId, c.var.session!.user.id)));
+    if (!s) return c.json({ error: 'not_found' }, 404);
+    const { seeds } = artworkOf(s);
+    if (body.data.selected >= seeds.length) return c.json({ error: 'invalid_request' }, 400);
+    const artwork = { seeds, selected: body.data.selected };
+    await ctx.db.update(schema.podcastSeries).set({ artwork }).where(eq(schema.podcastSeries.id, s.id));
+    return c.json(artworkView({ id: s.id, artwork }, true));
   });
 
   r.get('/series/:id', async (c) => {
@@ -169,6 +220,7 @@ export function seriesRoutes(ctx: AppContext) {
       language: view.language,
       originalLanguage: view.originalLanguage,
       languages: view.languages,
+      artwork: artworkView(s, isOwner),
       episodes: eps.map((e) => inLanguage(serialiseEpisode(e, details.get(e.id)), view.episodes.get(e.id), view.originalLanguage)),
     });
   });

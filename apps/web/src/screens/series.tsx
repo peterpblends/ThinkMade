@@ -15,6 +15,7 @@ import { useNavigate } from 'react-router';
 import { useFeatures, usePublicSettings } from '../lib/features';
 import { LANGUAGES, languageInfo } from '@thinkmade/shared';
 import { ShowArt } from '../components/show-art';
+import { ArtworkPicker } from '../components/artwork-picker';
 import { publicSlugFor, SHARE_NOTE, shareTarget } from '../lib/share';
 
 export function toPlayable(ep: EpisodeSummary, seriesTitle: string): PlayableEpisode {
@@ -220,7 +221,7 @@ export function PublicEpisodeScreen() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-4">
-        <ShowArt seriesId={s.id} title={s.title} decorative className="w-24 rounded-2xl shadow-card sm:w-28" />
+        <ShowArt seriesId={s.id} title={s.title} art={s.artwork?.selected} decorative className="w-24 rounded-2xl shadow-card sm:w-28" />
         <div className="min-w-0">
           <p className="text-sm font-semibold text-muted">From the podcast</p>
           <Link to={`/p/${slug}`} className="font-serif text-xl font-semibold leading-snug underline-offset-4 hover:underline">
@@ -385,7 +386,8 @@ function SeriesView({ s }: { s: SeriesDetail }) {
   ].sort((a, b) => a.number - b.number);
   return (
     <div>
-      <ShowArt seriesId={s.id} title={s.title} decorative className="mb-4 w-40 rounded-2xl shadow-card sm:w-48" />
+      <ShowArt seriesId={s.id} title={s.title} art={s.artwork?.selected} decorative className="mb-4 w-40 rounded-2xl shadow-card sm:w-48" />
+      {s.isOwner && <ArtworkPicker s={s} />}
       <PageHeader title={s.title} subtitle={s.description} />
       {s.isOwner ? <LanguageSwitch s={s} /> : s.language && s.language !== 'en' ? <p className="-mt-3 mb-5 text-sm text-muted">In {languageInfo(s.language).native}</p> : null}
       {!s.isOwner && s.visibility === 'public' && <PublicActions s={s} />}

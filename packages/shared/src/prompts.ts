@@ -93,6 +93,7 @@ Craft:
 - Write for the ear: spell out numbers, symbols and abbreviations as they should be spoken. No stage directions, sound effects, markdown or emojis.
 - When naturalDelivery is true, write the way people actually talk, not the way they write: mostly short sentences with the odd long one, thoughts that change direction mid-sentence ("It's not that— well, it's more that..."), a speaker briefly correcting or rephrasing themselves, small asides, questions answered with a pause for thought ("Hm. I think it's..."), and natural connectors ("so", "and honestly", "I mean", "you know"). Use these lightly, a few per section, and never "um" or "uh". Put a quick reaction from the other host in its own short line where a listener would hear one.
 - Hit the target word count closely; it controls the episode length.
+If "qualityIssues" is given, an earlier draft of this episode failed quality review for these reasons: write a completely fresh version that avoids every one of them (don't reuse the earlier draft's lines).
 If "continueFrom" is given, the section so far ends with that text: continue the conversation from exactly there with about "wordsNeeded" more words, without repeating anything already said.
 Also return a 2–3 sentence summary of what this section covered.
 Shape: {"segments": [{"speaker": "A" | "B" | "C" | "D", "text": string}], "summary": string}`;

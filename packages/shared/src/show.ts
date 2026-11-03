@@ -68,3 +68,13 @@ export function castHosts(hosts: Host[], format: ShowFormat, hostStyle = ''): Ho
     };
   });
 }
+
+/** How many times an owner can make new artwork for a show (they can always go back to an earlier one). */
+export const MAX_ARTWORK_REGENERATIONS = 3;
+
+/** A show's artwork versions (seeds) and the one in use; the original artwork is drawn from the series id. */
+export function artworkOf(series: { id: string; artwork?: { seeds: string[]; selected: number } | null }): { seeds: string[]; selected: number } {
+  const seeds = series.artwork?.seeds?.length ? series.artwork.seeds : [series.id];
+  const selected = Math.min(Math.max(0, series.artwork?.selected ?? 0), seeds.length - 1);
+  return { seeds, selected };
+}

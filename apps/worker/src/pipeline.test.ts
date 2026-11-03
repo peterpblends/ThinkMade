@@ -84,14 +84,37 @@ describe('generation pipeline', () => {
     expect(secondPrimaries.some((id) => firstPrimaries.includes(id))).toBe(false);
   });
 
-  it('resumes from saved state after a temporary failure instead of starting over', async () => {
+  it('starts a step that errors over in place, keeping everything before it', async () => {
     const calls: string[] = [];
-    let failedOnce = false;
+    let failures = 0;
     world = await makeWorld((messages: ChatMessage[]) => {
       const stage = String(messages[0]!.content).match(/^STAGE: (\w+)/)![1]!;
       calls.push(stage);
-      if (stage === 'script' && !failedOnce) {
-        failedOnce = true;
+      if (stage === 'script' && failures < 2) {
+        failures++;
+        throw new Error('temporary outage');
+      }
+      return fakeResponder(messages);
+    });
+    const job = await world.enqueue('Hiccup', { episodes: 1 });
+    await runNextJob(world.deps);
+    expect((await jobRow(job.id)).status).toBe('succeeded');
+    expect(calls.filter((c) => c === 'understand')).toHaveLength(1);
+    expect(calls.filter((c) => c === 'plan')).toHaveLength(1);
+    const steps = await world.db.select().from(schema.generationStage).where(eq(schema.generationStage.jobId, job.id));
+    const script = steps.filter((st) => st.stage === 'script' && st.note?.startsWith('section 1 of'));
+    expect(script.map((st) => st.status)).toEqual(['failed', 'failed', 'done']);
+    expect(script[2]!.note).toMatch(/retry 2/);
+  });
+
+  it('resumes from saved state when a step keeps failing, instead of starting over', async () => {
+    const calls: string[] = [];
+    let failures = 0;
+    world = await makeWorld((messages: ChatMessage[]) => {
+      const stage = String(messages[0]!.content).match(/^STAGE: (\w+)/)![1]!;
+      calls.push(stage);
+      if (stage === 'script' && failures < 3) {
+        failures++;
         throw new Error('temporary outage');
       }
       return fakeResponder(messages);
@@ -109,6 +132,33 @@ describe('generation pipeline', () => {
     expect(j.status).toBe('succeeded');
     expect(calls.filter((c) => c === 'understand')).toHaveLength(1);
     expect(calls.filter((c) => c === 'plan')).toHaveLength(1);
+  });
+
+  it('starts a job that used up its retries again automatically, then gives up after two restarts', async () => {
+    world = await makeWorld((messages: ChatMessage[]) => {
+      if (String(messages[0]!.content).startsWith('STAGE: script')) throw new Error('service down');
+      return fakeResponder(messages);
+    });
+    const job = await world.enqueue('Stubborn', { episodes: 1 });
+    const t = schema.generationJob;
+    const runDue = async () => {
+      await world!.db.update(t).set({ runAfter: new Date(0) }).where(eq(t.id, job.id));
+      await runNextJob(world!.deps);
+      return jobRow(job.id);
+    };
+    for (let i = 0; i < 2; i++) expect((await runDue()).status).toBe('queued');
+    // Third attempt used: restarted later, from the same step, with fresh attempts.
+    let j = await runDue();
+    expect(j.status).toBe('queued');
+    expect(j.attempts).toBe(0);
+    expect((j.state as { autoRestarts?: number }).autoRestarts).toBe(1);
+    expect((j.state as { plan?: unknown }).plan).toBeTruthy();
+    expect((j.runAfter.getTime() - Date.now()) / 60_000).toBeGreaterThan(4);
+    for (let i = 0; i < 3; i++) j = await runDue();
+    expect((j.state as { autoRestarts?: number }).autoRestarts).toBe(2);
+    for (let i = 0; i < 3; i++) j = await runDue();
+    expect(j.status).toBe('failed');
+    expect(j.error).toMatch(/service down/);
   });
 
   it('stops when the user cancels', async () => {
@@ -187,6 +237,35 @@ describe('quality gate', () => {
     setFakeValidation(() => ({ scores: { model: 5, thinking: 5, seeing: 5, doing: 5, flow: 5, accuracy: 5, sources: 5, repetition: 5 }, passed: true, problems: [], sectionsToRevise: [], revisionNotes: '' }));
   });
 
+  it('writes a fresh draft, told what failed, when rewrites cannot fix a script', async () => {
+    const { setFakeValidation } = await import('./testing/fake-responder');
+    let judged = 0;
+    const fail = { scores: { model: 5, thinking: 5, seeing: 5, doing: 5, flow: 2, accuracy: 5, sources: 5, repetition: 5 }, passed: false, problems: ['The hosts talk past each other.'], sectionsToRevise: [1], revisionNotes: 'Make them respond to each other.' };
+    const pass = { scores: { model: 5, thinking: 5, seeing: 5, doing: 5, flow: 5, accuracy: 5, sources: 5, repetition: 5 }, passed: true, problems: [], sectionsToRevise: [], revisionNotes: '' };
+    setFakeValidation(() => (++judged <= 3 ? fail : pass));
+    const scriptInputs: string[] = [];
+    world = await makeWorld((messages) => {
+      if (String(messages[0]!.content).startsWith('STAGE: script')) scriptInputs.push(String(messages[1]!.content));
+      return fakeResponder(messages);
+    });
+    try {
+      const job = await world.enqueue('Second draft', { episodes: 1, speakerFormat: 'single' });
+      await runNextJob(world.deps);
+      expect((await jobRow(job.id)).status).toBe('succeeded');
+      const [ep] = await world.db.select().from(schema.episode);
+      expect(ep!.status).toBe('ready');
+      const checks = await world.db.select().from(schema.episodeQualityCheck).where(eq(schema.episodeQualityCheck.episodeId, ep!.id));
+      expect(checks.map((c) => [c.revision, c.passed]).sort((a, b) => a[0]! - b[0]!)).toEqual([[1, 0], [2, 0], [3, 0], [4, 1]]);
+      // The fresh draft was told what the failed one was marked down for.
+      const fresh = scriptInputs.filter((x) => x.includes('qualityIssues'));
+      expect(fresh.length).toBeGreaterThan(0);
+      expect(fresh[0]).toContain('The hosts talk past each other.');
+      expect(fresh[0]).not.toContain('previousText');
+    } finally {
+      setFakeValidation(() => pass);
+    }
+  });
+
   it('holds a script that keeps failing for review instead of voicing it', async () => {
     const { setFakeValidation } = await import('./testing/fake-responder');
     setFakeValidation(() => ({ scores: { model: 5, thinking: 5, seeing: 5, doing: 5, flow: 5, accuracy: 2, sources: 2, repetition: 5 }, passed: false, problems: ['Cites a statistic with no source.'], sectionsToRevise: [1], revisionNotes: 'Remove the statistic.' }));
@@ -200,7 +279,9 @@ describe('quality gate', () => {
     expect(ep!.status).toBe('needs_review');
     expect(ep!.audioKey).toBeNull();
     const checks = await world.db.select().from(schema.episodeQualityCheck);
-    expect(checks).toHaveLength(3); // first review + 2 revisions (admin default)
+    // Three drafts (the first and two fresh ones), each reviewed and then rewritten twice (admin defaults).
+    expect(checks).toHaveLength(9);
+    expect(checks.map((c) => c.revision)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(checks.every((c) => c.passed === 0)).toBe(true);
     setFakeValidation(() => ({ scores: { model: 5, thinking: 5, seeing: 5, doing: 5, flow: 5, accuracy: 5, sources: 5, repetition: 5 }, passed: true, problems: [], sectionsToRevise: [], revisionNotes: '' }));
   });

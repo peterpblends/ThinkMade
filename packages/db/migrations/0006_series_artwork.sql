@@ -1,0 +1,1 @@
+ALTER TABLE "podcast_series" ADD COLUMN "artwork" jsonb;

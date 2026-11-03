@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { PlaybackEvent } from '@thinkmade/shared';
 import { deviceId, sendProgressOnline, shouldSaveProgress, type ProgressSender } from './progress';
+import { coverUrl } from '../components/show-art';
 
 export interface PlayableEpisode {
   id: string;
@@ -191,7 +192,7 @@ export function PlayerProvider({ children, sendProgress = sendProgressOnline, re
       album: state.current.seriesTitle,
       artwork: [
         // The show's cover where the system can show SVG; the app icon otherwise.
-        { src: `/api/series/${encodeURIComponent(state.current.seriesId)}/cover.svg`, sizes: '1400x1400', type: 'image/svg+xml' },
+        { src: coverUrl(state.current.seriesId, state.current.seriesTitle), sizes: '1400x1400', type: 'image/svg+xml' },
         ...[192, 512].map((s) => ({ src: `/icons/icon-${s}.png`, sizes: `${s}x${s}`, type: 'image/png' })),
       ],
     });
