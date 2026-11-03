@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Camera, Mic, Play, Square, SlidersHorizontal, Video, X } from 'lucide-react';
+import { Camera, MessageCircleQuestion, MessagesSquare, Mic, Play, Square, SlidersHorizontal, Video, X } from 'lucide-react';
 import { useVoiceInput, type VoiceInput } from '../lib/voice';
 import type { PublicPodcastSettings, PublicSettings, VoiceOption } from '../lib/api';
 import { LANGUAGES, languageInfo, type LanguageCode } from '@thinkmade/shared';
 import { Button } from '../components/ui';
+import { PlannerPanel, type PlannerSettings } from '../components/planner';
 import { CREATE_EXAMPLES, EXAMPLE_INTERVAL_MS } from './create-examples';
 
 export interface Customization {
@@ -231,6 +232,15 @@ const SPEAKERS = [
   { value: 'mixed', label: 'Mixed', hint: 'Episodes vary the format.' },
 ] as const;
 
+/** Which voices have an accent the planner can ask for. */
+const ACCENT_MATCH: Record<Exclude<NonNullable<PlannerSettings['voiceAccent']>, 'any'>, (v: VoiceOption) => boolean> = {
+  american: (v) => v.accent === 'US' && !v.heritage,
+  british: (v) => v.accent === 'UK',
+  latino: (v) => v.heritage === 'latino',
+  'south-asian': (v) => v.heritage === 'south-asian',
+  'east-asian': (v) => v.heritage === 'east-asian',
+};
+
 const HOST_TAG: Record<Customization['speakerFormat'], string> = { single: '1', two_hosts: '2', mixed: 'Mixed' };
 
 const MODES = [
@@ -400,7 +410,7 @@ export function CreateForm({
   features,
 }: {
   /** Features an administrator switched on; all on when left out. */
-  features?: Partial<Record<'voiceInput' | 'mediaUploads' | 'languages', boolean>>;
+  features?: Partial<Record<'voiceInput' | 'mediaUploads' | 'languages' | 'planner' | 'voiceCoaching' | 'coach', boolean>>;
   defaults: PublicPodcastSettings;
   media?: PublicSettings['media'];
   /** Voices listeners may pick; the picker is hidden without them. */
@@ -486,6 +496,46 @@ export function CreateForm({
   const update = <K extends keyof Customization>(key: K, value: Customization[K]) => {
     setTouchedCustom(true);
     setCustom((c) => ({ ...c, [key]: value }));
+  };
+
+  const [planning, setPlanning] = useState(false);
+  /** Applies what the planner set up: the request in the listener's words, and the settings. */
+  const applyPlan = (p: PlannerSettings) => {
+    if (p.brief) setTopic(p.brief);
+    const next = { ...custom };
+    if (p.episodes) next.episodes = p.episodes;
+    if (p.lengthMinutes) next.lengthMinutes = p.lengthMinutes;
+    if (p.speakerFormat) next.speakerFormat = p.speakerFormat;
+    if (p.learningMode) next.learningMode = p.learningMode;
+    if (p.episodes || p.lengthMinutes || p.speakerFormat || p.learningMode) {
+      setTouchedCustom(true);
+      setCustom(next);
+    }
+    const lang = (p.language && languageChoices.some((l) => l.code === p.language) ? p.language : language) as LanguageCode;
+    if (lang !== language) {
+      setLanguage(lang);
+      setChosenVoices(null);
+    }
+    const gender = p.voiceGender === 'any' ? null : (p.voiceGender ?? voiceGender);
+    if (p.voiceGender) {
+      setVoiceGender(gender);
+      setChosenVoices(null);
+    }
+    if (p.voiceAccent === 'any') setChosenVoices(null);
+    else if (p.voiceAccent) {
+      // Voices with that accent (and gender, if asked for), one per host.
+      const match = ACCENT_MATCH[p.voiceAccent];
+      const pool = voiceOptions.filter((v) => (v.speaks ?? ['en']).includes(lang) && match(v));
+      const hosts = next.speakerFormat === 'single' ? 1 : 2;
+      // A female and a male voice in turn, unless a gender was asked for.
+      const females = pool.filter((v) => v.gender === 'female');
+      const males = pool.filter((v) => v.gender === 'male');
+      const ordered = gender ? pool.filter((v) => v.gender === gender) : Array.from({ length: Math.max(females.length, males.length) }, (_, i) => [females[i], males[i]]).flat().filter((v): v is VoiceOption => !!v);
+      if (ordered.length >= hosts) {
+        setChosenVoices(ordered.slice(0, hosts).map((v) => v.id));
+        setVoiceGender(null);
+      }
+    }
   };
 
   const submit = (e: FormEvent) => {
@@ -576,6 +626,25 @@ export function CreateForm({
         </p>
       )}
 
+      {features?.planner !== false &&
+        (planning ? (
+          <PlannerPanel
+            current={{ topic, ...custom, ...(voiceGender ? { voiceGender } : {}), language }}
+            onApply={applyPlan}
+            onClose={() => setPlanning(false)}
+            allowTalk={features?.voiceCoaching !== false}
+            languageName={(c) => languageInfo(c).native}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setPlanning(true)}
+            className="inline-flex min-h-11 items-center justify-center gap-2 self-center rounded-full px-4 text-[0.95rem] font-semibold text-accent-ink hover:bg-surface-2"
+          >
+            <MessagesSquare aria-hidden size={18} /> Not sure how to put it? Plan it with me
+          </button>
+        ))}
+
       <Button type="submit" block busy={busy} className="min-h-14 text-[1.05rem]">
         Create My Podcasts
       </Button>
@@ -653,6 +722,15 @@ export function CreateForm({
           )}
           <ChoiceGroup legend="Learning mode" name="mode" options={MODES} value={custom.learningMode} onChange={(v) => update('learningMode', v)} />
         </div>
+      )}
+
+      {features?.coach !== false && (
+        <p className="mt-1 flex items-start justify-center gap-1.5 text-center text-[0.8rem] leading-snug text-muted">
+          <MessageCircleQuestion aria-hidden size={15} className="mt-px shrink-0 text-accent-ink" />
+          <span>
+            Every episode comes with <span className="font-semibold text-ink">Coach Me</span>, an AI coach to question, role-play and practise the thinking with.
+          </span>
+        </p>
       )}
     </form>
   );

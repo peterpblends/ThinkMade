@@ -46,6 +46,44 @@ describe('Coach Me', () => {
     expect(seen.at(-1)).toEqual({ role: 'user', content: 'How do I spot this at work?' });
   });
 
+  it('streams the reply as it is written, then saves it, and knows how to run practice exercises', async () => {
+    const { app, headers, cookie, ep } = await withEpisode();
+    let system = '';
+    setFakeResponder((m) => {
+      if (textOf(m[0]!.content).startsWith('STAGE: coach')) {
+        system = textOf(m[0]!.content);
+        return "I'm your sceptical manager. Why should I approve this plan?";
+      }
+      return fakeResponder(m);
+    });
+    const res = await app.request(`/api/coach/${ep.id}/messages`, { method: 'POST', headers: { ...headers, accept: 'text/event-stream' }, body: JSON.stringify({ content: "Let's role-play." }) });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/text\/event-stream/);
+    const body = await res.text();
+    const events = body.split('\n\n').filter(Boolean).map((block) => ({ event: block.match(/^event: (.+)$/m)?.[1], data: JSON.parse(block.match(/^data: (.+)$/m)![1]!) }));
+    const deltas = events.filter((e) => e.event === 'delta').map((e) => e.data.text as string);
+    expect(deltas.length).toBeGreaterThan(3);
+    expect(deltas.join('')).toBe("I'm your sceptical manager. Why should I approve this plan?");
+    const done = events.find((e) => e.event === 'done')!.data;
+    expect(done.reply).toMatchObject({ role: 'coach', content: "I'm your sceptical manager. Why should I approve this plan?" });
+    expect(system).toMatch(/Role-play: take on a realistic character/);
+    expect(system).toMatch(/Quiz: ask one question at a time/);
+    const saved = (await (await app.request(`/api/coach/${ep.id}`, { headers: { cookie } })).json()) as { messages: Array<{ content: string }> };
+    expect(saved.messages.map((m) => m.content)).toEqual(["Let's role-play.", "I'm your sceptical manager. Why should I approve this plan?"]);
+  });
+
+  it('reports a failed streamed reply as an error event', async () => {
+    const { app, headers, ep } = await withEpisode();
+    setFakeResponder((m) => {
+      if (textOf(m[0]!.content).startsWith('STAGE: coach')) throw new Error('model down');
+      return fakeResponder(m);
+    });
+    const res = await app.request(`/api/coach/${ep.id}/messages`, { method: 'POST', headers: { ...headers, accept: 'text/event-stream' }, body: JSON.stringify({ content: 'Hello?' }) });
+    const body = await res.text();
+    expect(body).toMatch(/event: error/);
+    expect(body).toMatch(/could not answer just now/);
+  });
+
   it('answers briefly, to be spoken, in a hands-free conversation, knowing where it was interrupted', async () => {
     const { app, headers, cookie, ep } = await withEpisode();
     let seen: ChatMessage[] = [];

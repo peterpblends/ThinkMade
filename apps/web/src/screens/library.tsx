@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { CheckCircle2, Heart, Library as LibraryIcon, LoaderCircle, Play, Search } from 'lucide-react';
+import { CheckCircle2, Download, Heart, Library as LibraryIcon, LoaderCircle, Play, PlayCircle, Search } from 'lucide-react';
 import { api } from '../lib/api';
 import { useSession } from '../lib/auth-client';
 import { formatDuration } from '../lib/format';
@@ -40,6 +40,14 @@ interface LibraryData {
 
 export const TABS = ['Continue Listening', 'My Podcasts', 'Downloads', 'Completed', 'Favorites'] as const;
 export type LibraryTab = (typeof TABS)[number];
+/** Each section's icon and short name, so all five fit across a phone without scrolling. */
+const TAB_LOOK: Record<LibraryTab, { icon: typeof Play; short: string }> = {
+  'Continue Listening': { icon: PlayCircle, short: 'Listening' },
+  'My Podcasts': { icon: LibraryIcon, short: 'Podcasts' },
+  Downloads: { icon: Download, short: 'Downloads' },
+  Completed: { icon: CheckCircle2, short: 'Completed' },
+  Favorites: { icon: Heart, short: 'Favorites' },
+};
 
 export function toPlayableFromLibrary(e: LibraryEpisode): PlayableEpisode {
   return { id: e.id, title: e.title, seriesId: e.seriesId, seriesTitle: e.seriesTitle, number: e.number, primaryModelName: e.primaryModel?.name ?? null, audioUrl: e.audioUrl, durationSeconds: e.durationSeconds };
@@ -262,18 +270,24 @@ export function LibraryScreen() {
   return (
     <div>
       <PageHeader title="My Library" />
-      <div role="tablist" aria-label="Library sections" className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            role="tab"
-            aria-selected={tab === t}
-            onClick={() => setTab(t)}
-            className="min-h-11 shrink-0 rounded-full border border-line px-4 text-[0.95rem] aria-selected:border-accent-strong aria-selected:bg-accent-strong aria-selected:text-on-accent"
-          >
-            {t}
-          </button>
-        ))}
+      <div role="tablist" aria-label="Library sections" className="mb-4 grid grid-cols-5 gap-1 rounded-2xl border border-line bg-surface-2 p-1 sm:flex sm:flex-wrap sm:gap-2 sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0">
+        {TABS.map((t) => {
+          const { icon: Icon, short } = TAB_LOOK[t];
+          return (
+            <button
+              key={t}
+              role="tab"
+              aria-selected={tab === t}
+              aria-label={t}
+              onClick={() => setTab(t)}
+              className="flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 text-[0.7rem] font-semibold leading-tight text-muted transition-colors aria-selected:bg-surface aria-selected:text-accent-ink aria-selected:shadow-card sm:min-h-11 sm:flex-row sm:gap-1.5 sm:rounded-full sm:border sm:border-line sm:px-4 sm:text-[0.95rem] sm:font-normal sm:text-ink sm:aria-selected:border-accent-strong sm:aria-selected:bg-accent-strong sm:aria-selected:text-on-accent"
+            >
+              <Icon aria-hidden size={18} className="shrink-0 sm:hidden" />
+              <span className="max-w-full truncate sm:hidden">{short}</span>
+              <span className="hidden sm:inline">{t}</span>
+            </button>
+          );
+        })}
       </div>
 
       {showFilters ? (

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createCoachSpeaker, type CoachSpeaker } from './coach-voice';
+import { createCoachSpeaker, sentences, type CoachSpeaker } from './coach-voice';
 
 /**
  * A hands-free spoken conversation. After one tap to start (browsers need a tap before using the microphone
  * and speakers), it listens continuously: when the listener stops talking, their words go to the coach and the
- * reply is spoken. Talking over the coach stops it at once and starts the listener's next turn; speaking
+ * reply is spoken as it streams in, sentence by sentence, so the coach starts talking within a moment, as a
+ * person would. Talking over the coach stops it at once and starts the listener's next turn; speaking
  * again while the coach is thinking adds to the question instead. It keeps going until the listener ends it.
  */
 
@@ -68,7 +69,8 @@ const BARGE_IN_WORDS = 2;
 
 /** `lang` is the language the listener speaks (a BCP-47 tag such as "es-MX"), read when the conversation starts. */
 export function useVoiceConversation(
-  ask: (turn: ConversationTurn, signal: AbortSignal) => Promise<string>,
+  /** Sends a turn and resolves with the whole reply; `onText` (optional) reports the reply so far as it streams. */
+  ask: (turn: ConversationTurn, signal: AbortSignal, onText: (soFar: string) => void) => Promise<string>,
   speakerFactory: (lang: string) => CoachSpeaker = createCoachSpeaker,
   lang = 'en-US',
 ): VoiceConversation {
@@ -134,32 +136,79 @@ export function useVoiceConversation(
     setPhase('thinking');
     const controller = new AbortController();
     pending.current = controller;
-    let reply: string;
-    try {
-      reply = await askRef.current(turn, controller.signal);
-    } catch (err) {
-      if (controller.signal.aborted || !active.current) return;
-      setError(err instanceof Error && err.message ? err.message : 'The coach could not answer just now.');
-      carried.current = '';
-      setPhase('listening');
-      return;
-    }
-    if (controller.signal.aborted || !active.current) return;
-    pending.current = null;
-    carried.current = '';
-    resetTurn();
-    replyText.current = reply;
-    spokenSoFar.current = '';
-    setCoachLine(reply);
-    setPhase('speaking');
-    await speaker.current!.speak(reply, (s) => (spokenSoFar.current = s));
-    if (!active.current) return;
-    if (phaseRef.current === 'speaking') {
+    const live = () => !controller.signal.aborted && active.current;
+
+    // Speak each sentence as soon as it has streamed in, one after another.
+    const queue: string[] = [];
+    let queuedSentences = 0;
+    let said = '';
+    let speaking = false;
+    let streamDone = false;
+    const finish = () => {
+      if (!live() || speaking || queue.length || !streamDone) return;
+      pending.current = null;
       // What the microphone picked up while the coach spoke (its own voice, an "mm") isn't the next question.
       resetTurn();
       setCoachLine('');
       setPhase('listening');
+    };
+    const pump = async () => {
+      if (speaking) return;
+      speaking = true;
+      while (queue.length && live()) {
+        const line = queue.shift()!;
+        if (phaseRef.current === 'thinking') {
+          // The coach starts talking: the listener's question is done.
+          carried.current = '';
+          resetTurn();
+          spokenSoFar.current = '';
+          setPhase('speaking');
+        }
+        if (phaseRef.current !== 'speaking') break;
+        setCoachLine(line);
+        await speaker.current!.speak(line, (p) => (spokenSoFar.current = `${said} ${p}`.trim()));
+        said = `${said} ${line}`.trim();
+      }
+      speaking = false;
+      finish();
+    };
+    const onText = (soFar: string) => {
+      if (!live()) return;
+      replyText.current = soFar;
+      // Only finished sentences are spoken while the reply is still coming; the last one waits for the end.
+      const done = sentences(soFar);
+      const complete = /[.!?]["')\]]*\s*$/.test(soFar) ? done : done.slice(0, -1);
+      while (queuedSentences < complete.length) queue.push(complete[queuedSentences++]!);
+      void pump();
+    };
+
+    let reply: string;
+    try {
+      reply = await askRef.current(turn, controller.signal, onText);
+    } catch (err) {
+      if (!live()) return;
+      if (queuedSentences > 0) {
+        // It broke off mid-reply: finish saying what arrived.
+        streamDone = true;
+        finish();
+        return;
+      }
+      setError(err instanceof Error && err.message ? err.message : 'The coach could not answer just now.');
+      pending.current = null;
+      carried.current = '';
+      setPhase('listening');
+      return;
     }
+    if (!live()) return;
+    replyText.current = reply;
+    const all = sentences(reply);
+    while (queuedSentences < all.length) queue.push(all[queuedSentences++]!);
+    streamDone = true;
+    if (!all.length) {
+      finish();
+      return;
+    }
+    void pump();
   }, []);
 
   /** Called whenever recognition hears something. */
@@ -170,6 +219,9 @@ export function useVoiceConversation(
       // Talking over the coach: stop it and start the listener's turn, unless it's the coach's own voice.
       if (words(fresh).length < BARGE_IN_WORDS || isEcho(fresh, replyText.current)) return;
       interruptedAfter.current = spokenSoFar.current || replyText.current.slice(0, 80);
+      // Stop talking, and stop the rest of the reply that is still streaming in.
+      pending.current?.abort();
+      pending.current = null;
       speaker.current?.stop();
       setCoachLine('');
       setPhase('listening');

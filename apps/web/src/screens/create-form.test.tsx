@@ -305,3 +305,54 @@ describe('CreateForm', () => {
     expect(screen.getByRole('button', { name: /cancel recording/i })).toBeEnabled();
   });
 });
+
+describe('planning a podcast by conversation', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('asks clarifying questions, then rewrites the request and changes the settings as the listener talks', async () => {
+    const sent: Array<{ messages: Array<{ role: string; content: string }>; current: Record<string, unknown> }> = [];
+    const replies = [
+      { reply: 'What would you like to do differently afterwards?', settings: {} },
+      { reply: 'Done: three ten-minute episodes, two British hosts, going deeper.', settings: { brief: 'I want to stay calm and decide well under pressure at work.', episodes: 3, lengthMinutes: 10, speakerFormat: 'two_hosts', voiceAccent: 'british', learningMode: 'deepen', ready: true } },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        sent.push(JSON.parse(String(init.body)));
+        return new Response(JSON.stringify(replies[sent.length - 1]), { status: 200, headers: { 'content-type': 'application/json' } });
+      }),
+    );
+    const onCreate = vi.fn();
+    render(<CreateForm defaults={defaults} voices={voices} onCreate={onCreate} />);
+    await userEvent.type(screen.getByRole('textbox', { name: /your topic/i }), 'I freeze on urgent decisions');
+    await userEvent.click(screen.getByRole('button', { name: /plan it with me/i }));
+    // What they already wrote starts the conversation.
+    expect(await screen.findByText('What would you like to do differently afterwards?')).toBeInTheDocument();
+    expect(sent[0]!.messages).toEqual([{ role: 'user', content: 'I freeze on urgent decisions' }]);
+    expect(sent[0]!.current).toMatchObject({ topic: 'I freeze on urgent decisions', episodes: 3, lengthMinutes: 15 });
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Your answer' }), 'Stay calm at work. Two British hosts, short episodes.{Enter}');
+    expect(await screen.findByText(/three ten-minute episodes/)).toBeInTheDocument();
+    expect(sent[1]!.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    expect(screen.getByText(/Request updated · 3 episodes · 10 min · Two hosts · British voices · Deepen/)).toBeInTheDocument();
+    expect(screen.getByText(/Your podcast is set up/)).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /your topic/i })).toHaveValue('I want to stay calm and decide well under pressure at work.');
+    const tags = within(screen.getByRole('list', { name: 'Podcast settings' }));
+    expect(tags.getByText('10 min')).toBeInTheDocument();
+    expect(tags.getByText('Deepen')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create My Podcasts' }));
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: 'I want to stay calm and decide well under pressure at work.',
+        customization: { lengthMinutes: 10, episodes: 3, speakerFormat: 'two_hosts', learningMode: 'deepen' },
+        voices: ['phonon:freya', 'bm_george'],
+      }),
+    );
+  });
+
+  it('is hidden while switched off', () => {
+    render(<CreateForm defaults={defaults} onCreate={vi.fn()} features={{ planner: false }} />);
+    expect(screen.queryByRole('button', { name: /plan it with me/i })).toBeNull();
+  });
+});

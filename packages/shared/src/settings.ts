@@ -123,7 +123,7 @@ const alertsSchema = z.strictObject({
 });
 
 /** Features an administrator can switch on or off. */
-export const FEATURE_KEYS = ['coach', 'voiceCoaching', 'voiceInput', 'mediaUploads', 'accentVoices', 'languages', 'naturalDelivery', 'showArtwork'] as const;
+export const FEATURE_KEYS = ['coach', 'voiceCoaching', 'voiceInput', 'mediaUploads', 'accentVoices', 'languages', 'naturalDelivery', 'showArtwork', 'planner'] as const;
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
 export const FEATURE_INFO: Record<FeatureKey, { label: string; description: string }> = {
   coach: { label: 'Coach Me', description: 'Listeners can ask a coach about any episode.' },
@@ -134,6 +134,7 @@ export const FEATURE_INFO: Record<FeatureKey, { label: string; description: stri
   languages: { label: 'Other languages', description: 'Podcasts in Spanish, French, Portuguese (Brazil), Italian and Hindi, with native voices.' },
   naturalDelivery: { label: 'Natural delivery', description: 'Conversational phrasing, breathing room and a warmer, less synthetic sound in new episodes.' },
   showArtwork: { label: 'Show artwork', description: 'A cover image with the title for every podcast show.' },
+  planner: { label: 'Plan with me', description: 'On the Create page, a conversation (typed or spoken) that asks clarifying questions and sets up the podcast.' },
 };
 const featuresSchema = z.strictObject(Object.fromEntries(FEATURE_KEYS.map((k) => [k, z.boolean()])) as Record<FeatureKey, z.ZodBoolean>);
 export const DEFAULT_FEATURES: Record<FeatureKey, boolean> = Object.fromEntries(FEATURE_KEYS.map((k) => [k, true])) as Record<FeatureKey, boolean>;

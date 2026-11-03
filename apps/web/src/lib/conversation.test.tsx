@@ -100,11 +100,44 @@ describe('a spoken conversation with the coach', () => {
 
     await answer();
     expect(hook.result.current.phase).toBe('speaking');
-    expect(speaker.spoken).toEqual(['You said how do I start. What would you try first?']);
+    // Said a sentence at a time.
+    expect(speaker.spoken).toEqual(['You said how do I start.']);
+    act(() => speaker.finishSpeaking());
+    await flush();
+    expect(speaker.spoken).toEqual(['You said how do I start.', 'What would you try first?']);
+    expect(hook.result.current.phase).toBe('speaking');
     act(() => speaker.finishSpeaking());
     await flush();
     expect(hook.result.current.phase).toBe('listening');
     expect(hook.result.current.caption).toBe('');
+  });
+
+  it('starts speaking the first sentence while the rest of the reply is still streaming in', async () => {
+    let stream: ((s: string) => void) | null = null;
+    let end: ((s: string) => void) | null = null;
+    const ask = vi.fn((_t: ConversationTurn, _s: AbortSignal, onText: (soFar: string) => void) => {
+      stream = onText;
+      return new Promise<string>((resolve) => (end = resolve));
+    });
+    const speaker = fakeSpeaker();
+    const hook = renderHook(() => useVoiceConversation(ask, () => speaker));
+    act(() => hook.result.current.start());
+    act(() => FakeRecognition.current!.say('give me a scenario'));
+    act(() => void vi.advanceTimersByTime(END_OF_TURN_MS.final));
+    act(() => stream!('Picture this: your'));
+    // Half a sentence isn't spoken yet.
+    expect(speaker.spoken).toEqual([]);
+    expect(hook.result.current.phase).toBe('thinking');
+    act(() => stream!('Picture this: your team is late. What do'));
+    expect(speaker.spoken).toEqual(['Picture this: your team is late.']);
+    expect(hook.result.current.phase).toBe('speaking');
+    await act(async () => end!('Picture this: your team is late. What do you do first?'));
+    act(() => speaker.finishSpeaking());
+    await flush();
+    expect(speaker.spoken).toEqual(['Picture this: your team is late.', 'What do you do first?']);
+    act(() => speaker.finishSpeaking());
+    await flush();
+    expect(hook.result.current.phase).toBe('listening');
   });
 
   it('waits longer while a phrase is unfinished', () => {
