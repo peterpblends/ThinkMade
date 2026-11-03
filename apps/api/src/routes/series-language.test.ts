@@ -72,6 +72,42 @@ describe('changing a podcast’s language', () => {
     expect((await ctx!.db.select().from(schema.generationJob).where(eq(schema.generationJob.seriesId, series.id))).length).toBe(2);
   });
 
+  it('starts the voicing of an episode over when it errors, without translating it again', async () => {
+    const { get, switchTo } = await setup();
+    await switchTo('es');
+    const worker = ctx!.worker!;
+    const tts = worker.tts;
+    let broke = false;
+    worker.tts = {
+      ...tts,
+      synthesize: async (text, voice, o) => {
+        if (!broke) {
+          broke = true;
+          throw new Error('speech engine crashed');
+        }
+        return tts.synthesize(text, voice, o);
+      },
+    };
+    let translations = 0;
+    const llm = worker.llm;
+    worker.llm = async (stage) => {
+      const client = await llm(stage);
+      return {
+        provider: client.provider,
+        model: client.model,
+        requestTokenLimit: client.requestTokenLimit,
+        chat: async (messages, options) => {
+          if (String(messages[0]?.content).startsWith('STAGE: translate')) translations++;
+          return client.chat(messages, options);
+        },
+      };
+    };
+    await runNextJob(worker);
+    expect(broke).toBe(true);
+    expect((await get()).episodes[0]).toMatchObject({ languageStatus: 'ready', audioLanguage: 'es' });
+    expect(translations).toBe(1);
+  });
+
   it('refuses a language without a voice for every host, unknown languages, and other people', async () => {
     const { app, switchTo } = await setup('two_hosts');
     const fr = await switchTo('fr');

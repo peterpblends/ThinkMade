@@ -37,6 +37,7 @@ export async function makeWorld(responder: (m: ChatMessage[]) => string = fakeRe
     verifyBook: fakeVerifyBook,
     workDir: join(dir, 'work'),
     workerId: 'test-worker',
+    stepRetryDelayMs: 0,
   };
   const settings = { ...DEFAULT_APP_SETTINGS, limits: { ...DEFAULT_APP_SETTINGS.limits, generationConcurrency: 2 } };
   await handle.db.insert(schema.appSetting).values({ name: 'app', version: 1, document: settings as never, active: true });

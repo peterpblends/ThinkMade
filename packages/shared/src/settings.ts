@@ -65,6 +65,11 @@ const qualitySchema = z.strictObject({
   minScore: z.number().int().min(1).max(5),
   /** Rewrites allowed after the first review before an episode is held for human review. */
   maxRevisions: z.number().int().min(0).max(5),
+  /**
+   * When the rewrites run out, the whole episode is written again from scratch (told what failed) this many
+   * times, each with its own rewrites, before it is held for human review.
+   */
+  maxRegenerations: z.number().int().min(0).max(3).default(2),
 });
 
 /** How podcasts are produced: show format, host style and delivery. */
@@ -149,7 +154,7 @@ const settingsShape = {
   voices: voicesSchema,
   media: mediaSchema,
   limits: limitsSchema,
-  quality: qualitySchema.default({ minScore: 4, maxRevisions: 2 }),
+  quality: qualitySchema.default({ minScore: 4, maxRevisions: 2, maxRegenerations: 2 }),
   production: productionSchema.default(DEFAULT_PRODUCTION),
   player: playerSchema.default({ completionThreshold: 0.95 }),
   costs: costsSchema.default({ llmPerMillionTokensUsd: 0, ttsPerHourUsd: 0, storagePerGbMonthUsd: 0 }),
@@ -476,6 +481,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   quality: {
     minScore: 4,
     maxRevisions: 2,
+    maxRegenerations: 2,
   },
   production: DEFAULT_PRODUCTION,
   player: {

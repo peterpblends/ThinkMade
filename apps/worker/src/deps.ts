@@ -19,6 +19,8 @@ export interface WorkerDeps {
   leaseSeconds?: number;
   /** How often a running job checks whether it was cancelled (milliseconds). */
   cancelPollMs?: number;
+  /** Pause before a step that errored is started over (milliseconds; doubles each time). */
+  stepRetryDelayMs?: number;
   log?: (message: string, extra?: Record<string, unknown>) => void;
 }
 

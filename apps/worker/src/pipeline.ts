@@ -51,7 +51,15 @@ interface ResearchState {
 }
 
 interface ScriptState {
-  [episodeNumber: string]: { sections: Array<{ segments: Array<{ speaker: 'A' | 'B' | 'C' | 'D'; text: string }>; summary: string }> };
+  [episodeNumber: string]: {
+    sections: Array<{ segments: Array<{ speaker: 'A' | 'B' | 'C' | 'D'; text: string }>; summary: string }>;
+    /** Fresh drafts written after earlier drafts kept failing review. */
+    regenerations?: number;
+    /** What the failed drafts were marked down for, which the next fresh draft must avoid. */
+    issues?: string[];
+    /** Reviews so far (across drafts), so each is recorded under its own number. */
+    reviews?: number;
+  };
 }
 
 export interface JobState {
@@ -79,9 +87,15 @@ export interface JobState {
   scripts?: ScriptState;
   tokens?: number;
   rateLimitRetries?: number;
+  /** Times the job was started again automatically after using up its retries. */
+  autoRestarts?: number;
   /** When the job first found every AI provider at its limit (ms since epoch); cleared once one answers. */
   rateLimitedSince?: number;
 }
+
+/** Times a job that used up its retries is started again automatically, and how long each waits (seconds). */
+export const AUTO_RESTARTS = 2;
+const AUTO_RESTART_DELAYS = [300, 3600];
 
 /**
  * How long a job keeps waiting for a free AI allowance to come back before it gives up. Daily allowances
@@ -141,11 +155,24 @@ export function sectionCount(lengthMinutes: number): number {
   return Math.max(1, Math.round(lengthMinutes / MINUTES_PER_SECTION));
 }
 
+/** Errors that retrying the same step straight away can't fix: they stop the step and go to the job's own handling. */
+function retryable(err: unknown): boolean {
+  if (err instanceof PermanentJobError || err instanceof ProviderNotConfiguredError || err instanceof JobCancelledError || err instanceof LostLeaseError) return false;
+  // Usage limits wait for the job's longer, scheduled retry; a rejected key needs an administrator.
+  if (err instanceof LlmError && (err.status === 429 || err.status === 401 || err.status === 403)) return false;
+  if (err instanceof Error && err.name === 'AbortError') return false;
+  return true;
+}
+
+/** How many times a step that errored is started over, in place, before the job itself is retried later. */
+export const STEP_RETRIES = 2;
+
 class StageRunner {
   constructor(
     private db: Db,
     private jobId: string,
     private workerId: string,
+    private opts: { retryDelayMs: number; signal?: AbortSignal; log?: (message: string, extra?: Record<string, unknown>) => void } = { retryDelayMs: 5000 },
   ) {}
 
   /** Throws if another worker has taken this job over (our lease expired). */
@@ -154,24 +181,34 @@ class StageRunner {
     if (j?.by !== this.workerId) throw new LostLeaseError();
   }
 
+  /**
+   * Runs one step. A step that errors is started over where it stopped (the same step, with everything
+   * before it kept) up to STEP_RETRIES times, after a short pause, before the error goes to the job.
+   */
   async run<T>(stage: GenerationStage, fn: () => Promise<T>, episodeNumber?: number, note?: string): Promise<T> {
-    await this.checkOwnership();
-    await this.checkCancelled();
-    await this.db.update(schema.generationJob).set({ currentStage: stage }).where(eq(schema.generationJob.id, this.jobId));
-    const [row] = await this.db
-      .insert(schema.generationStage)
-      .values({ jobId: this.jobId, stage, status: 'running', startedAt: new Date(), ...(episodeNumber ? { episodeNumber } : {}), ...(note ? { note } : {}) })
-      .returning({ id: schema.generationStage.id });
-    try {
-      const out = await fn();
-      await this.db.update(schema.generationStage).set({ status: 'done', finishedAt: new Date() }).where(eq(schema.generationStage.id, row!.id));
-      return out;
-    } catch (err) {
-      await this.db
-        .update(schema.generationStage)
-        .set({ status: 'failed', finishedAt: new Date(), note: (err instanceof Error ? err.message : String(err)).slice(0, 500) })
-        .where(eq(schema.generationStage.id, row!.id));
-      throw err;
+    for (let attempt = 0; ; attempt++) {
+      await this.checkOwnership();
+      await this.checkCancelled();
+      await this.db.update(schema.generationJob).set({ currentStage: stage }).where(eq(schema.generationJob.id, this.jobId));
+      const label = attempt ? `${note ? `${note}, ` : ''}retry ${attempt}` : note;
+      const [row] = await this.db
+        .insert(schema.generationStage)
+        .values({ jobId: this.jobId, stage, status: 'running', startedAt: new Date(), ...(episodeNumber ? { episodeNumber } : {}), ...(label ? { note: label } : {}) })
+        .returning({ id: schema.generationStage.id });
+      try {
+        const out = await fn();
+        await this.db.update(schema.generationStage).set({ status: 'done', finishedAt: new Date() }).where(eq(schema.generationStage.id, row!.id));
+        return out;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await this.db
+          .update(schema.generationStage)
+          .set({ status: 'failed', finishedAt: new Date(), note: `${label ? `${label}: ` : ''}${message}`.slice(0, 500) })
+          .where(eq(schema.generationStage.id, row!.id));
+        if (attempt >= STEP_RETRIES || this.opts.signal?.aborted || !retryable(err)) throw err;
+        this.opts.log?.('step failed; starting it over', { jobId: this.jobId, stage, episode: episodeNumber, attempt: attempt + 1, message });
+        if (this.opts.retryDelayMs > 0) await new Promise((r) => setTimeout(r, this.opts.retryDelayMs * (attempt + 1)));
+      }
     }
   }
 
@@ -249,7 +286,6 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
   const { db } = deps;
   const log = deps.log ?? (() => {});
   const lease = deps.leaseSeconds ?? 600;
-  const runner = new StageRunner(db, job.id, deps.workerId);
   const options = job.options as unknown as GenerationOptions;
   // Podcasts made before languages were added are English.
   const language = languageInfo(options.language).code;
@@ -274,6 +310,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       .catch(() => {});
   }, deps.cancelPollMs ?? 2000);
   watch.unref?.();
+  const runner = new StageRunner(db, job.id, deps.workerId, { retryDelayMs: deps.stepRetryDelayMs ?? 5000, signal: stop.signal, log });
   const chat = async <T>(stage: ModelStage, task: string, data: unknown, zschema: Parameters<typeof completeJson<T>>[2], maxTokens = 4096) => {
     const llm = await deps.llm(stage);
     const messages: ChatMessage[] = [
@@ -795,15 +832,15 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       const perSection = Math.round(totalWords / ep.sections.length);
       const key = String(ep.number);
       state.scripts![key] ??= { sections: [] };
-      const done = state.scripts![key]!.sections;
       const quality = options.quality ?? { minScore: 4, maxRevisions: 2 };
       await db.update(schema.episode).set({ status: 'scripting' }).where(eq(schema.episode.id, episodeId));
 
       const showFormat = episodeShowFormat(state.showFormat ?? 'conversation', hosts.length);
       const nameFor = (id: string) => hosts.find((h) => h.id === id)?.name ?? id;
+      const progress = state.scripts![key]!;
       const writeSection = async (i: number, revision?: { notes: string; problems: string[]; previous: string }) => {
         // The exact end of the section before, so the conversation carries on rather than restarting.
-        const previousLines = i > 0 ? (done[i - 1]?.segments ?? []).slice(-4).map((x) => `${nameFor(x.speaker)}: ${x.text}`) : [];
+        const previousLines = i > 0 ? (progress.sections[i - 1]?.segments ?? []).slice(-4).map((x) => `${nameFor(x.speaker)}: ${x.text}`) : [];
         const section = await runner.run('script', () =>
           chat('script', SCRIPT_TASK, {
             seriesTitle: state.understanding!.seriesTitle,
@@ -818,11 +855,12 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
             section: { index: i + 1, of: ep.sections.length, heading: ep.sections[i]!.heading, goal: ep.sections[i]!.goal },
             isFirstSection: i === 0,
             isLastSection: i === ep.sections.length - 1,
-            earlierSections: done.slice(0, i).map((d) => d.summary),
+            earlierSections: progress.sections.slice(0, i).map((d) => d.summary),
             ...(previousLines.length ? { previousLines } : {}),
             targetWords: perSection,
             listenerObjective: state.understanding!.objective,
             ...(revision ? { revision: { instruction: 'Rewrite this section to fix the reviewer\'s problems. Keep what works.', reviewerNotes: revision.notes, problems: revision.problems, previousText: revision.previous } } : {}),
+            ...(!revision && progress.issues?.length ? { qualityIssues: progress.issues } : {}),
           }, scriptSectionSchema, 6000),
           ep.number,
           `section ${i + 1} of ${ep.sections.length}${revision ? ' (revision)' : ''}`,
@@ -851,18 +889,24 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           );
           section.segments.push(...ownSpeakers(more.segments));
         }
-        done[i] = { segments: section.segments, summary: section.summary };
+        progress.sections[i] = { segments: section.segments, summary: section.summary };
         await saveState(db, job.id, state);
       };
 
-      for (let i = done.length; i < ep.sections.length; i++) await writeSection(i);
+      for (let i = progress.sections.length; i < ep.sections.length; i++) await writeSection(i);
 
       // Quality gate: review, revise, and only voice a script that passes (or that a person approved).
       const [humanApproval] = await db
         .select({ id: schema.episodeQualityCheck.id })
         .from(schema.episodeQualityCheck)
         .where(and(eq(schema.episodeQualityCheck.episodeId, episodeId), eq(schema.episodeQualityCheck.checkedBy, 'human'), eq(schema.episodeQualityCheck.passed, 1)));
+      // Each draft is reviewed and its weak sections rewritten up to maxRevisions times. A draft that still fails
+      // is replaced by a fresh one, told what went wrong, up to maxRegenerations times; only then is the
+      // episode held for a person to review.
+      const maxRegenerations = quality.maxRegenerations ?? 2;
       for (let revision = 1; !humanApproval; revision++) {
+        const done = progress.sections;
+        const reviewNumber = (progress.reviews ?? 0) + 1;
         const verdict = await runner.run('validate', async () => {
           const sections = done.map((d) => d.segments);
           const checks = scriptChecks(sections, { targetWords: totalWords, format, hostIds });
@@ -891,12 +935,25 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           const notes = [...failing.map((c) => `Below standard: ${CRITERIA_LABELS[c]}.`), ...checks.map((c) => c.message), ...agg.problems];
           await db
             .insert(schema.episodeQualityCheck)
-            .values({ episodeId, revision, passed: passed ? 1 : 0, scores: agg.scores, notes, checkedBy: 'auto' })
+            .values({ episodeId, revision: reviewNumber, passed: passed ? 1 : 0, scores: agg.scores, notes, checkedBy: 'auto' })
             .onConflictDoUpdate({ target: [schema.episodeQualityCheck.episodeId, schema.episodeQualityCheck.revision], set: { passed: passed ? 1 : 0, scores: agg.scores, notes } });
           return { passed, agg, checks, notes };
-        }, ep.number, `review ${revision}`);
+        }, ep.number, `review ${reviewNumber}`);
+        progress.reviews = reviewNumber;
+        await saveState(db, job.id, state);
         if (verdict.passed) break;
         if (revision > quality.maxRevisions) {
+          if ((progress.regenerations ?? 0) < maxRegenerations) {
+            // Start the episode again from a blank page, carrying what every failed draft was marked down for.
+            progress.issues = [...new Set([...(progress.issues ?? []), ...verdict.notes, ...(verdict.agg.revisionNotes ? [verdict.agg.revisionNotes] : [])])].slice(-20);
+            progress.regenerations = (progress.regenerations ?? 0) + 1;
+            progress.sections = [];
+            await saveState(db, job.id, state);
+            log('episode redrafted after failing review', { jobId: job.id, episode: ep.number, draft: progress.regenerations + 1, issues: progress.issues.length });
+            for (let i = 0; i < ep.sections.length; i++) await writeSection(i);
+            revision = 0;
+            continue;
+          }
           await db.update(schema.episode).set({ status: 'needs_review', script: done.flatMap((d) => d.segments) }).where(eq(schema.episode.id, episodeId));
           log('episode held for review', { jobId: job.id, episode: ep.number });
           return 'needs_review';
@@ -909,6 +966,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         }
       }
 
+      const done = progress.sections;
       const segments = done.flatMap((d) => d.segments);
       const nameOf = (id: string) => hosts.find((h) => h.id === id)?.name ?? 'Host';
       const voiceOf = (id: string) => hosts.find((h) => h.id === id)?.voice ?? options.voices.single;
@@ -1015,6 +1073,17 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       const delay = rateLimited ? Math.min(21_600, Math.max(backoff, resetSeconds)) : 15 * 2 ** (job.attempts - 1);
       await requeueJob(db, job.id, delay, message, !rateLimited, deps.workerId);
       log('job requeued', { jobId: job.id, attempt: job.attempts, delay, message });
+      return 'requeued';
+    }
+    if (!permanent && !rateLimitedNow && (state.autoRestarts ?? 0) < AUTO_RESTARTS) {
+      // Out of quick retries: start again later from the step that failed (everything before it is kept),
+      // rather than failing the series.
+      state.autoRestarts = (state.autoRestarts ?? 0) + 1;
+      await saveState(db, job.id, state).catch(() => {});
+      const delay = AUTO_RESTART_DELAYS[state.autoRestarts - 1] ?? 3600;
+      await requeueJob(db, job.id, delay, message, true, deps.workerId);
+      await db.update(schema.generationJob).set({ attempts: 0 }).where(eq(schema.generationJob.id, job.id));
+      log('job restarted automatically', { jobId: job.id, restart: state.autoRestarts, delay, message });
       return 'requeued';
     }
     const outcome = await finalise('failed', userFacingError(err));

@@ -79,7 +79,7 @@ export interface GenerationOptions {
   bitrateKbps: number;
   maxTokens: number;
   maxAudioMinutes: number;
-  quality?: { minScore: number; maxRevisions: number };
+  quality?: { minScore: number; maxRevisions: number; maxRegenerations?: number };
   /** How the podcast is produced (format, host style, delivery). Jobs from before this was added use the defaults. */
   production?: ProductionSettings;
 }

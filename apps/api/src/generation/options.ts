@@ -36,7 +36,7 @@ export function resolveOptions(settings: AppSettings, input: Pick<CreateGenerati
     bitrateKbps: BITRATE[p.audioQuality],
     maxTokens: settings.limits.maxTokensPerJob,
     maxAudioMinutes: settings.limits.maxAudioMinutesPerJob,
-    quality: { minScore: settings.quality.minScore, maxRevisions: settings.quality.maxRevisions },
+    quality: { minScore: settings.quality.minScore, maxRevisions: settings.quality.maxRevisions, maxRegenerations: settings.quality.maxRegenerations },
     production: settings.production,
     naturalDelivery: settings.features.naturalDelivery,
   };

@@ -41,7 +41,8 @@ const NUMBER_FIELDS: Array<[section: 'podcast' | 'media' | 'limits' | 'quality',
   ['limits', 'maxTokensPerJob', 'Language model tokens per generation'],
   ['limits', 'maxAudioMinutesPerJob', 'Audio minutes per generation'],
   ['quality', 'minScore', 'Minimum quality score to record (1–5)'],
-  ['quality', 'maxRevisions', 'Script rewrites before holding for human review'],
+  ['quality', 'maxRevisions', 'Section rewrites per draft'],
+  ['quality', 'maxRegenerations', 'Fresh drafts of the whole episode before holding for human review'],
 ];
 
 const PRODUCTION_SELECTS: Array<[key: 'showFormat' | 'pacing' | 'expressiveness', label: string, options: Array<[string, string]>, hint: string]> = [
