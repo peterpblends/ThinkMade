@@ -1,7 +1,8 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CoachSpeaker } from './coach-voice';
-import { END_OF_TURN_MS, isEcho, useVoiceConversation, type ConversationTurn } from './conversation';
+import { END_OF_TURN_MS, isEcho, pickTranscript, useVoiceConversation, type ConversationTurn } from './conversation';
+import type { TurnRecorder } from './turn-audio';
 
 /** A stand-in for the browser's speech recognition that the test feeds phrases into. */
 class FakeRecognition {
@@ -29,24 +30,32 @@ class FakeRecognition {
 }
 
 function fakeSpeaker() {
-  let finish: (() => void) | null = null;
+  // Lines queued to be said, oldest (playing) first; finishSpeaking ends the one playing.
+  const pending: Array<{ text: string; resolve: () => void; onProgress?: ((s: string) => void) | undefined }> = [];
   const spoken: string[] = [];
+  // Like the real voice, a line reports progress once it starts playing.
+  const begin = () => pending[0]?.onProgress?.(pending[0].text.split(' ').slice(0, 4).join(' '));
+  const say = (text: string, onProgress?: (s: string) => void) =>
+    new Promise<void>((resolve) => {
+      spoken.push(text);
+      pending.push({ text, resolve, onProgress });
+      if (pending.length === 1) begin();
+    });
   const speaker: CoachSpeaker & { spoken: string[]; finishSpeaking: () => void; stops: number } = {
     engine: 'device',
     spoken,
     stops: 0,
     prepare: vi.fn(),
-    speak: (text, onProgress) =>
-      new Promise<void>((resolve) => {
-        spoken.push(text);
-        onProgress?.(text.split(' ').slice(0, 4).join(' '));
-        finish = resolve;
-      }),
+    say,
+    speak: (text, onProgress) => say(text, onProgress),
     stop() {
       speaker.stops++;
-      finish?.();
+      for (const p of pending.splice(0)) p.resolve();
     },
-    finishSpeaking: () => finish?.(),
+    finishSpeaking: () => {
+      pending.shift()?.resolve();
+      begin();
+    },
   };
   return speaker;
 }
@@ -100,11 +109,10 @@ describe('a spoken conversation with the coach', () => {
 
     await answer();
     expect(hook.result.current.phase).toBe('speaking');
-    // Said a sentence at a time.
-    expect(speaker.spoken).toEqual(['You said how do I start.']);
+    // Queued a sentence at a time, so each is ready as soon as the one before ends.
+    expect(speaker.spoken).toEqual(['You said how do I start.', 'What would you try first?']);
     act(() => speaker.finishSpeaking());
     await flush();
-    expect(speaker.spoken).toEqual(['You said how do I start.', 'What would you try first?']);
     expect(hook.result.current.phase).toBe('speaking');
     act(() => speaker.finishSpeaking());
     await flush();
@@ -132,9 +140,9 @@ describe('a spoken conversation with the coach', () => {
     expect(speaker.spoken).toEqual(['Picture this: your team is late.']);
     expect(hook.result.current.phase).toBe('speaking');
     await act(async () => end!('Picture this: your team is late. What do you do first?'));
+    expect(speaker.spoken).toEqual(['Picture this: your team is late.', 'What do you do first?']);
     act(() => speaker.finishSpeaking());
     await flush();
-    expect(speaker.spoken).toEqual(['Picture this: your team is late.', 'What do you do first?']);
     act(() => speaker.finishSpeaking());
     await flush();
     expect(hook.result.current.phase).toBe('listening');
@@ -212,5 +220,89 @@ describe('without continuous speech recognition', () => {
     expect(hook.result.current.supported).toBe(false);
     act(() => hook.result.current.start());
     expect(hook.result.current.error).toMatch(/Chrome, Edge or Safari/);
+  });
+});
+
+describe('pickTranscript', () => {
+  it('prefers the accurate transcript, unless it is empty, a phantom phrase, or about something else', () => {
+    expect(pickTranscript('how do I deal with pressure at work', 'How do I deal with pressure at work?')).toBe('How do I deal with pressure at work?');
+    expect(pickTranscript('how do i fell with precious at work', 'How do I deal with pressure at work?')).toBe('How do I deal with pressure at work?');
+    expect(pickTranscript('how do I start', '')).toBe('how do I start');
+    expect(pickTranscript('how do I start', 'Thank you.')).toBe('how do I start');
+    expect(pickTranscript('how do I start this project', 'The weather in Paris is lovely today.')).toBe('how do I start this project');
+    expect(pickTranscript('', 'Something the phone missed.')).toBe('Something the phone missed.');
+  });
+});
+
+describe('accurate transcripts of spoken turns', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeRecognition.current = null;
+    vi.stubGlobal('webkitSpeechRecognition', FakeRecognition);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function fakeRecorder() {
+    let marked = false;
+    let voice: ReturnType<TurnRecorder['voice']> = null;
+    const r: TurnRecorder & { hear: (v: ReturnType<TurnRecorder['voice']>) => void } = {
+      start: async () => true,
+      mark: () => void (marked = true),
+      clear: () => {
+        marked = false;
+        voice = null;
+      },
+      get marked() {
+        return marked;
+      },
+      take: () => (marked ? new Blob(['wav'], { type: 'audio/wav' }) : null),
+      voice: () => voice,
+      stop: () => {},
+      hear: (v) => void (voice = v),
+    };
+    return r;
+  }
+
+  it('sends what was actually said, from the recording, instead of what the browser misheard', async () => {
+    const turns: ConversationTurn[] = [];
+    const ask = vi.fn(async (t: ConversationTurn) => (turns.push(t), 'Okay.'));
+    const transcribe = vi.fn(async () => 'How do I deal with pressure at work?');
+    const recorder = fakeRecorder();
+    const hook = renderHook(() => useVoiceConversation(ask, () => fakeSpeaker(), 'en-US', { transcribe, recorder: () => recorder }));
+    act(() => hook.result.current.start());
+    act(() => FakeRecognition.current!.say('how do I fell with precious at work'));
+    await act(async () => void vi.advanceTimersByTime(END_OF_TURN_MS.final));
+    await act(async () => void (await Promise.resolve()));
+    expect(transcribe).toHaveBeenCalledTimes(1);
+    expect(turns).toEqual([{ text: 'How do I deal with pressure at work?' }]);
+  });
+
+  it("ends a turn on the recording's own silence where the browser recognised nothing", async () => {
+    const turns: ConversationTurn[] = [];
+    const ask = vi.fn(async (t: ConversationTurn) => (turns.push(t), 'Okay.'));
+    const recorder = fakeRecorder();
+    const hook = renderHook(() => useVoiceConversation(ask, () => fakeSpeaker(), 'en-US', { transcribe: async () => 'Give me a scenario.', recorder: () => recorder }));
+    act(() => hook.result.current.start());
+    recorder.hear({ startedMsAgo: 2500, endedMsAgo: 400, spokeMs: 1800 });
+    await act(async () => void vi.advanceTimersByTime(300));
+    expect(turns).toHaveLength(0);
+    recorder.hear({ startedMsAgo: 3000, endedMsAgo: 1200, spokeMs: 1800 });
+    await act(async () => void vi.advanceTimersByTime(300));
+    await act(async () => void (await Promise.resolve()));
+    expect(turns).toEqual([{ text: 'Give me a scenario.' }]);
+  });
+
+  it('waits longer when a phrase trails off', () => {
+    const ask = vi.fn(async () => 'Okay.');
+    const hook = renderHook(() => useVoiceConversation(ask, () => fakeSpeaker()));
+    act(() => hook.result.current.start());
+    act(() => FakeRecognition.current!.say('I want to get better at decisions and'));
+    act(() => void vi.advanceTimersByTime(END_OF_TURN_MS.final));
+    expect(ask).not.toHaveBeenCalled();
+    act(() => void vi.advanceTimersByTime(END_OF_TURN_MS.interim - END_OF_TURN_MS.final));
+    expect(ask).toHaveBeenCalled();
   });
 });

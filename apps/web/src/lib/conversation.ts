@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createCoachSpeaker, sentences, type CoachSpeaker } from './coach-voice';
+import { createTurnRecorder, type TurnRecorder } from './turn-audio';
 
 /**
  * A hands-free spoken conversation. After one tap to start (browsers need a tap before using the microphone
@@ -64,6 +65,37 @@ export function isEcho(heard: string, coachText: string): boolean {
 
 /** How long a pause ends the listener's turn (ms): shorter after a finished phrase, longer mid-phrase. */
 export const END_OF_TURN_MS = { final: 900, interim: 1500 } as const;
+/** A phrase that ends like this ("and", "so", "because"…) usually carries on: wait as for an unfinished phrase. */
+const TRAILING = /\b(and|but|so|or|because|like|the|a|an|to|of|for|with|um|uh|i|my|if|that|which|then)$/i;
+/** Silence after speech the browser didn't recognise (some phones), before the turn ends anyway (ms). */
+const SILENT_END_MS = 1100;
+/** Whisper sometimes "hears" these in near-silence. */
+const PHANTOM = /^(thank you\.?|thanks for watching!?|you\.?|bye\.?|\.+)$/i;
+
+/**
+ * Chooses between what the browser recognised and the server's transcript of the recording: the transcript
+ * is far more accurate, unless it is empty, a phantom phrase, or clearly about something else.
+ */
+export function pickTranscript(heard: string, transcript: string): string {
+  const t = transcript.replace(/\s+/g, ' ').trim();
+  if (!t || PHANTOM.test(t)) return heard;
+  const h = words(heard);
+  if (h.length >= 3) {
+    const got = new Set(words(t));
+    if (h.filter((w) => got.has(w)).length / h.length < 0.25) return heard;
+  }
+  return t;
+}
+
+export interface ConversationOptions {
+  /**
+   * Transcribes one recorded turn (a WAV) accurately on the server. With it, each turn is recorded and the
+   * transcript used in place of the browser's own recognition where it can be.
+   */
+  transcribe?: (audio: Blob, signal: AbortSignal) => Promise<string>;
+  /** Injected in tests. */
+  recorder?: () => TurnRecorder;
+}
 /** Words needed before talking over the coach counts as an interruption (not a cough or an "mm"). */
 const BARGE_IN_WORDS = 2;
 
@@ -73,7 +105,12 @@ export function useVoiceConversation(
   ask: (turn: ConversationTurn, signal: AbortSignal, onText: (soFar: string) => void) => Promise<string>,
   speakerFactory: (lang: string) => CoachSpeaker = createCoachSpeaker,
   lang = 'en-US',
+  options: ConversationOptions = {},
 ): VoiceConversation {
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const recorder = useRef<TurnRecorder | null>(null);
+  const silenceWatch = useRef<ReturnType<typeof setInterval> | null>(null);
   const langRef = useRef(lang);
   langRef.current = lang;
   const Recognition = recognitionCtor();
@@ -115,6 +152,7 @@ export function useVoiceConversation(
     turnStart.current = resultCount.current;
     interim.current = '';
     carried.current = '';
+    recorder.current?.clear();
     setCaption('');
   };
 
@@ -125,61 +163,82 @@ export function useVoiceConversation(
 
   const sendTurn = useCallback(async () => {
     clearEndTimer();
-    const text = turnText();
-    if (!text || !active.current) return;
-    const turn: ConversationTurn = { text, ...(interruptedAfter.current ? { interruptedAfter: interruptedAfter.current } : {}) };
+    const heard = turnText();
+    const transcribe = optionsRef.current.transcribe;
+    const audio = transcribe && recorder.current?.marked ? recorder.current.take() : null;
+    if ((!heard && !audio) || !active.current) return;
+    const cutOffAt = interruptedAfter.current;
     interruptedAfter.current = undefined;
     // Words recognised from here on belong to the next turn (or are added to this one, see onSpeech).
     turnStart.current = resultCount.current;
     interim.current = '';
-    carried.current = text;
+    carried.current = heard;
     setPhase('thinking');
     const controller = new AbortController();
     pending.current = controller;
     const live = () => !controller.signal.aborted && active.current;
 
-    // Speak each sentence as soon as it has streamed in, one after another.
-    const queue: string[] = [];
+    // The recording, transcribed accurately; what the browser heard if that fails or takes too long.
+    let text = heard;
+    if (audio && transcribe) {
+      try {
+        const timeout = new Promise<string>((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000));
+        text = pickTranscript(heard, await Promise.race([transcribe(audio, controller.signal), timeout]));
+      } catch {
+        /* keep what the browser heard */
+      }
+      if (!live()) return;
+    }
+    if (!text) {
+      pending.current = null;
+      resetTurn();
+      setPhase('listening');
+      return;
+    }
+    carried.current = text;
+    setCaption(text);
+    const turn: ConversationTurn = { text, ...(cutOffAt ? { interruptedAfter: cutOffAt } : {}) };
+
+    // Each sentence is queued to be spoken as soon as it has streamed in; the voice prepares the next one
+    // while the one before plays, so there are no gaps.
     let queuedSentences = 0;
     let said = '';
-    let speaking = false;
+    let speaking = 0;
     let streamDone = false;
     const finish = () => {
-      if (!live() || speaking || queue.length || !streamDone) return;
+      if (!live() || speaking || !streamDone) return;
       pending.current = null;
       // What the microphone picked up while the coach spoke (its own voice, an "mm") isn't the next question.
       resetTurn();
       setCoachLine('');
       setPhase('listening');
     };
-    const pump = async () => {
-      if (speaking) return;
-      speaking = true;
-      while (queue.length && live()) {
-        const line = queue.shift()!;
-        if (phaseRef.current === 'thinking') {
-          // The coach starts talking: the listener's question is done.
-          carried.current = '';
-          resetTurn();
-          spokenSoFar.current = '';
-          setPhase('speaking');
-        }
-        if (phaseRef.current !== 'speaking') break;
-        setCoachLine(line);
-        await speaker.current!.speak(line, (p) => (spokenSoFar.current = `${said} ${p}`.trim()));
-        said = `${said} ${line}`.trim();
+    const queueLine = (line: string) => {
+      if (!live()) return;
+      if (phaseRef.current === 'thinking') {
+        // The coach starts talking: the listener's question is done.
+        carried.current = '';
+        resetTurn();
+        spokenSoFar.current = '';
+        setPhase('speaking');
       }
-      speaking = false;
-      finish();
+      if (phaseRef.current !== 'speaking') return;
+      speaking++;
+      void speaker.current!.say(line, (p) => (spokenSoFar.current = `${said} ${p}`.trim())).then(() => {
+        said = `${said} ${line}`.trim();
+        speaking--;
+        finish();
+      });
     };
     const onText = (soFar: string) => {
       if (!live()) return;
       replyText.current = soFar;
+      if (phaseRef.current === 'speaking') setCoachLine(soFar.trim());
       // Only finished sentences are spoken while the reply is still coming; the last one waits for the end.
       const done = sentences(soFar);
       const complete = /[.!?]["')\]]*\s*$/.test(soFar) ? done : done.slice(0, -1);
-      while (queuedSentences < complete.length) queue.push(complete[queuedSentences++]!);
-      void pump();
+      while (queuedSentences < complete.length) queueLine(complete[queuedSentences++]!);
+      if (phaseRef.current === 'speaking') setCoachLine(soFar.trim());
     };
 
     let reply: string;
@@ -202,13 +261,10 @@ export function useVoiceConversation(
     if (!live()) return;
     replyText.current = reply;
     const all = sentences(reply);
-    while (queuedSentences < all.length) queue.push(all[queuedSentences++]!);
     streamDone = true;
-    if (!all.length) {
-      finish();
-      return;
-    }
-    void pump();
+    while (queuedSentences < all.length) queueLine(all[queuedSentences++]!);
+    if (phaseRef.current === 'speaking') setCoachLine(reply);
+    finish();
   }, []);
 
   /** Called whenever recognition hears something. */
@@ -225,6 +281,9 @@ export function useVoiceConversation(
       speaker.current?.stop();
       setCoachLine('');
       setPhase('listening');
+      // Their turn is recorded from just before they cut in.
+      recorder.current?.clear();
+      recorder.current?.mark();
     } else if (phaseRef.current === 'thinking') {
       // Still talking: hold the question, keep listening, and send it all once they finish.
       if (words(fresh).length < BARGE_IN_WORDS) return;
@@ -235,7 +294,11 @@ export function useVoiceConversation(
     if (phaseRef.current !== 'listening') return;
     setCaption(text);
     clearEndTimer();
-    if (text) endTimer.current = setTimeout(() => void sendTurn(), interim.current ? END_OF_TURN_MS.interim : END_OF_TURN_MS.final);
+    if (!text) return;
+    recorder.current?.mark();
+    // A phrase still being said, or one that trails off ("so…", "and…"), gets longer before the turn ends.
+    const unfinished = !!interim.current || TRAILING.test(text);
+    endTimer.current = setTimeout(() => void sendTurn(), unfinished ? END_OF_TURN_MS.interim : END_OF_TURN_MS.final);
   }, [sendTurn]);
 
   const listen = useCallback(() => {
@@ -283,6 +346,10 @@ export function useVoiceConversation(
   const stop = useCallback(() => {
     active.current = false;
     clearEndTimer();
+    if (silenceWatch.current) clearInterval(silenceWatch.current);
+    silenceWatch.current = null;
+    recorder.current?.stop();
+    recorder.current = null;
     pending.current?.abort();
     pending.current = null;
     speaker.current?.stop();
@@ -310,7 +377,24 @@ export function useVoiceConversation(
     resetTurn();
     setPhase('listening');
     listen();
-  }, [Recognition, listen, speakerFactory]);
+    // Record each turn for an accurate transcript, where the server can transcribe.
+    if (optionsRef.current.transcribe) {
+      const r = optionsRef.current.recorder?.() ?? createTurnRecorder();
+      recorder.current = r;
+      void r.start().then((ok) => {
+        if (!ok && recorder.current === r) recorder.current = null;
+      });
+      // Where the browser recognises nothing (some phones), the recording's own silence ends the turn.
+      silenceWatch.current = setInterval(() => {
+        const v = recorder.current?.voice();
+        if (!v || phaseRef.current !== 'listening' || turnText()) return;
+        if (v.spokeMs >= 350 && v.endedMsAgo >= SILENT_END_MS) {
+          recorder.current!.mark();
+          void sendTurn();
+        }
+      }, 250);
+    }
+  }, [Recognition, listen, speakerFactory, sendTurn]);
 
   useEffect(() => () => stop(), [stop]);
 

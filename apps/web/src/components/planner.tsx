@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { AudioLines, Check, Send, Square, X } from 'lucide-react';
-import { ApiError, streamApi } from '../lib/api';
+import { ApiError, streamApi, transcribeTurn } from '../lib/api';
 import { createCoachSpeaker } from '../lib/coach-voice';
 import { useVoiceConversation, type ConversationTurn } from '../lib/conversation';
 
@@ -119,6 +119,7 @@ export function PlannerPanel({
     (turn: ConversationTurn, signal: AbortSignal, onText: (soFar: string) => void) => ask(turn.text, { spoken: true, signal, onText }),
     createCoachSpeaker,
     'en-US',
+    { transcribe: (audio, signal) => transcribeTurn(audio, { language: 'en' }, signal) },
   );
   const talking = talk.phase !== 'off' && talk.phase !== 'error';
 

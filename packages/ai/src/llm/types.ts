@@ -18,6 +18,11 @@ export interface ChatOptions {
    * returned). Providers that can't stream call it once with the whole reply.
    */
   onToken?: (text: string) => void;
+  /**
+   * Longest wait for a short rate limit to reset before giving up on this model (ms). Someone waiting in a
+   * conversation should get the next model at once instead; background jobs can wait.
+   */
+  maxRateLimitWaitMs?: number;
 }
 
 export interface ChatResult {

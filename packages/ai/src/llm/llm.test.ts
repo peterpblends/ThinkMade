@@ -136,6 +136,13 @@ describe('createOpenAiCompatibleLlm', () => {
     await expect(daily.chat([{ role: 'user', content: 'hi' }])).rejects.toMatchObject({ status: 429 });
   });
 
+  it('hands even a short limit back at once when someone is waiting in a conversation', async () => {
+    const waits: number[] = [];
+    const llm = createOpenAiCompatibleLlm({ provider: 'groq', baseUrl: 'https://x/v1', apiKey: 'k', model: 'm', sleep: async (ms) => void waits.push(ms), fetch: (async () => new Response('slow down', { status: 429, headers: { 'retry-after': '7' } })) as typeof fetch });
+    await expect(llm.chat([{ role: 'user', content: 'hi' }], { maxRateLimitWaitMs: 1500 })).rejects.toMatchObject({ status: 429 });
+    expect(waits).toEqual([]);
+  });
+
   it('reads Groq reset headers', () => {
     expect(retryAfterMs(new Headers({ 'x-ratelimit-reset-tokens': '7.66s' }))).toBeCloseTo(7660);
     expect(retryAfterMs(new Headers({ 'x-ratelimit-reset-tokens': '1m2.5s' }))).toBe(62_500);
