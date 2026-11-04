@@ -5,14 +5,14 @@ import { schema } from '@thinkmade/db';
 import { applyPlaybackEvent, playbackEventSchema, type ListenStatus, type PlaybackRecord } from '@thinkmade/shared';
 import type { AppContext } from '../create-context';
 import { requireSession, type AppVariables } from '../middleware/session';
-import { readableSeries } from './series';
+import { readableSeries, viewableSeries } from './series';
 import { indexSeries } from './discover';
 
 /** Episode the user may see (own or public), or null. */
 async function readableEpisode(ctx: AppContext, episodeId: string, userId: string) {
   const [e] = await ctx.db.select().from(schema.episode).where(eq(schema.episode.id, episodeId));
   if (!e) return null;
-  const s = await readableSeries(ctx.db, e.seriesId, userId);
+  const s = await viewableSeries(ctx, e.seriesId, userId);
   return s ? { episode: e, series: s } : null;
 }
 

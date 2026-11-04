@@ -283,3 +283,57 @@ describe('usage dashboard, moderation and audit', () => {
     expect(audit.entries[0]).toMatchObject({ action: 'series.unpublish', after: { visibility: 'private', reason: 'Inaccurate' } });
   });
 });
+
+describe("everyone's podcasts", () => {
+  it('lets an admin find, listen to, regenerate and delete any listener’s private podcast', async () => {
+    const { app, cookie, user, h } = await admin();
+    await app.request('/api/generations', { method: 'POST', headers: h(user), body: JSON.stringify({ topic: 'How do I negotiate a raise?', customization: { ...ONE, episodes: 3 } }) });
+    await runNextJob(ctx!.worker!);
+    const list = (await (await app.request('/api/admin/podcasts?q=user@', { headers: { cookie } })).json()) as {
+      podcasts: Array<{ id: string; title: string; owner: { email: string }; status: string; episodeCount: number; readyCount: number; job: { status: string } | null }>;
+    };
+    expect(list.podcasts).toHaveLength(1);
+    const p = list.podcasts[0]!;
+    expect(p).toMatchObject({ owner: { email: 'user@example.com' }, status: 'ready', episodeCount: 3, readyCount: 3, job: { status: 'succeeded' } });
+    expect(((await (await app.request('/api/admin/podcasts?q=nobody', { headers: { cookie } })).json()) as { podcasts: unknown[] }).podcasts).toHaveLength(0);
+    // Only admins.
+    expect((await app.request('/api/admin/podcasts', { headers: { cookie: user } })).status).toBe(403);
+
+    // The admin can open and play it, though it is private; another listener can't.
+    const detail = (await (await app.request(`/api/series/${p.id}`, { headers: { cookie } })).json()) as { isOwner: boolean; episodes: Array<{ id: string; audioUrl: string; title: string }> };
+    expect(detail.isOwner).toBe(false);
+    expect((await app.request(detail.episodes[0]!.audioUrl, { headers: { cookie } })).status).toBe(200);
+    const stranger = await signUpVerified(app, ctx!, { email: 'stranger@example.com' });
+    expect((await app.request(`/api/series/${p.id}`, { headers: { cookie: stranger } })).status).toBe(404);
+
+    // Regenerate one episode: it is written again from the plan and recorded again; the others are untouched.
+    const scriptCalls: string[] = [];
+    setFakeResponder((m: ChatMessage[]) => {
+      if (textOf(m[0]!.content).startsWith('STAGE: script')) scriptCalls.push(textOf(m[1]!.content));
+      return fakeResponder(m);
+    });
+    const one = detail.episodes[1]!;
+    const regen = await app.request(`/api/admin/podcasts/${p.id}/regenerate`, { method: 'POST', headers: h(cookie), body: JSON.stringify({ episodeIds: [one.id] }) });
+    expect(regen.status).toBe(202);
+    expect((await app.request(`/api/admin/podcasts/${p.id}/regenerate`, { method: 'POST', headers: h(cookie), body: '{}' })).status).toBe(409);
+    const eps = async () => ctx!.db.select().from(schema.episode).where(eq(schema.episode.seriesId, p.id));
+    expect((await eps()).find((e) => e.id === one.id)!.status).toBe('pending');
+    await runNextJob(ctx!.worker!);
+    expect((await eps()).every((e) => e.status === 'ready')).toBe(true);
+    expect(scriptCalls.length).toBeGreaterThan(0);
+    expect(scriptCalls.every((x) => x.includes(one.title))).toBe(true);
+
+    // Regenerate all of it.
+    expect((await app.request(`/api/admin/podcasts/${p.id}/regenerate`, { method: 'POST', headers: h(cookie), body: '{}' })).status).toBe(202);
+    expect((await eps()).every((e) => e.status === 'pending')).toBe(true);
+    await runNextJob(ctx!.worker!);
+    expect((await eps()).every((e) => e.status === 'ready')).toBe(true);
+
+    // Delete it, with a reason, recorded in the audit log.
+    expect((await app.request(`/api/admin/podcasts/${p.id}`, { method: 'DELETE', headers: h(cookie), body: '{}' })).status).toBe(400);
+    expect((await app.request(`/api/admin/podcasts/${p.id}`, { method: 'DELETE', headers: h(cookie), body: JSON.stringify({ reason: 'Requested by the owner' }) })).status).toBe(200);
+    expect(await ctx!.db.select().from(schema.podcastSeries).where(eq(schema.podcastSeries.id, p.id))).toHaveLength(0);
+    const actions = (await ctx!.db.select().from(schema.auditLog)).map((a) => a.action);
+    expect(actions).toEqual(expect.arrayContaining(['series.regenerate', 'series.delete']));
+  });
+});

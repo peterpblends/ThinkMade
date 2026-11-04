@@ -77,6 +77,11 @@ export async function streamApi<T>(path: string, body: unknown, onText: (soFar: 
   return result;
 }
 
+/** Wakes the server (and its database connection) so the next request isn't slowed by a cold start. */
+export function warmServer() {
+  void fetch('/api/health?warm=1', { credentials: 'same-origin', cache: 'no-store' }).catch(() => {});
+}
+
 /** One spoken turn of a conversation, transcribed accurately on the server. */
 export async function transcribeTurn(audio: Blob, opts: { language: string; hint?: string }, signal?: AbortSignal): Promise<string> {
   const form = new FormData();

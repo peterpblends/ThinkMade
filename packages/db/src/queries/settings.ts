@@ -53,6 +53,18 @@ const GPT_OSS_20B = {
   params: { ...GROQ_FREE, tm_fallbacks: [{ provider: 'groq', model: 'openai/gpt-oss-120b', params: GROQ_FREE }, ...GEMINI_FREE, ...OPENROUTER_FREE] },
 };
 
+// Live conversations (the coach, planning a podcast): Groq answers in about 0.3 s (measured 2026-11-04), so
+// both its models come first, each with its own per-minute allowance; Gemini Flash-Lite (no thinking, so
+// quicker than Flash) is next. A model that stalls is abandoned within seconds (see the coach route).
+const CONVERSATION = {
+  provider: 'groq',
+  model: 'openai/gpt-oss-20b',
+  params: {
+    ...GROQ_FREE,
+    tm_fallbacks: [{ provider: 'groq', model: 'openai/gpt-oss-120b', params: GROQ_FREE }, GEMINI_FREE[1]!, GEMINI_FREE[0]!, ...OPENROUTER_FREE],
+  },
+};
+
 /**
  * Zero-cost defaults (checked October 2026). Each Groq model has its own daily allowance on the free
  * tier, so stages are spread across two models. Qwen3.8-27B isn't used: some free accounts cap it at
@@ -66,7 +78,7 @@ export const FREE_STAGE_MODELS: Record<ModelStage, StageDefault> = {
   plan: GPT_OSS_120B,
   script: GPT_OSS_120B,
   validate: GPT_OSS_20B,
-  coach: GPT_OSS_20B,
+  coach: CONVERSATION,
   vision: {
     provider: 'openrouter',
     model: 'google/gemma-4-31b-it:free',

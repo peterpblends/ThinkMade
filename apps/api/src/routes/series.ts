@@ -5,7 +5,7 @@ import { schema, type Db } from '@thinkmade/db';
 import type { AppContext } from '../create-context';
 import { z } from 'zod';
 import { FollowUpError, startFollowUp, type FollowUp } from '../generation/follow-up';
-import { requireSession, requireVerified, type AppVariables } from '../middleware/session';
+import { adminAccess, requireSession, requireVerified, type AppVariables } from '../middleware/session';
 import { inLanguage, languageView, LanguageSwitchError, switchLanguage } from '../generation/translation';
 import { dailyLimitMessage } from './generation';
 import { coverLook, coverSvg } from '@thinkmade/brand/cover';
@@ -23,6 +23,18 @@ export async function readableSeries(db: Db, seriesId: string, userId: string | 
       ),
     );
   return s ?? null;
+}
+
+/**
+ * A series this person may see, or, for an administrator, any series (to listen to and moderate everyone's
+ * podcasts). Their normal access is checked first, so most requests need no extra lookup.
+ */
+export async function viewableSeries(ctx: AppContext, seriesId: string, userId: string | null) {
+  const s = await readableSeries(ctx.db, seriesId, userId);
+  if (s || !userId) return s;
+  if ((await adminAccess(ctx.db, ctx.env, userId)) !== 'ok') return null;
+  const [any] = await ctx.db.select().from(schema.podcastSeries).where(eq(schema.podcastSeries.id, seriesId));
+  return any ?? null;
 }
 
 export async function episodeDetails(db: Db, episodeIds: string[]) {
@@ -125,7 +137,7 @@ export function seriesRoutes(ctx: AppContext) {
   r.get('/series/:id/cover.svg', async (c) => {
     const { features } = (await ctx.settings.getActive()).settings;
     if (!features.showArtwork) return c.json({ error: 'not_found' }, 404);
-    const s = await readableSeries(ctx.db, c.req.param('id'), c.var.session?.user.id ?? null);
+    const s = await viewableSeries(ctx, c.req.param('id'), c.var.session?.user.id ?? null);
     if (!s) return c.json({ error: 'not_found' }, 404);
     const { seeds, selected } = artworkOf(s);
     const asked = c.req.query('art');
@@ -183,7 +195,7 @@ export function seriesRoutes(ctx: AppContext) {
   });
 
   r.get('/series/:id', async (c) => {
-    const s = await readableSeries(ctx.db, c.req.param('id'), c.var.session?.user.id ?? null);
+    const s = await viewableSeries(ctx, c.req.param('id'), c.var.session?.user.id ?? null);
     if (!s) return c.json({ error: 'not_found' }, 404);
     const isOwner = s.userId === c.var.session?.user.id;
     // Other people only see finished episodes of a public series.
@@ -265,7 +277,7 @@ export function seriesRoutes(ctx: AppContext) {
   r.get('/episodes/:id', async (c) => {
     const [e] = await ctx.db.select().from(schema.episode).where(eq(schema.episode.id, c.req.param('id')));
     if (!e) return c.json({ error: 'not_found' }, 404);
-    const s = await readableSeries(ctx.db, e.seriesId, c.var.session?.user.id ?? null);
+    const s = await viewableSeries(ctx, e.seriesId, c.var.session?.user.id ?? null);
     if (!s) return c.json({ error: 'not_found' }, 404);
     const details = await episodeDetails(ctx.db, [e.id]);
     const view = await languageView(ctx, s, [e.id]);
@@ -278,7 +290,7 @@ export function seriesRoutes(ctx: AppContext) {
   r.get('/episodes/:id/audio', async (c) => {
     const [e] = await ctx.db.select().from(schema.episode).where(eq(schema.episode.id, c.req.param('id')));
     if (!e || e.status !== 'ready' || !e.audioKey) return c.json({ error: 'not_found' }, 404);
-    const s = await readableSeries(ctx.db, e.seriesId, c.var.session?.user.id ?? null);
+    const s = await viewableSeries(ctx, e.seriesId, c.var.session?.user.id ?? null);
     if (!s) return c.json({ error: 'not_found' }, 404);
     // ?lang=es: the episode voiced in another language, once it is ready.
     let audioKey = e.audioKey;

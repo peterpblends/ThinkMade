@@ -45,6 +45,7 @@ const settingsSchema = z.object({
 export type PlannerSettings = z.infer<typeof settingsSchema>;
 
 const MARKER = 'SETTINGS:';
+const parsedSpoken = (d: { spoken?: boolean | undefined }) => d.spoken === true;
 
 /** The nearest allowed choice. */
 const nearest = (n: number, choices: readonly number[]) => choices.reduce((best, c) => (Math.abs(c - n) < Math.abs(best - n) ? c : best), choices[0]!);
@@ -102,7 +103,7 @@ export function plannerRoutes(ctx: AppContext) {
       const allowed = choices(settings);
       const system = `STAGE: planner\n${PLANNER_INSTRUCTIONS}${parsed.data.spoken ? `\n\n${SPOKEN_COACH_INSTRUCTIONS}` : ''}\n\nchoices (JSON): ${JSON.stringify({ ...allowed, voiceAccents: ['american', 'british', 'latino', 'south-asian', 'east-asian'] })}\n\nThe Create form now (JSON): ${JSON.stringify(parsed.data.current)}`;
       const messages: ChatMessage[] = [{ role: 'system', content: system }, ...parsed.data.messages];
-      const options = { temperature: 0.6, maxTokens: 600, maxRateLimitWaitMs: 1500 };
+      const options = { temperature: 0.6, maxTokens: 500, maxRateLimitWaitMs: 1500, firstTokenTimeoutMs: parsedSpoken(parsed.data) ? 4000 : 6000 };
       const failure = (err: unknown) => {
         if (err instanceof ProviderNotConfiguredError) return { status: 503 as const, body: { error: 'planner_unavailable', message: 'Planning by conversation is not configured on this server yet.' } };
         console.error('[planner] model call failed', err instanceof LlmError ? err.message : err);

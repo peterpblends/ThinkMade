@@ -136,6 +136,15 @@ describe('createOpenAiCompatibleLlm', () => {
     await expect(daily.chat([{ role: 'user', content: 'hi' }])).rejects.toMatchObject({ status: 429 });
   });
 
+  it('abandons a model that has not started answering in time, so the next one can', async () => {
+    const stuck = (async (_u: string, init: RequestInit) =>
+      new Promise<Response>((_, reject) => init.signal!.addEventListener('abort', () => reject(new Error('aborted'))))) as typeof fetch;
+    const llm = createOpenAiCompatibleLlm({ provider: 'gemini', baseUrl: 'https://x/v1', apiKey: 'k', model: 'slow', fetch: stuck });
+    const t0 = Date.now();
+    await expect(llm.chat([{ role: 'user', content: 'hi' }], { firstTokenTimeoutMs: 50, onToken: () => {} })).rejects.toMatchObject({ status: 504 });
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
   it('hands even a short limit back at once when someone is waiting in a conversation', async () => {
     const waits: number[] = [];
     const llm = createOpenAiCompatibleLlm({ provider: 'groq', baseUrl: 'https://x/v1', apiKey: 'k', model: 'm', sleep: async (ms) => void waits.push(ms), fetch: (async () => new Response('slow down', { status: 429, headers: { 'retry-after': '7' } })) as typeof fetch });

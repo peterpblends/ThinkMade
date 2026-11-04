@@ -37,6 +37,7 @@ const AdminQuality = lazyNamed(() => import('./screens/admin/quality'), 'AdminQu
 const AdminBugs = lazyNamed(() => import('./screens/admin/bugs'), 'AdminBugs');
 const AdminUsers = lazyNamed(() => import('./screens/admin/users'), 'AdminUsers');
 const AdminPublic = lazyNamed(() => import('./screens/admin/public'), 'AdminPublic');
+const AdminPodcasts = lazyNamed(() => import('./screens/admin/podcasts'), 'AdminPodcasts');
 const AdminAudit = lazyNamed(() => import('./screens/admin/audit'), 'AdminAudit');
 const AdminReport = lazyNamed(() => import('./screens/admin/report'), 'AdminReport');
 const GenerationProgressScreen = lazyNamed(() => import('./screens/generation-progress'), 'GenerationProgressScreen');
@@ -99,6 +100,7 @@ const router = createBrowserRouter([
           { path: 'bugs', element: page(<AdminBugs />) },
           { path: 'users', element: page(<AdminUsers />) },
           { path: 'public', element: page(<AdminPublic />) },
+          { path: 'podcasts', element: page(<AdminPodcasts />) },
           { path: 'audit', element: page(<AdminAudit />) },
         ],
       },

@@ -8,6 +8,7 @@ on:
   pull_request:
     paths:
       - scripts/list-models.ts
+      - scripts/chat-latency.ts
       - .github/workflows/models.yml
 
 permissions:
@@ -28,3 +29,8 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      - name: Chat latency
+        run: npx --yes tsx@4 scripts/chat-latency.ts
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

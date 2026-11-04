@@ -74,43 +74,58 @@ export function createOpenAiCompatibleLlm(cfg: OpenAiCompatibleConfig): LlmClien
         body.stream_options = { include_usage: true };
       }
       const timeout = AbortSignal.timeout(cfg.timeoutMs ?? 180_000);
-      const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
-      let res: Response;
-      for (let attempt = 0; ; attempt++) {
-        try {
-          res = await doFetch(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
-            signal,
-          });
-        } catch (err) {
-          throw new LlmError(`${cfg.provider} request failed: ${err instanceof Error ? err.message : String(err)}`);
+      // A model that hasn't started answering in time is abandoned, so the next one can answer.
+      const stalled = new AbortController();
+      const stallTimer = options.firstTokenTimeoutMs ? setTimeout(() => stalled.abort(), options.firstTokenTimeoutMs) : null;
+      const started = () => stallTimer && clearTimeout(stallTimer);
+      const signal = AbortSignal.any([timeout, stalled.signal, ...(options.signal ? [options.signal] : [])]);
+      try {
+        let res: Response;
+        for (let attempt = 0; ; attempt++) {
+          try {
+            res = await doFetch(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(body),
+              signal,
+            });
+          } catch (err) {
+            throw new LlmError(`${cfg.provider} request failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          // A per-minute limit resets within seconds: wait here rather than requeueing the whole job.
+          // Daily limits (long waits) go back to the caller as a 429.
+          const wait = res.status === 429 ? retryAfterMs(res.headers) : null;
+          if (wait === null || wait > (options.maxRateLimitWaitMs ?? MAX_INLINE_WAIT_MS) || attempt >= MAX_INLINE_RETRIES) break;
+          await res.body?.cancel().catch(() => {});
+          await (cfg.sleep ?? ((ms) => abortableSleep(ms, options.signal)))(wait + 250);
+          options.signal?.throwIfAborted();
         }
-        // A per-minute limit resets within seconds: wait here rather than requeueing the whole job.
-        // Daily limits (long waits) go back to the caller as a 429.
-        const wait = res.status === 429 ? retryAfterMs(res.headers) : null;
-        if (wait === null || wait > (options.maxRateLimitWaitMs ?? MAX_INLINE_WAIT_MS) || attempt >= MAX_INLINE_RETRIES) break;
-        await res.body?.cancel().catch(() => {});
-        await (cfg.sleep ?? ((ms) => abortableSleep(ms, options.signal)))(wait + 250);
-        options.signal?.throwIfAborted();
+        if (!res.ok) {
+          const detail = (await res.text().catch(() => '')).slice(0, 300);
+          throw new LlmError(`${cfg.provider} returned ${res.status}: ${detail}`, res.status, res.status === 429 ? (retryAfterMs(res.headers) ?? undefined) : undefined);
+        }
+        if (options.onToken && res.headers.get('content-type')?.includes('text/event-stream') && res.body) {
+          const onToken = options.onToken;
+          return await readStream(res.body, (t) => (started(), onToken(t)), cfg.provider);
+        }
+        const data = (await res.json()) as {
+          choices?: Array<{ message?: { content?: string | null } }>;
+          usage?: { prompt_tokens?: number; completion_tokens?: number };
+        };
+        const content = data.choices?.[0]?.message?.content;
+        if (typeof content !== 'string') throw new LlmError(`${cfg.provider} returned no message content`);
+        started();
+        options.onToken?.(content);
+        return {
+          content,
+          usage: { promptTokens: data.usage?.prompt_tokens ?? 0, completionTokens: data.usage?.completion_tokens ?? 0 },
+        };
+      } catch (err) {
+        if (stalled.signal.aborted && !options.signal?.aborted) throw new LlmError(`${cfg.provider}/${cfg.model} was too slow to start answering`, 504);
+        throw err;
+      } finally {
+        started();
       }
-      if (!res.ok) {
-        const detail = (await res.text().catch(() => '')).slice(0, 300);
-        throw new LlmError(`${cfg.provider} returned ${res.status}: ${detail}`, res.status, res.status === 429 ? (retryAfterMs(res.headers) ?? undefined) : undefined);
-      }
-      if (options.onToken && res.headers.get('content-type')?.includes('text/event-stream') && res.body) return readStream(res.body, options.onToken, cfg.provider);
-      const data = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string | null } }>;
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
-      };
-      const content = data.choices?.[0]?.message?.content;
-      if (typeof content !== 'string') throw new LlmError(`${cfg.provider} returned no message content`);
-      options.onToken?.(content);
-      return {
-        content,
-        usage: { promptTokens: data.usage?.prompt_tokens ?? 0, completionTokens: data.usage?.completion_tokens ?? 0 },
-      };
     },
   };
 }

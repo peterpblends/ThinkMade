@@ -31,7 +31,7 @@ export interface VoiceConversation {
   stop: () => void;
 }
 
-type Result = { isFinal: boolean; 0: { transcript: string } };
+type Result = { isFinal: boolean; 0: { transcript: string; confidence?: number } };
 type Recognition = {
   lang: string;
   continuous: boolean;
@@ -64,7 +64,9 @@ export function isEcho(heard: string, coachText: string): boolean {
 }
 
 /** How long a pause ends the listener's turn (ms): shorter after a finished phrase, longer mid-phrase. */
-export const END_OF_TURN_MS = { final: 900, interim: 1500 } as const;
+export const END_OF_TURN_MS = { final: 650, interim: 1100 } as const;
+/** The browser is sure enough of what it heard to skip the slower, more accurate transcript. */
+const CONFIDENT = 0.8;
 /** A phrase that ends like this ("and", "so", "because"…) usually carries on: wait as for an unfinished phrase. */
 const TRAILING = /\b(and|but|so|or|because|like|the|a|an|to|of|for|with|um|uh|i|my|if|that|which|then)$/i;
 /** Silence after speech the browser didn't recognise (some phones), before the turn ends anyway (ms). */
@@ -93,6 +95,8 @@ export interface ConversationOptions {
    * transcript used in place of the browser's own recognition where it can be.
    */
   transcribe?: (audio: Blob, signal: AbortSignal) => Promise<string>;
+  /** Called as the listener starts talking, to wake the server so the reply isn't slowed by a cold start. */
+  warm?: () => void;
   /** Injected in tests. */
   recorder?: () => TurnRecorder;
 }
@@ -131,6 +135,9 @@ export function useVoiceConversation(
   const active = useRef(false);
   // The listener's current turn: finished phrases (by result index) and the phrase still being recognised.
   const finals = useRef(new Map<number, string>());
+  // How sure the browser was of each finished phrase (0 when it doesn't say).
+  const confidences = useRef(new Map<number, number>());
+  const lastWarm = useRef(0);
   const interim = useRef('');
   const turnStart = useRef(0);
   const resultCount = useRef(0);
@@ -165,7 +172,10 @@ export function useVoiceConversation(
     clearEndTimer();
     const heard = turnText();
     const transcribe = optionsRef.current.transcribe;
-    const audio = transcribe && recorder.current?.marked ? recorder.current.take() : null;
+    // The recording is only transcribed when the browser wasn't sure of what it heard: that skips a round trip.
+    const sure = [...confidences.current.entries()].filter(([i]) => i >= turnStart.current).map(([, c]) => c);
+    const confident = !!heard && !carried.current && sure.length > 0 && sure.every((c) => c >= CONFIDENT);
+    const audio = transcribe && !confident && recorder.current?.marked ? recorder.current.take() : null;
     if ((!heard && !audio) || !active.current) return;
     const cutOffAt = interruptedAfter.current;
     interruptedAfter.current = undefined;
@@ -296,6 +306,11 @@ export function useVoiceConversation(
     clearEndTimer();
     if (!text) return;
     recorder.current?.mark();
+    // Wake the server while they are still talking (at most once every half minute).
+    if (Date.now() - lastWarm.current > 30_000) {
+      lastWarm.current = Date.now();
+      optionsRef.current.warm?.();
+    }
     // A phrase still being said, or one that trails off ("so…", "and…"), gets longer before the turn ends.
     const unfinished = !!interim.current || TRAILING.test(text);
     endTimer.current = setTimeout(() => void sendTurn(), unfinished ? END_OF_TURN_MS.interim : END_OF_TURN_MS.final);
@@ -314,7 +329,10 @@ export function useVoiceConversation(
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const res = e.results[i]!;
         const text = res[0].transcript.trim();
-        if (res.isFinal) finals.current.set(offset + i, text);
+        if (res.isFinal) {
+          finals.current.set(offset + i, text);
+          confidences.current.set(offset + i, res[0].confidence ?? 0);
+        }
         else latest = `${latest} ${text}`.trim();
       }
       resultCount.current = Math.max(resultCount.current, offset + e.results.length);
@@ -356,6 +374,7 @@ export function useVoiceConversation(
     rec.current?.abort();
     rec.current = null;
     finals.current.clear();
+    confidences.current.clear();
     resultCount.current = 0;
     resetTurn();
     setCoachLine('');
@@ -373,6 +392,7 @@ export function useVoiceConversation(
     speaker.current.prepare();
     active.current = true;
     finals.current.clear();
+    confidences.current.clear();
     resultCount.current = 0;
     resetTurn();
     setPhase('listening');
