@@ -23,6 +23,11 @@ export interface ChatOptions {
    * conversation should get the next model at once instead; background jobs can wait.
    */
   maxRateLimitWaitMs?: number;
+  /**
+   * Gives up on this model when it hasn't started answering within this long (ms): the first words when
+   * streaming, the reply otherwise. In a conversation, a stalled model hands over to the next one quickly.
+   */
+  firstTokenTimeoutMs?: number;
 }
 
 export interface ChatResult {

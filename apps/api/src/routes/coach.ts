@@ -21,7 +21,7 @@ const messageBody = z.strictObject({
 });
 const HISTORY = 12;
 /** A spoken conversation keeps fewer earlier turns, for a quicker reply. */
-const SPOKEN_HISTORY = 8;
+const SPOKEN_HISTORY = 6;
 
 export function coachRoutes(ctx: AppContext) {
   const r = new Hono<{ Variables: AppVariables }>();
@@ -107,12 +107,13 @@ export function coachRoutes(ctx: AppContext) {
       const details = detailMap.get(episode.id);
       const recent = [...history.slice(-2).map((m) => m.content), parsed.data.content].join(' ');
       // A spoken turn gets a shorter brief, so the first words come back sooner.
-      const excerpts = selectExcerpts(episode.transcript ?? '', recent, spoken ? 600 : 1200);
+      const excerpts = selectExcerpts(episode.transcript ?? '', recent, spoken ? 350 : 1200);
       const context = {
         // Only the owner's original question is shared with the coach; for public episodes we use the episode's own objective.
         originalQuestion: series.userId === userId ? (request?.inputText ?? request?.objective ?? null) : null,
         seriesTitle: series.title,
-        episode: { title: episode.title, learningObjective: episode.learningObjective, outcomes: episode.outcomes, keyTakeaways: episode.keyTakeaways, examples: episode.examples },
+        // A spoken turn leaves out the examples, to keep the request small and quick.
+        episode: { title: episode.title, learningObjective: episode.learningObjective, outcomes: episode.outcomes, keyTakeaways: episode.keyTakeaways, ...(spoken ? {} : { examples: episode.examples }) },
         mentalModels: details?.models.map((m) => ({ name: m.name, summary: m.summary, role: m.role })) ?? [],
         verifiedBooks: details?.sources.map((s) => s.title) ?? [],
       };
@@ -131,7 +132,8 @@ export function coachRoutes(ctx: AppContext) {
       ];
 
       // Someone is waiting: a model at its limit hands over to the next at once instead of waiting.
-      const options = spoken ? { temperature: 0.7, maxTokens: 350, maxRateLimitWaitMs: 1500 } : { temperature: 0.6, maxTokens: 700, maxRateLimitWaitMs: 1500 };
+      // A model that hasn't started answering within a few seconds hands over too.
+      const options = spoken ? { temperature: 0.7, maxTokens: 300, maxRateLimitWaitMs: 1500, firstTokenTimeoutMs: 4000 } : { temperature: 0.6, maxTokens: 700, maxRateLimitWaitMs: 1500, firstTokenTimeoutMs: 6000 };
       const failure = (err: unknown) => {
         if (err instanceof ProviderNotConfiguredError) return { status: 503 as const, body: { error: 'coach_unavailable', message: 'Coaching is not configured on this server yet.' } };
         console.error('[coach] model call failed', err instanceof LlmError ? err.message : err);

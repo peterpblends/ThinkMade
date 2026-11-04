@@ -15,7 +15,10 @@ export function clearRestingModels() {
 /** How long a failure means the model should rest, in milliseconds (0: try it again next time). */
 function restFor(err: unknown): number {
   if (!(err instanceof LlmError)) return 0;
-  if (err.status === 429) return err.retryAfterMs && err.retryAfterMs > 60_000 ? err.retryAfterMs : 60_000;
+  // Rest only until the limit resets (a per-minute limit is often seconds away), or a minute if it didn't say.
+  if (err.status === 429) return err.retryAfterMs ? Math.max(2_000, err.retryAfterMs) : 60_000;
+  // Too slow to start answering: let the next requests try another model for a while.
+  if (err.status === 504) return 120_000;
   if (err.status === 404 || (err.status === 400 && /model/i.test(err.message) && /not (?:exist|found|available|supported)|decommissioned|invalid model/i.test(err.message))) return 3_600_000;
   return 0;
 }

@@ -94,4 +94,28 @@ describe('createLlm with tm_fallbacks', () => {
     );
     expect(llm.provider).toBe('groq'); // only the primary had a key, so no wrapper is needed
   });
+
+  it('goes back to a model as soon as its per-minute limit resets, and gives a stalled model a rest', async () => {
+    let t = 0;
+    let first = 0;
+    const a = client('groq', () => (first++ === 0 ? limited(5_000)() : 'from groq'));
+    const b = client('gemini', () => 'from gemini');
+    const llm = createFallbackLlm([a, b], () => {}, () => t);
+    expect((await llm.chat([{ role: 'user', content: 'hi' }])).content).toBe('from gemini');
+    t = 3_000;
+    expect((await llm.chat([{ role: 'user', content: 'hi' }])).content).toBe('from gemini');
+    t = 5_500;
+    expect((await llm.chat([{ role: 'user', content: 'hi' }])).content).toBe('from groq');
+
+    clearRestingModels();
+    const slow = client('gemini', () => {
+      throw new LlmError('too slow to start answering', 504);
+    });
+    const c = client('openrouter', () => 'from openrouter');
+    const chain = createFallbackLlm([slow, c], () => {}, () => t);
+    await chain.chat([{ role: 'user', content: 'hi' }]);
+    t += 60_000;
+    await chain.chat([{ role: 'user', content: 'hi' }]);
+    expect(slow.calls).toBe(1);
+  });
 });
