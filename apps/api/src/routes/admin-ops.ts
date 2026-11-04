@@ -6,6 +6,7 @@ import { defaultStageModel, MODEL_STAGES, queryRows, schema, withRecommendedFall
 import { DEFAULT_PROMPTS, input, PROMPT_STAGES, stageSystem, STAGE_SCHEMAS, type PromptStage } from '@thinkmade/shared';
 import type { AppContext } from '../create-context';
 import { restartJob } from '../generation/restart';
+import { RegenerateError, regenerateSeries } from '../generation/regenerate';
 import { clientIp } from '../middleware/rate-limit';
 import type { AppVariables } from '../middleware/session';
 
@@ -491,6 +492,80 @@ export function adminOpsRoutes(ctx: AppContext) {
     const a = actor(c);
     await audit(a.id, a.ip, 'generation.restart', 'generation_job', job.id, { status: job.status, error: job.error }, { status: 'queued' });
     return c.json({ id: job.id, status: 'queued' }, 202);
+  });
+
+  // ---------- Everyone's podcasts ----------
+  // Every listener's podcasts, newest first, with their owner and progress. Admins can open and play any of
+  // them (the series and audio routes let administrators read every series), regenerate or delete them.
+  r.get('/podcasts', async (c) => {
+    const q = (c.req.query('q') ?? '').trim().slice(0, 100);
+    const status = c.req.query('status');
+    const limit = Math.min(100, Math.max(1, Number(c.req.query('limit')) || 50));
+    const offset = Math.max(0, Number(c.req.query('offset')) || 0);
+    const like = `%${q.replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
+    const rows = await queryRows<{
+      id: string; title: string; status: string; visibility: string; language: string; created_at: string; owner_id: string; owner: string;
+      episode_count: number; ready_count: number; job_id: string | null; job_status: string | null; job_error: string | null;
+    }>(
+      ctx.db,
+      sql`select s.id, s.title, s.status, s.visibility, s.language, s.created_at, u.id as owner_id, u.email as owner,
+            (select count(*)::int from episode e where e.series_id = s.id and e.status <> 'rejected') as episode_count,
+            (select count(*)::int from episode e where e.series_id = s.id and e.status = 'ready') as ready_count,
+            j.id as job_id, j.status as job_status, j.error as job_error
+          from podcast_series s
+          join "user" u on u.id = s.user_id
+          left join lateral (select id, status, error from generation_job g where g.series_id = s.id and not (g.options ? 'translate') order by g.created_at desc limit 1) j on true
+          where (${q} = '' or s.title ilike ${like} or u.email ilike ${like})
+            and (${status ?? ''} = '' or s.status = ${status ?? ''})
+          order by s.created_at desc
+          limit ${limit + 1} offset ${offset}`,
+    );
+    return c.json({
+      podcasts: rows.slice(0, limit).map((r) => ({
+        id: r.id, title: r.title, status: r.status, visibility: r.visibility, language: r.language, createdAt: r.created_at,
+        owner: { id: r.owner_id, email: r.owner }, episodeCount: r.episode_count, readyCount: r.ready_count,
+        job: r.job_id ? { id: r.job_id, status: r.job_status, error: r.job_error } : null,
+      })),
+      more: rows.length > limit,
+    });
+  });
+
+  // Writes and records a podcast's episodes again (all of them, or the ones named) from its saved plan.
+  r.post('/podcasts/:id/regenerate', async (c) => {
+    const body = z.strictObject({ episodeIds: z.array(z.string().min(1)).max(50).optional() }).safeParse(await c.req.json().catch(() => ({})));
+    if (!body.success) return c.json({ error: 'invalid_request' }, 400);
+    try {
+      const jobId = await regenerateSeries(ctx, c.req.param('id'), body.data.episodeIds);
+      const a = actor(c);
+      await audit(a.id, a.ip, 'series.regenerate', 'podcast_series', c.req.param('id'), null, { jobId, episodeIds: body.data.episodeIds ?? 'all' });
+      return c.json({ jobId, status: 'queued' }, 202);
+    } catch (err) {
+      if (err instanceof RegenerateError) return c.json({ error: err.code, message: err.message }, err.status);
+      throw err;
+    }
+  });
+
+  // Deletes a podcast for good: its episodes, audio and everything listeners saved about it.
+  r.delete('/podcasts/:id', async (c) => {
+    const body = z.strictObject({ reason: z.string().trim().min(3).max(500) }).safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return c.json({ error: 'invalid_request', message: 'Give a short reason.' }, 400);
+    const [s] = await ctx.db.select().from(schema.podcastSeries).where(eq(schema.podcastSeries.id, c.req.param('id')));
+    if (!s) return c.json({ error: 'not_found' }, 404);
+    const [owner] = await ctx.db.select({ email: schema.user.email }).from(schema.user).where(eq(schema.user.id, s.userId));
+    // A podcast still being made is stopped first, so the worker writes nothing more for it.
+    await ctx.db
+      .update(schema.generationJob)
+      .set({ status: 'cancelled', cancelRequested: 1, lockedBy: null, lockedUntil: null, finishedAt: new Date() })
+      .where(and(eq(schema.generationJob.seriesId, s.id), inArray(schema.generationJob.status, ['queued', 'running'])));
+    const eps = await ctx.db.select({ id: schema.episode.id, key: schema.episode.audioKey }).from(schema.episode).where(eq(schema.episode.seriesId, s.id));
+    const translated = eps.length
+      ? await ctx.db.select({ key: schema.episodeTranslation.audioKey }).from(schema.episodeTranslation).where(inArray(schema.episodeTranslation.episodeId, eps.map((e) => e.id)))
+      : [];
+    for (const k of [...eps.map((e) => e.key), ...translated.map((t) => t.key)]) if (k) await ctx.storage.delete(k).catch(() => {});
+    await ctx.db.delete(schema.podcastSeries).where(eq(schema.podcastSeries.id, s.id));
+    const a = actor(c);
+    await audit(a.id, a.ip, 'series.delete', 'podcast_series', s.id, { title: s.title, owner: owner?.email ?? null, episodes: eps.length }, { reason: body.data.reason });
+    return c.json({ deleted: true });
   });
 
   // ---------- Public content moderation ----------

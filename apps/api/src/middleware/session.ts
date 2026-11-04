@@ -61,6 +61,24 @@ export function requireVerified() {
 }
 
 /**
+ * Whether this user may use admin tools right now: an administrator, verified, not banned, with two-step
+ * verification on (or the development-only override). Read from the database, so a revoked role takes effect at once.
+ */
+export async function adminAccess(db: Db, env: Env, userId: string): Promise<'ok' | 'forbidden' | 'two_factor_required'> {
+  const [row] = await db
+    .select({ role: schema.user.role, twoFactorEnabled: schema.user.twoFactorEnabled, banned: schema.user.banned, emailVerified: schema.user.emailVerified })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId));
+  const roles = (row?.role ?? '').split(',').map((r) => r.trim());
+  if (!row || row.banned || !row.emailVerified || !roles.includes('admin')) return 'forbidden';
+  if (!row.twoFactorEnabled) {
+    if (!(env.ADMIN_SKIP_2FA && env.NODE_ENV !== 'production')) return 'two_factor_required';
+    console.warn('[admin] ADMIN_SKIP_2FA is set: allowing admin access without two-factor (development only).');
+  }
+  return 'ok';
+}
+
+/**
  * Admin guard. Reads role and two-factor state from the database rather than the session
  * cookie cache, so a revoked role takes effect immediately.
  */
@@ -68,25 +86,10 @@ export function requireAdmin(db: Db, env: Env) {
   return createMiddleware<{ Variables: AppVariables }>(async (c, next) => {
     const s = c.var.session;
     if (!s) return c.json({ error: 'unauthenticated' }, 401);
-    const [row] = await db
-      .select({
-        role: schema.user.role,
-        twoFactorEnabled: schema.user.twoFactorEnabled,
-        banned: schema.user.banned,
-        emailVerified: schema.user.emailVerified,
-      })
-      .from(schema.user)
-      .where(eq(schema.user.id, s.user.id));
-    const roles = (row?.role ?? '').split(',').map((r) => r.trim());
-    if (!row || row.banned || !row.emailVerified || !roles.includes('admin')) {
-      return c.json({ error: 'forbidden' }, 403);
-    }
-    if (!row.twoFactorEnabled) {
-      if (env.ADMIN_SKIP_2FA && env.NODE_ENV !== 'production') {
-        console.warn('[admin] ADMIN_SKIP_2FA is set: allowing admin access without two-factor (development only).');
-      } else {
-        return c.json({ error: 'two_factor_required' }, 403);
-      }
+    const access = await adminAccess(db, env, s.user.id);
+    if (access === 'forbidden') return c.json({ error: 'forbidden' }, 403);
+    if (access === 'two_factor_required') {
+      return c.json({ error: 'two_factor_required' }, 403);
     }
     await next();
   });
