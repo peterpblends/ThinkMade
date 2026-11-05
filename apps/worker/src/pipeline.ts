@@ -59,6 +59,8 @@ interface ScriptState {
     issues?: string[];
     /** Reviews so far (across drafts), so each is recorded under its own number. */
     reviews?: number;
+    /** Language-model tokens spent on this episode (drafts, reviews, rewrites). */
+    tokens?: number;
   };
 }
 
@@ -91,6 +93,34 @@ export interface JobState {
   autoRestarts?: number;
   /** When the job first found every AI provider at its limit (ms since epoch); cleared once one answers. */
   rateLimitedSince?: number;
+}
+
+/**
+ * Language-model tokens one episode may spend on drafting, reviews and rewrites, by its length. When an
+ * episode reaches it, it stops polishing: it is recorded if its script passes the automatic checks, and held
+ * for a person otherwise. A budget never stops the rest of the series.
+ */
+export function episodeTokenAllowance(lengthMinutes: number): number {
+  return 40_000 + 8_000 * Math.max(1, lengthMinutes);
+}
+
+/** Splits a spoken line that runs on (some models put a whole section in one line) at sentence ends. */
+export function splitLongLines<T extends { speaker: string; text: string }>(segments: T[], max = 1200): T[] {
+  return segments.flatMap((seg) => {
+    if (seg.text.length <= max) return [seg];
+    const sentences = seg.text.match(/[^.!?]+(?:[.!?]+["')\]]*\s*|$)/g) ?? [seg.text];
+    const out: T[] = [];
+    let cur = '';
+    for (const sentence of sentences) {
+      if (cur && cur.length + sentence.length > max) {
+        out.push({ ...seg, text: cur.trim() });
+        cur = '';
+      }
+      cur += sentence;
+    }
+    if (cur.trim()) out.push({ ...seg, text: cur.trim() });
+    return out;
+  });
 }
 
 /** Times a job that used up its retries is started again automatically, and how long each waits (seconds). */
@@ -311,6 +341,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
   }, deps.cancelPollMs ?? 2000);
   watch.unref?.();
   const runner = new StageRunner(db, job.id, deps.workerId, { retryDelayMs: deps.stepRetryDelayMs ?? 5000, signal: stop.signal, log });
+  // The episode whose script is being written, so its tokens count against its own allowance.
+  let spendingOn: string | null = null;
   const chat = async <T>(stage: ModelStage, task: string, data: unknown, zschema: Parameters<typeof completeJson<T>>[2], maxTokens = 4096) => {
     const llm = await deps.llm(stage);
     const messages: ChatMessage[] = [
@@ -320,12 +352,12 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     // Model selection runs warmer, so series don't keep landing on the same few models.
     const temperature = stage === 'script' ? 0.8 : stage === 'select_models' ? 0.7 : 0.4;
     const res = await completeJson(llm, messages, zschema, { temperature, maxTokens, signal: stop.signal });
-    state.tokens! += res.usage.promptTokens + res.usage.completionTokens;
+    const used = res.usage.promptTokens + res.usage.completionTokens;
+    state.tokens! += used;
+    // Counted against the episode being written, which has its own allowance (see episodeTokenAllowance).
+    if (spendingOn && state.scripts?.[spendingOn]) state.scripts[spendingOn]!.tokens = (state.scripts[spendingOn]!.tokens ?? 0) + used;
     // An answer means the allowance is back: a later limit starts a fresh wait.
     delete state.rateLimitedSince;
-    if (options.maxTokens && state.tokens! > options.maxTokens) {
-      throw new PermanentJobError(`This series hit its language-model budget (${options.maxTokens} tokens).`);
-    }
     await extendLease(db, job.id, deps.workerId, lease);
     return res.data;
   };
@@ -838,6 +870,12 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       const showFormat = episodeShowFormat(state.showFormat ?? 'conversation', hosts.length);
       const nameFor = (id: string) => hosts.find((h) => h.id === id)?.name ?? id;
       const progress = state.scripts![key]!;
+      spendingOn = key;
+      const allowance = episodeTokenAllowance(options.lengthMinutes);
+      // Out of budget: this episode's own allowance, or the series' cap. The series' cap (an administrator's
+      // setting) never leaves later episodes less than their own share.
+      const seriesCap = Math.max(options.maxTokens ?? 0, 100_000 + (state.plan?.episodes.length ?? 1) * allowance);
+      const outOfBudget = () => (progress.tokens ?? 0) >= allowance || state.tokens! >= seriesCap;
       const writeSection = async (i: number, revision?: { notes: string; problems: string[]; previous: string }) => {
         // The exact end of the section before, so the conversation carries on rather than restarting.
         const previousLines = i > 0 ? (progress.sections[i - 1]?.segments ?? []).slice(-4).map((x) => `${nameFor(x.speaker)}: ${x.text}`) : [];
@@ -865,7 +903,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           ep.number,
           `section ${i + 1} of ${ep.sections.length}${revision ? ' (revision)' : ''}`,
         );
-        section.segments = ownSpeakers(section.segments);
+        section.segments = splitLongLines(ownSpeakers(section.segments));
         // Smaller models often stop short; ask them to continue rather than accept a short episode.
         for (let topUp = 0; topUp < 2; topUp++) {
           const words = section.segments.reduce((n, x) => n + countWords(x.text), 0);
@@ -887,7 +925,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
             ep.number,
             `section ${i + 1} continued`,
           );
-          section.segments.push(...ownSpeakers(more.segments));
+          section.segments.push(...splitLongLines(ownSpeakers(more.segments)));
         }
         progress.sections[i] = { segments: section.segments, summary: section.summary };
         await saveState(db, job.id, state);
@@ -942,6 +980,18 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         progress.reviews = reviewNumber;
         await saveState(db, job.id, state);
         if (verdict.passed) break;
+        if (outOfBudget()) {
+          // No more polishing: a script that passes the automatic checks (length, no stage directions, every
+          // host speaking…) is recorded; one that doesn't is held for a person. The rest of the series goes on.
+          if (verdict.checks.length === 0) {
+            log('episode recorded at its budget', { jobId: job.id, episode: ep.number, tokens: progress.tokens, notes: verdict.notes.slice(0, 5) });
+            break;
+          }
+          await db.update(schema.episode).set({ status: 'needs_review', script: done.flatMap((d) => d.segments) }).where(eq(schema.episode.id, episodeId));
+          log('episode held for review at its budget', { jobId: job.id, episode: ep.number, tokens: progress.tokens });
+          spendingOn = null;
+          return 'needs_review';
+        }
         if (revision > quality.maxRevisions) {
           if ((progress.regenerations ?? 0) < maxRegenerations) {
             // Start the episode again from a blank page, carrying what every failed draft was marked down for.
@@ -956,6 +1006,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           }
           await db.update(schema.episode).set({ status: 'needs_review', script: done.flatMap((d) => d.segments) }).where(eq(schema.episode.id, episodeId));
           log('episode held for review', { jobId: job.id, episode: ep.number });
+          spendingOn = null;
           return 'needs_review';
         }
         const wholeScript = verdict.checks.some((c) => c.section === null);
@@ -966,6 +1017,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         }
       }
 
+      spendingOn = null;
       const done = progress.sections;
       const segments = done.flatMap((d) => d.segments);
       const nameOf = (id: string) => hosts.find((h) => h.id === id)?.name ?? 'Host';

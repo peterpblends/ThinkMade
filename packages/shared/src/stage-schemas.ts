@@ -142,7 +142,8 @@ export type PlannedEpisode = Plan['episodes'][number];
 
 export const scriptSectionSchema = z.object({
   segments: z
-    .array(z.object({ speaker: z.enum(['A', 'B', 'C', 'D']), text: z.string().min(1).max(4000) }))
+    // Long lines are accepted and split at sentence ends afterwards, rather than failing the section.
+    .array(z.object({ speaker: z.enum(['A', 'B', 'C', 'D']), text: z.string().min(1).max(20000) }))
     .min(1)
     .max(120),
   summary: z.string().max(800).default(''),

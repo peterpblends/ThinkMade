@@ -7,6 +7,7 @@ import { createEmbedServer } from './embed-server';
 import { secondsUntilNextJob } from './queue';
 import { cleanupExpiredUploads, createWorkerDeps, reindexPublicSeries, runNextJob, startWorker } from './index';
 import { ensureVoiceSamples } from './voice-samples';
+import { recoverBudgetStops } from './recover';
 
 if (!process.env.DATABASE_URL) {
   console.error('[worker] DATABASE_URL is required. Locally, the API runs the worker in-process instead.');
@@ -15,6 +16,8 @@ if (!process.env.DATABASE_URL) {
 const handle = await createDb({ databaseUrl: process.env.DATABASE_URL });
 if (process.env.WORKER_MIGRATE === 'true') await runMigrations(handle);
 const deps = await createWorkerDeps(handle.db);
+const recovered = await recoverBudgetStops(handle.db).catch((err) => (console.warn('[worker] recovery failed', String(err)), 0));
+if (recovered) console.info(`[worker] ${recovered} podcast(s) stopped by the old token budget started again`);
 if (process.env.WORKER_DRAIN === 'true') {
   let jobs = 0;
   const deadline = Date.now() + Number(process.env.WORKER_DRAIN_MINUTES ?? 300) * 60_000;

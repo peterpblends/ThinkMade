@@ -20,10 +20,13 @@ It claims jobs from the `generation_job` table in Postgres. It makes only outbou
 2. If it still fails, the whole episode is written again from scratch, told everything the failed drafts were marked down for, up to **Fresh drafts of the whole episode** times (default 2). Each fresh draft gets its own rewrites.
 3. Only a script that fails all of that is held for a person to review in Admin → Quality. It is never voiced.
 
+**Token allowances.** Each episode has its own language-model allowance, by its length (40,000 tokens plus 8,000 a minute: 160,000 for 15 minutes). When an episode reaches it, it stops polishing: it is recorded if its script passes the automatic checks, and held for review otherwise. A budget never stops the rest of the series. Admin → Settings → *Language model tokens per generation* is a series-wide cap on top, but it never leaves an episode less than its own allowance. A restarted or regenerated podcast starts with fresh allowances.
+
 **When something errors partway**, only the step that failed is started over:
 
 - Each step (a section of script, a review, an episode's audio) is retried in place twice, a few seconds apart. Everything finished before it is kept.
 - If it still fails, the job is retried later (after 15 and 30 seconds), carrying on from its saved progress.
+- The scheduled check (every 3 hours) resumes podcasts that were waiting; if the check itself can't reach the database, it runs the worker anyway.
 - When those retries are used up, the job starts again on its own after 5 minutes, and once more after an hour, from the step that failed. Only then is the podcast marked as errored (an admin can still restart it).
 - Usage limits wait for the provider's allowance instead (up to a day and a half), and a rejected API key or missing configuration fails at once, since retrying can't fix them.
 - Voicing another language retries an episode that errors once, without translating it again, before marking it failed.

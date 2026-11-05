@@ -45,8 +45,17 @@ jobs:
       - name: Anything due? (scheduled runs only)
         id: due
         if: github.event_name == 'schedule'
+        # The runner's psql doesn't understand some connection options (Neon adds channel_binding), so they
+        # are dropped for this quick check. If the check itself fails, the worker runs anyway: a podcast
+        # waiting to resume must never be stranded by the check.
         run: |
-          n=$(psql "$DATABASE_URL" -tAc "select count(*) from generation_job where (status = 'queued' and run_after <= now() + interval '40 minutes') or (status = 'running' and locked_until < now())")
+          url=$(printf '%s' "$DATABASE_URL" | sed -E 's/([?&])channel_binding=[^&]*&?/\1/; s/[?&]$//')
+          if n=$(psql "$url" -tAc "select count(*) from generation_job where (status = 'queued' and run_after <= now() + interval '40 minutes') or (status = 'running' and locked_until < now())" 2>/dev/null); then
+            n=$(printf '%s' "$n" | tr -d '[:space:]')
+          else
+            echo "::warning::Couldn't check the queue; running the worker anyway."
+            n=unknown
+          fi
           echo "Jobs due: $n"
           echo "count=$n" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
