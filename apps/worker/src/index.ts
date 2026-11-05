@@ -21,7 +21,8 @@ import { claimNextJob } from './queue';
 import { cleanupExpiredUploads } from './media';
 import { fakeResponder, fakeVerifyBook } from './testing/fake-responder';
 
-export { runJob } from './pipeline';
+export { episodeTokenAllowance, runJob, splitLongLines } from './pipeline';
+export { recoverBudgetStops } from './recover';
 export { cleanupExpiredUploads } from './media';
 export { ensureVoiceSamples } from './voice-samples';
 export { claimNextJob } from './queue';

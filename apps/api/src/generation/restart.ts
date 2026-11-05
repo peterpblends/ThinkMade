@@ -12,8 +12,9 @@ export type RestartResult = { ok: true } | { ok: false; status: 409; message: st
  */
 export async function restartJob(ctx: AppContext, job: Job, allowed: readonly string[]): Promise<RestartResult> {
   if (!allowed.includes(job.status)) return { ok: false, status: 409, message: 'This series is still being built.' };
-  // A fresh start for the rate-limit wait, too.
-  const { rateLimitRetries: _r, rateLimitedSince: _s, ...state } = (job.state ?? {}) as Record<string, unknown>;
+  // A fresh start: for the rate-limit wait, the automatic restarts and the token allowances too.
+  const { rateLimitRetries: _r, rateLimitedSince: _s, autoRestarts: _a, tokens: _t, ...state } = (job.state ?? {}) as Record<string, unknown> & { scripts?: Record<string, { tokens?: number }> };
+  if (state.scripts) state.scripts = Object.fromEntries(Object.entries(state.scripts).map(([k, v]) => [k, { ...v, tokens: 0 }]));
   const updated = await ctx.db
     .update(schema.generationJob)
     .set({ status: 'queued', attempts: 0, error: null, finishedAt: null, cancelRequested: 0, runAfter: ctx.now(), state })
