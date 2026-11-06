@@ -1,9 +1,9 @@
 name: CI
 
-# Runs on pull requests and on demand (Actions -> CI -> Run workflow), not on every push to main:
-# the private repository's free minutes are kept for the podcast worker.
+# Manual only (Actions -> CI -> Run workflow). Runs on this private repository use the account's 2,000
+# free Actions minutes and overage is billed, so pull requests no longer start it. Run the same checks
+# locally: npm run lint && npm run typecheck && npm test.
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions:
