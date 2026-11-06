@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { schema } from '@thinkmade/db';
-import { episodeTokenAllowance, runNextJob, splitLongLines } from './index';
+import { cleanSpeakerLabels, episodeTokenAllowance, runNextJob, splitLongLines } from './index';
 import { recoverBudgetStops } from './recover';
 import { setFakeValidation } from './testing/fake-responder';
 import { makeWorld } from './testing/fixtures';
@@ -80,5 +80,28 @@ describe('recovering podcasts the old budget stopped', () => {
     expect(after.map((e) => e.status).sort()).toEqual(['ready', 'ready']);
     const [series] = await world.db.select().from(schema.podcastSeries).where(eq(schema.podcastSeries.id, done!.seriesId!));
     expect(series!.status).toBe('ready');
+  });
+});
+
+describe('speaker labels in the spoken text', () => {
+  const hosts = [
+    { id: 'A', name: 'Emma' },
+    { id: 'B', name: 'Edwin' },
+  ];
+  it('are removed and the line is split between the hosts they name', () => {
+    expect(cleanSpeakerLabels([{ speaker: 'A', text: 'A: Emma: So here is the idea. B: Wait, really? Emma: Yes.' }], hosts)).toEqual([
+      { speaker: 'A', text: 'So here is the idea.' },
+      { speaker: 'B', text: 'Wait, really?' },
+      { speaker: 'A', text: 'Yes.' },
+    ]);
+    expect(cleanSpeakerLabels([{ speaker: 'B', text: 'Edwin: Right.\nA: And then?' }], hosts)).toEqual([
+      { speaker: 'B', text: 'Right.' },
+      { speaker: 'A', text: 'And then?' },
+    ]);
+  });
+
+  it('leave ordinary colons and names in a sentence alone', () => {
+    const text = 'There are two options: wait or act. Emma said it best, though.';
+    expect(cleanSpeakerLabels([{ speaker: 'A', text }], hosts)).toEqual([{ speaker: 'A', text }]);
   });
 });

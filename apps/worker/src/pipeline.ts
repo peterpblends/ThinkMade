@@ -104,6 +104,42 @@ export function episodeTokenAllowance(lengthMinutes: number): number {
   return 40_000 + 8_000 * Math.max(1, lengthMinutes);
 }
 
+/**
+ * Removes speaker labels a model wrote into the spoken text ("A: Emma: So…", "…right? B: Exactly"), which would
+ * otherwise be read aloud: the line is split where a label starts, and each part goes to the host it names.
+ */
+export function cleanSpeakerLabels<T extends { speaker: string; text: string }>(segments: T[], hosts: Array<{ id: string; name: string }>): T[] {
+  const byName = new Map(hosts.map((h) => [h.name.toLowerCase(), h.id]));
+  const names = hosts.map((h) => h.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).filter(Boolean);
+  const tag = `(?:\\[?(?:[A-D]${names.length ? `|${names.join('|')}` : ''})\\]?\\s*:\\s*)+`;
+  // A label at the start, or after a sentence ends or a line breaks.
+  const re = new RegExp(`(^|[.!?…"”'’)]\\s+|\\n\\s*)(${tag})`, 'gi');
+  const who = (label: string, fallback: string) => {
+    const parts = label.split(':').map((x) => x.replace(/[[\]\s]/g, '').toLowerCase()).filter(Boolean);
+    const last = parts.at(-1) ?? '';
+    if (byName.has(last)) return byName.get(last)!;
+    if (/^[a-d]$/.test(last)) return last.toUpperCase();
+    return fallback;
+  };
+  return segments.flatMap((seg) => {
+    const out: T[] = [];
+    let speaker = seg.speaker;
+    let from = 0;
+    let m: RegExpExecArray | null;
+    re.lastIndex = 0;
+    while ((m = re.exec(seg.text))) {
+      const cut = m.index + m[1]!.length;
+      const before = seg.text.slice(from, cut).trim();
+      if (before) out.push({ ...seg, speaker, text: before });
+      speaker = who(m[2]!, speaker);
+      from = cut + m[2]!.length;
+    }
+    const rest = seg.text.slice(from).trim();
+    if (rest) out.push({ ...seg, speaker, text: rest });
+    return out;
+  });
+}
+
 /** Splits a spoken line that runs on (some models put a whole section in one line) at sentence ends. */
 export function splitLongLines<T extends { speaker: string; text: string }>(segments: T[], max = 1200): T[] {
   return segments.flatMap((seg) => {
@@ -903,7 +939,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           ep.number,
           `section ${i + 1} of ${ep.sections.length}${revision ? ' (revision)' : ''}`,
         );
-        section.segments = splitLongLines(ownSpeakers(section.segments));
+        section.segments = splitLongLines(ownSpeakers(cleanSpeakerLabels(section.segments, hosts)));
         // Smaller models often stop short; ask them to continue rather than accept a short episode.
         for (let topUp = 0; topUp < 2; topUp++) {
           const words = section.segments.reduce((n, x) => n + countWords(x.text), 0);
@@ -925,7 +961,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
             ep.number,
             `section ${i + 1} continued`,
           );
-          section.segments.push(...splitLongLines(ownSpeakers(more.segments)));
+          section.segments.push(...splitLongLines(ownSpeakers(cleanSpeakerLabels(more.segments, hosts))));
         }
         progress.sections[i] = { segments: section.segments, summary: section.summary };
         await saveState(db, job.id, state);
