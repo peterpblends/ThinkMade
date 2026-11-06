@@ -1,9 +1,10 @@
 name: CI
 
-# Manual only (Actions -> CI -> Run workflow). Runs on this private repository use the account's 2,000
-# free Actions minutes and overage is billed, so pull requests no longer start it. Run the same checks
-# locally: npm run lint && npm run typecheck && npm test.
+# Runs on pull requests while the repository is public (free, unlimited minutes), and on demand
+# (Actions -> CI -> Run workflow). If the repository is made private again, pull requests skip it, since a
+# private repository's 2,000 monthly minutes are billed past the limit.
 on:
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -15,6 +16,7 @@ concurrency:
 
 jobs:
   check:
+    if: github.event_name == 'workflow_dispatch' || github.event.repository.private == false
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -50,6 +52,7 @@ jobs:
           retention-days: 7
 
   secrets:
+    if: github.event_name == 'workflow_dispatch' || github.event.repository.private == false
     runs-on: ubuntu-latest
     permissions:
       contents: read
