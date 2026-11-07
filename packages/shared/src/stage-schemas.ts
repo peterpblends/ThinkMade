@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SHOW_APPROACHES, type ShowApproach } from './show.ts';
 
 const slug = z
   .string()
@@ -42,6 +43,20 @@ export const understandingSchema = z.object({
     .default({ hosts: [], requests: [] }),
   /** The show format that would make this topic most engaging. */
   suggestedFormat: z.enum(['storytelling', 'conversation', 'interview']).nullish().catch(null),
+  /** What this podcast sets out to do for the listener: its mission. */
+  mission: z.string().max(600).nullish().catch(null),
+  /** The way of making the podcast the listener asked for, if they did (e.g. "interview founders"). */
+  requestedApproach: z
+    .string()
+    .nullish()
+    .catch(null)
+    .transform((x) => ((SHOW_APPROACHES as readonly string[]).includes(x ?? '') ? (x as ShowApproach) : null)),
+  /** The ways of making this podcast that would suit the topic, best first. */
+  suitableApproaches: z
+    .array(z.string())
+    .nullish()
+    .catch(null)
+    .transform((xs) => (xs ?? []).filter((x): x is ShowApproach => (SHOW_APPROACHES as readonly string[]).includes(x))),
 });
 export type Understanding = z.infer<typeof understandingSchema>;
 export type ListenerPreferences = Understanding['preferences'];
@@ -184,7 +199,7 @@ You are the quality reviewer. Grade this podcast script before it is turned into
 - thinking: the listener will understand what the model is, why it works, its assumptions and limits.
 - seeing: the listener learns the signals and situations where it applies, and where it does not.
 - doing: the listener sees step-by-step practical application with concrete examples.
-- flow: it sounds like real people, not a reading: it opens with a hook, not a welcome; turns build on and react to the previous line; hosts have distinct personalities and real roles (in interviews, follow-up questions build on answers); there is genuine curiosity and some disagreement or discovery; turn lengths vary; turns open in varied ways and hosts don't keep addressing each other by name (names only where natural); no stock phrases ("great question", "absolutely", "let's dive in"), constant agreement, hype or recaps; storytelling is a narrative, not a summary.
+- flow: it sounds like real people, not a reading: it opens with a hook, not a welcome; turns build on and react to the previous line; hosts have distinct personalities and real roles (in interviews, follow-up questions build on answers); there is genuine curiosity and some disagreement or discovery; turn lengths vary; hosts and any guest are introduced by name near the start; names are used naturally, not as the habitual opener of every turn; turns open in varied ways; no stock phrases ("great question", "absolutely", "let's dive in"), constant agreement, hype or recaps; storytelling is a narrative, not a summary.
 - accuracy: claims are accurate; nothing invented (books, quotes, studies, statistics, cases); hypotheticals are labelled.
 - sources: only books from the verified list are named, with correct authors; no quotations from them. Scripture or other texts the listener asked for are fine when cited accurately.
 - repetition: no needless repetition within the script or of earlier sections.

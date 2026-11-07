@@ -109,8 +109,8 @@ export function scriptChecks(sections: Segment[][], opts: { targetWords: number;
     if (opts.format !== 'single' && segs.length >= 4 && opts.hosts?.length) {
       // Calling the other host by name at the start of a turn, again and again, sounds scripted.
       const named = segs.filter((x) => addressesByName(x, opts.hosts!)).length;
-      if (named > Math.max(2, segs.length * 0.2)) {
-        problems.push({ code: 'name_openers', section: i + 1, message: `Hosts address each other by name in ${named} of ${segs.length} turns. Use names rarely (when it means something), and just respond to what was said.` });
+      if (named > Math.max(3, segs.length * 0.25)) {
+        problems.push({ code: 'name_openers', section: i + 1, message: `Hosts address each other by name in ${named} of ${segs.length} turns. Keep names for natural moments (a welcome, bringing someone in, thanks); most turns should just respond to what was said.` });
       }
     }
     if (segs.length >= 8) {

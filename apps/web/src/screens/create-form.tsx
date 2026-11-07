@@ -229,7 +229,7 @@ function mb(bytes: number) {
 const SPEAKERS = [
   { value: 'single', label: 'Single Host', hint: 'One natural teacher.' },
   { value: 'two_hosts', label: 'Two Hosts', hint: 'A real conversation between two hosts.' },
-  { value: 'mixed', label: 'Mixed', hint: 'Episodes vary the format.' },
+  { value: 'mixed', label: 'Mixed', hint: 'Each podcast gets its own format: co-hosts, expert or founder guests, or a storyteller.' },
 ] as const;
 
 /** Which voices have an accent the planner can ask for. */
