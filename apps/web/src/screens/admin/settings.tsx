@@ -127,6 +127,7 @@ export function AdminSettingsScreen() {
         hostStyle: String(f.get('production.hostStyle') ?? '').trim(),
         allowSimulatedGuests: f.get('production.allowSimulatedGuests') === 'on',
         rotateGuests: f.get('production.rotateGuests') === 'on',
+        visitingGuests: f.get('production.visitingGuests') === 'on',
         roomTone: f.get('production.roomTone') === 'on',
       },
       appearance: { splashSeconds: num('appearance.splashSeconds') },
@@ -218,6 +219,10 @@ export function AdminSettingsScreen() {
           <label className="flex min-h-11 items-center gap-3 text-sm font-medium">
             <input type="checkbox" name="production.rotateGuests" defaultChecked={production.rotateGuests} className="h-5 w-5" />
             In interview series, keep one host and bring a different guest, suited to the topic, each episode
+          </label>
+          <label className="flex min-h-11 items-center gap-3 text-sm font-medium">
+            <input type="checkbox" name="production.visitingGuests" defaultChecked={production.visitingGuests} className="h-5 w-5" />
+            In other series, the host brings in a visiting guest now and then (about one episode in three)
           </label>
           <label className="flex min-h-11 items-center gap-3 text-sm font-medium">
             <input type="checkbox" name="production.roomTone" defaultChecked={production.roomTone} className="h-5 w-5" />

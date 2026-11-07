@@ -1,8 +1,7 @@
 name: CI
 
-# Runs on pull requests while the repository is public (free, unlimited minutes), and on demand
-# (Actions -> CI -> Run workflow). If the repository is made private again, pull requests skip it, since a
-# private repository's 2,000 monthly minutes are billed past the limit.
+# Runs on pull requests and on demand (Actions -> CI -> Run workflow), not on every push to main:
+# the private repository's free minutes are kept for the podcast worker.
 on:
   pull_request:
   workflow_dispatch:
@@ -16,7 +15,6 @@ concurrency:
 
 jobs:
   check:
-    if: github.event_name == 'workflow_dispatch' || github.event.repository.private == false
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -52,7 +50,6 @@ jobs:
           retention-days: 7
 
   secrets:
-    if: github.event_name == 'workflow_dispatch' || github.event.repository.private == false
     runs-on: ubuntu-latest
     permissions:
       contents: read

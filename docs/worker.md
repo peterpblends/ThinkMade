@@ -35,15 +35,13 @@ It claims jobs from the `generation_job` table in Postgres. It makes only outbou
 
 | Option | Card needed | Always available | Limits |
 |---|---|---|---|
-| **GitHub Actions** (on demand, the current setup) | No | Yes | Unlimited while the repository is public (it is). A private repository gets 2,000 minutes a month, and the workflows skip automatic runs then. |
+| **GitHub Actions** (on demand) | No | Yes | 2,000 free minutes a month on a private repository, roughly 40 three-episode series. Unlimited if the repository is public. |
 | **Your Mac** | No | Only while it's on and awake | None |
 | **Oracle Cloud Always Free VM** | Yes, for identity verification only (Always Free resources aren't charged) | Yes | 2 OCPU, 12 GB |
 
 You can run more than one: workers share the queue safely.
 
 ## On GitHub Actions (no card)
-
-The repository is public so that GitHub-hosted minutes are free and unlimited (the private repository used up its 2,000 monthly minutes in the first week of November 2026). The worker, CI and Models workflows start automatically only while the repository is public: if it is made private again, their automatic runs are skipped and use no minutes, so nothing is billed, but podcasts then wait until the worker is started by hand or runs elsewhere.
 
 The workflow `.github/workflows/worker.yml` drains the queue and exits. The API starts a run whenever someone creates a podcast, and every 3 hours a quick check (under a minute) starts a run only if a job is due, such as one that waited out a rate limit.
 

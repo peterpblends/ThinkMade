@@ -1,6 +1,6 @@
 # Lists the language models each provider offers this account (Groq, Gemini and OpenRouter's free
 # models), so ThinkMade's fallback chains are built from names that exist. Run it from Actions → Models,
-# or it runs on a pull request that changes the script (only while the repository is public).
+# or it runs on a pull request that changes the script.
 name: Models
 
 on:
@@ -16,7 +16,6 @@ permissions:
 
 jobs:
   list:
-    if: github.event_name == 'workflow_dispatch' || github.event.repository.private == false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

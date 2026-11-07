@@ -82,6 +82,8 @@ const productionSchema = z.strictObject({
   allowSimulatedGuests: z.boolean(),
   /** In an interview series, one host throughout and a different guest, suited to the topic, each episode. */
   rotateGuests: z.boolean().default(true),
+  /** In other series, the host now and then brings in a visiting guest (a simulated expert) to liven things up. */
+  visitingGuests: z.boolean().default(true),
   /** Extra direction for every host, e.g. "warm and plain-spoken, with dry humour". */
   hostStyle: z.string().max(400),
   /** Pauses between lines and speakers. */
@@ -96,6 +98,7 @@ export const DEFAULT_PRODUCTION: ProductionSettings = {
   showFormat: 'auto',
   allowSimulatedGuests: true,
   rotateGuests: true,
+  visitingGuests: true,
   hostStyle: '',
   pacing: 'natural',
   expressiveness: 'natural',
