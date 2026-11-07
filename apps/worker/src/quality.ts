@@ -9,7 +9,7 @@ export { CRITERIA, CRITERIA_LABELS, judgementSchema, VALIDATE_TASK, type Criteri
 type Segment = { speaker: string; text: string };
 
 export interface CheckProblem {
-  code: 'too_short' | 'too_long' | 'announced_labels' | 'one_sided' | 'repetition' | 'unspeakable' | 'stock_phrases' | 'echo_openers' | 'monotone_turns' | 'monologue';
+  code: 'too_short' | 'too_long' | 'announced_labels' | 'one_sided' | 'repetition' | 'unspeakable' | 'stock_phrases' | 'echo_openers' | 'monotone_turns' | 'monologue' | 'name_openers' | 'same_openers';
   /** 1-based section number, or null for the whole script. */
   section: number | null;
   message: string;
@@ -32,8 +32,55 @@ export const STOCK_PHRASES: ReadonlyArray<readonly [RegExp, string]> = [
 ];
 const AGREEMENT_OPENER = /^\s*(?:exactly|absolutely|totally|right|yes|yeah|great|definitely|i agree|so true)\b[\s,.!—-]/i;
 
+const escape = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Whether a turn opens by calling another host by name ("Emma, …", "So Edwin, …", "Right, Emma. …"). */
+export function addressesByName(seg: Segment, hosts: Array<{ id: string; name: string }>): boolean {
+  // "I'm Emma." is an introduction, not calling out to Emma.
+  const opening = seg.text.trim().split(/\s+/).slice(0, 5).join(' ').replace(/\b(?:i'?m|i am|this is|my name is)\s+\S+/gi, '');
+  return hosts.some((h) => h.id !== seg.speaker && !!h.name && new RegExp(`(^|[\\s,])${escape(h.name)}\\s*[,.!?—-]`, 'i').test(opening));
+}
+
+/**
+ * Finds a script whose lines were given to the wrong host from the start: a speaker introducing themself by
+ * another host's name ("I'm Emma"), or being addressed by their own name ("Edwin, what do you think?" said by
+ * Edwin). With clear evidence that two hosts' lines are swapped, returns the pair to swap back.
+ */
+export function swappedSpeakers(segments: Segment[], hosts: Array<{ id: string; name: string }>): [string, string] | null {
+  if (hosts.length < 2) return null;
+  const byId = new Map(hosts.map((h) => [h.id, h]));
+  const votes = new Map<string, number>();
+  let right = 0;
+  const vote = (a: string, b: string) => {
+    const key = [a, b].sort().join('|');
+    votes.set(key, (votes.get(key) ?? 0) + 1);
+  };
+  for (const seg of segments) {
+    const me = byId.get(seg.speaker);
+    if (!me) continue;
+    for (const other of hosts) {
+      if (!other.name) continue;
+      const n = escape(other.name);
+      // Introducing themself.
+      if (new RegExp(`\\b(?:i'?m|i am|this is|my name is|i'm your host,?)\\s+${n}\\b`, 'i').test(seg.text)) {
+        if (other.id === me.id) right++;
+        else vote(me.id, other.id);
+      }
+    }
+    // Being called by their own name at the start of their own turn.
+    if (me.name && new RegExp(`^\\s*(?:\\w+,?\\s+)?${escape(me.name)}\\s*[,!?]`, 'i').test(seg.text)) {
+      const others = hosts.filter((h) => h.id !== me.id);
+      if (others.length === 1) vote(me.id, others[0]!.id);
+    }
+    if (addressesByName(seg, hosts)) right++;
+  }
+  const [pair, n] = [...votes.entries()].sort((a, b) => b[1] - a[1])[0] ?? ['', 0];
+  if (n >= 2 && n > right) return pair.split('|') as [string, string];
+  return null;
+}
+
 /** Fast deterministic checks that do not need a model. */
-export function scriptChecks(sections: Segment[][], opts: { targetWords: number; format: EpisodeFormat; hostIds?: string[] }): CheckProblem[] {
+export function scriptChecks(sections: Segment[][], opts: { targetWords: number; format: EpisodeFormat; hostIds?: string[]; hosts?: Array<{ id: string; name: string }> }): CheckProblem[] {
   const problems: CheckProblem[] = [];
   const all = sections.flat();
   const total = all.reduce((n, s) => n + countWords(s.text), 0);
@@ -58,6 +105,23 @@ export function scriptChecks(sections: Segment[][], opts: { targetWords: number;
     }
     if (/(^|[.!?]\s+|\n)\s*(thinking|seeing|doing)\s*[:—-]/i.test(text) || /\b(the|our) (thinking|seeing|doing) (part|section|stage)\b/i.test(text)) {
       problems.push({ code: 'announced_labels', section: i + 1, message: 'Thinking, Seeing or Doing is announced as a label instead of woven into the conversation.' });
+    }
+    if (opts.format !== 'single' && segs.length >= 4 && opts.hosts?.length) {
+      // Calling the other host by name at the start of a turn, again and again, sounds scripted.
+      const named = segs.filter((x) => addressesByName(x, opts.hosts!)).length;
+      if (named > Math.max(2, segs.length * 0.2)) {
+        problems.push({ code: 'name_openers', section: i + 1, message: `Hosts address each other by name in ${named} of ${segs.length} turns. Use names rarely (when it means something), and just respond to what was said.` });
+      }
+    }
+    if (segs.length >= 8) {
+      // The same opening word for many turns ("So…", "And…", "Well…") makes the talk sound mechanical.
+      const firsts = segs.map((x) => (x.text.trim().match(/^[A-Za-z']+/)?.[0] ?? '').toLowerCase()).filter(Boolean);
+      const counts = new Map<string, number>();
+      for (const w of firsts) counts.set(w, (counts.get(w) ?? 0) + 1);
+      const [word, n] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? ['', 0];
+      if (n / segs.length > 0.35 && !['i', 'the', 'a'].includes(word)) {
+        problems.push({ code: 'same_openers', section: i + 1, message: `${n} of ${segs.length} turns start with "${word}". Vary how turns open: react, ask, push back, or pick up the thread mid-thought.` });
+      }
     }
     if (/(\*\*|__|#{1,6}\s|\[[^\]]*(music|laughs|pause|sound)[^\]]*\]|\((music|laughs|pause|sound)[^)]*\)|\*[^*]*(music|plays|laughs)[^*]*\*)/i.test(text)) {
       problems.push({ code: 'unspeakable', section: i + 1, message: 'Contains markdown or stage directions that would be read aloud.' });

@@ -4,6 +4,7 @@ export * from './settings.ts';
 export * from './languages.ts';
 export * from './generation.ts';
 export * from './hosts.ts';
+export * from './names.ts';
 export * from './show.ts';
 export * from './playback.ts';
 export * from './prompts.ts';

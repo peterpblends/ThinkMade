@@ -11,14 +11,14 @@ import {
   type ChatMessage,
 } from '@thinkmade/ai';
 import { getActivePrompts, indexSeriesEmbedding, queryRows, schema, settleCancelledSeries, type Db, type ModelStage } from '@thinkmade/db';
-import { castHosts, chooseHosts, chooseShowFormat, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, HOST_IDS, languageInfo, languageInstruction, speaksLanguage, voiceInfo, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowFormat } from '@thinkmade/shared';
+import { castHosts, chooseHosts, chooseShowFormat, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, HOST_IDS, languageInfo, languageInstruction, speaksLanguage, verifyCast, voiceInfo, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowFormat } from '@thinkmade/shared';
 import { JobCancelledError, LostLeaseError, PermanentJobError, type WorkerDeps } from './deps';
 import { overusedModels, rankForVariety } from './model-variety';
 import { voiceTranslation } from './translate';
 import { input, PLAN_TASK, RESEARCH_TASK, SCRIPT_TASK, SELECT_MODELS_TASK, stageSystem, UNDERSTAND_TASK } from './prompts';
 import type { ClaimedJob } from './queue';
 import { analyseUploads, type MediaAnalysis } from './media';
-import { aggregateJudgements, CRITERIA_LABELS, failingCriteria, judgementSchema, judgeWindows, scriptChecks, VALIDATE_TASK, type EpisodeFormat, type Judgement } from './quality';
+import { aggregateJudgements, CRITERIA_LABELS, failingCriteria, judgementSchema, judgeWindows, scriptChecks, swappedSpeakers, VALIDATE_TASK, type EpisodeFormat, type Judgement } from './quality';
 import { extendLease, requeueJob } from './queue';
 import {
   modelSelectionSchema,
@@ -538,10 +538,12 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       state.hosts = castHosts(state.hosts, state.showFormat, production.hostStyle);
       await saveState(db, job.id, state);
     }
-    const hostsForPrompt = (hosts: Array<{ id: string; name: string; age?: number; role?: string; kind?: 'host' | 'guest'; simulated?: boolean }>) =>
+    const hostsForPrompt = (hosts: Array<{ id: string; name: string; voice?: string; gender?: 'female' | 'male'; age?: number; role?: string; kind?: 'host' | 'guest'; simulated?: boolean }>) =>
       hosts.map((h) => ({
         speaker: h.id,
         name: h.name,
+        // Their voice's gender: each host's lines go to their own speaker id, spoken in that voice.
+        ...((h.gender ?? (h.voice ? voiceInfo(h.voice)?.gender : undefined)) ? { gender: h.gender ?? voiceInfo(h.voice!)!.gender } : {}),
         ...(h.age ? { age: h.age } : {}),
         ...(h.role ? { role: h.role } : {}),
         ...(h.kind ? { kind: h.kind } : {}),
@@ -870,7 +872,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         held++;
         continue;
       }
-      const result = await writeAndVoiceEpisode(planned, row.id, row.speakerFormat as EpisodeFormat, row.hosts ?? []);
+      const result = await writeAndVoiceEpisode(planned, row.id, row.speakerFormat as EpisodeFormat, (row.hosts ?? []) as Host[]);
       if (result === 'needs_review') held++;
     }
     const kept = state.plan.episodes.filter((p) => !isRejected(episodes.find((e) => e.number === p.number)!)).length;
@@ -892,8 +894,20 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       return await finalise('failed', message);
     }
 
-    async function writeAndVoiceEpisode(ep: PlannedEpisode, episodeId: string, format: EpisodeFormat, hosts: Array<{ id: string; name: string; voice: string; age?: number; role?: string }>): Promise<'ready' | 'needs_review'> {
-      const hostIds = hosts.map((h) => h.id);
+    async function writeAndVoiceEpisode(ep: PlannedEpisode, episodeId: string, format: EpisodeFormat, episodeHosts: Host[]): Promise<'ready' | 'needs_review'> {
+      // Voices are checked and locked before a word is written: a series host keeps the series' voice in every
+      // episode, every voice matches its host's gender (and name), and no two hosts share one.
+      const locked = episodeHosts.map((h) => {
+        const series = state.hosts?.find((x) => x.id === h.id && x.name === h.name);
+        return series ? { ...h, voice: series.voice, ...(series.gender ? { gender: series.gender } : {}) } : h;
+      });
+      const cast = verifyCast(locked, { pool: options.voicePool ?? DEFAULT_APP_SETTINGS.voices.available, language });
+      const hosts = cast.hosts;
+      if (cast.fixes.length || hosts.some((h, i) => h.voice !== episodeHosts[i]?.voice || h.gender !== episodeHosts[i]?.gender)) {
+        if (cast.fixes.length) log('voices corrected before writing', { jobId: job.id, episode: ep.number, fixes: cast.fixes });
+        await db.update(schema.episode).set({ hosts }).where(eq(schema.episode.id, episodeId));
+      }
+      const hostIds: string[] = hosts.map((h) => h.id);
       // Lines given to a speaker this episode doesn't have go to the first host.
       const ownSpeakers = <T extends { speaker: string }>(segs: T[]) => segs.map((x) => (hostIds.includes(x.speaker) ? x : { ...x, speaker: 'A' as const }));
       const totalWords = WORDS_PER_MINUTE * options.lengthMinutes;
@@ -969,6 +983,16 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
 
       for (let i = progress.sections.length; i < ep.sections.length; i++) await writeSection(i);
 
+      /** Lines written for the wrong host from the start (Emma's lines given to Edwin) are given back. */
+      const fixSwappedSpeakers = async () => {
+        const pair = swappedSpeakers(progress.sections.flatMap((d) => d.segments), hosts);
+        if (!pair) return;
+        const [a, b] = pair;
+        for (const d of progress.sections) d.segments = d.segments.map((x) => (x.speaker === a ? { ...x, speaker: b } : x.speaker === b ? { ...x, speaker: a } : x)) as typeof d.segments;
+        await saveState(db, job.id, state);
+        log('swapped speakers put right', { jobId: job.id, episode: ep.number, hosts: pair.map((id) => hosts.find((h) => h.id === id)?.name) });
+      };
+
       // Quality gate: review, revise, and only voice a script that passes (or that a person approved).
       const [humanApproval] = await db
         .select({ id: schema.episodeQualityCheck.id })
@@ -979,11 +1003,12 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       // episode held for a person to review.
       const maxRegenerations = quality.maxRegenerations ?? 2;
       for (let revision = 1; !humanApproval; revision++) {
+        await fixSwappedSpeakers();
         const done = progress.sections;
         const reviewNumber = (progress.reviews ?? 0) + 1;
         const verdict = await runner.run('validate', async () => {
           const sections = done.map((d) => d.segments);
-          const checks = scriptChecks(sections, { targetWords: totalWords, format, hostIds });
+          const checks = scriptChecks(sections, { targetWords: totalWords, format, hostIds, hosts });
           // Review windows must fit the review model's request limit: about 1.4 tokens a word, plus room for instructions and the verdict.
           const limit = (await deps.llm('validate')).requestTokenLimit;
           const windowWords = limit ? Math.max(1000, Math.floor((limit - 2000 - 1500) / 1.4)) : 4500;
@@ -1054,8 +1079,15 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       }
 
       spendingOn = null;
+      await fixSwappedSpeakers();
       const done = progress.sections;
       const segments = done.flatMap((d) => d.segments);
+      // Last check before audio: every line belongs to a host of this episode, and every host's voice is right.
+      const final = verifyCast(hosts, { pool: options.voicePool ?? DEFAULT_APP_SETTINGS.voices.available, language });
+      if (final.fixes.length || segments.some((x) => !hostIds.includes(x.speaker))) {
+        throw new Error(`Voice check failed before recording: ${final.fixes.join('; ') || 'a line belongs to no host'}`);
+      }
+      log('voices checked', { jobId: job.id, episode: ep.number, cast: hosts.map((h) => `${h.name}=${voiceInfo(h.voice)?.name ?? h.voice} (${h.gender ?? '?'})`) });
       const nameOf = (id: string) => hosts.find((h) => h.id === id)?.name ?? 'Host';
       const voiceOf = (id: string) => hosts.find((h) => h.id === id)?.voice ?? options.voices.single;
       await db.update(schema.episode).set({ status: 'synthesizing', script: segments }).where(eq(schema.episode.id, episodeId));

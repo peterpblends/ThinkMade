@@ -328,3 +328,33 @@ describe('short sections from small models', () => {
     expect(continuations.length).toBeGreaterThan(0);
   });
 });
+
+describe('voices and lines', () => {
+  it("puts back lines a writer gave to the wrong host before any audio is made, and checks every voice", async () => {
+    world = await makeWorld((messages: ChatMessage[]) => {
+      const sys = String(messages[0]!.content);
+      if (sys.startsWith('STAGE: script')) {
+        const input = String(messages[1]!.content);
+        const data = JSON.parse(input.slice(input.indexOf('INPUT:') + 6)) as { format: string; hosts?: Array<{ speaker: string; name: string }> };
+        const reply = JSON.parse(fakeResponder(messages)) as { segments: Array<{ speaker: string; text: string }> };
+        const [a, b] = data.hosts ?? [];
+        // Each host's lines under the other's id, from the very first line.
+        if (data.format !== 'single' && a && b) {
+          reply.segments[0] = { speaker: a.speaker, text: `I'm ${b.name}. ${reply.segments[0]!.text}` };
+          reply.segments[1] = { speaker: b.speaker, text: `And I'm ${a.name}. ${reply.segments[1]!.text}` };
+        }
+        return JSON.stringify(reply);
+      }
+      return fakeResponder(messages);
+    });
+    const job = await world.enqueue('Why do I keep putting things off?', { episodes: 1, speakerFormat: 'two_hosts' });
+    await runNextJob(world.deps);
+    expect((await jobRow(job.id)).status).toBe('succeeded');
+    const [ep] = await world.db.select().from(schema.episode);
+    const [a, b] = ep!.hosts!;
+    // Every introduction is now spoken by the host it names.
+    expect(ep!.transcript).toContain(`${b!.name}: I'm ${b!.name}.`);
+    expect(ep!.transcript).toContain(`${a!.name}: And I'm ${a!.name}.`);
+    expect(a!.voice).not.toBe(b!.voice);
+  });
+});

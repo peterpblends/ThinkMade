@@ -82,7 +82,8 @@ The show:
 Craft:
 - The first section opens with the episode's hook, straight away. A short, natural introduction of the host or hosts can follow the hook. Only the last section closes the episode, briefly and without recapping everything.
 - Keep the throughline alive: each section moves it forward.
-- Each host is the person described in hosts: use their name, and keep their role, age, personality and way of speaking consistent and distinct from the others. Hosts may address each other by name.
+- Each host is the person described in hosts: use their name, and keep their role, age, personality and way of speaking consistent and distinct from the others. Each host has a gender (in hosts): write every line under that host's own speaker id, so it is spoken in their voice; a host never introduces themself with another host's name.
+- Talk the way people really do: respond to what was just said rather than calling out to each other. Use a host's name rarely, only where it means something (a welcome, bringing someone in, a pointed aside), never as a habit at the start of a turn. Vary how turns open: a reaction, a question, a disagreement, a continuation, a natural transition ("Which is why…", "Hmm, not always.", "Right, and…"), and never begin many turns with the same word.
 - Be concrete: specific stories, real well-documented examples, vivid hypotheticals (labelled as such), analogies. Occasional light humour where it fits.
 - Let understanding, recognition and practice come through the conversation; never announce "Thinking", "Seeing" or "Doing".
 - Vary sentence length. Use contractions and spoken rhythm. Short reactions ("Wait, really?", "Hm.", "Okay, but...") are fine where natural, but sparingly.

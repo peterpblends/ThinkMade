@@ -1,4 +1,5 @@
 import { languageInfo } from './languages.ts';
+import { genderOfName } from './names.ts';
 import { castableByDefault, voiceInfo, VOICE_CATALOG, type Heritage, type VoiceInfo, type VoiceProfile } from './settings.ts';
 
 export const HOST_IDS = ['A', 'B', 'C', 'D'] as const;
@@ -9,6 +10,8 @@ export interface Host {
   id: HostId;
   name: string;
   voice: string;
+  /** The voice's gender, fixed when the host is cast: the script is written for it and checked against it. */
+  gender?: 'female' | 'male';
   age?: number;
   /** The persona the listener described, e.g. "a warm mentor who gives biblical guidance". */
   role?: string;
@@ -100,13 +103,14 @@ export function chooseHosts(input: ChooseHostsInput): Host[] {
 
   for (let i = 0; i < count; i++) {
     const requested = input.requested?.[i] ?? {};
-    const want = { ...requested, gender: requested.gender ?? input.gender ?? null };
+    // A host named without a gender gets a voice that suits the name ("Emma" is never given a man's voice).
+    const want = { ...requested, gender: requested.gender ?? genderOfName(requested.name) ?? input.gender ?? null };
     const picked = input.chosenVoices?.[i];
     let voice = picked && all.some((v) => v.id === picked) && !used.has(picked) ? voiceInfo(picked)! : undefined;
     if (!voice) {
       const accent = want.accent ?? input.preferAccent ?? (hosts[0] ? voiceInfo(hosts[0].voice)?.accent : undefined);
       // Without a stated gender, a two-host show alternates voices for contrast.
-      const contrast = !input.requested?.length && !input.gender && hosts.length ? (voiceInfo(hosts.at(-1)!.voice)?.gender === 'female' ? 'male' : 'female') : undefined;
+      const contrast = !want.gender && !input.gender && hosts.length ? (voiceInfo(hosts.at(-1)!.voice)?.gender === 'female' ? 'male' : 'female') : undefined;
       const band = ageBand(want.age);
       // An unnamed host is called by the voice's name, so it must not clash with another person's name.
       const nameFree = (v: VoiceInfo) => !!want.name?.trim() || !names.has(v.name.toLowerCase());
@@ -136,9 +140,57 @@ export function chooseHosts(input: ChooseHostsInput): Host[] {
       id: ids[i]!,
       name,
       voice: voice.id,
+      gender: voice.gender,
       ...(want.age ? { age: want.age } : {}),
       ...(want.role?.trim() ? { role: want.role.trim() } : {}),
     });
   }
   return hosts;
+}
+
+/**
+ * Checks, before any audio is made, that every host's voice is right for them: it exists and speaks the
+ * podcast's language, its gender matches the host's (and the host's name, where the name says), and no two
+ * hosts share a voice. A host whose voice is wrong is given a fitting one. Returns the corrected hosts (each
+ * with its gender recorded) and what was fixed.
+ */
+export function verifyCast(
+  hosts: Host[],
+  opts: { pool: string[]; language?: string; random?: () => number },
+): { hosts: Host[]; fixes: string[] } {
+  const language = languageInfo(opts.language).code;
+  const random = opts.random ?? Math.random;
+  const pool = opts.pool.map(voiceInfo).filter((v): v is VoiceInfo => !!v && v.speaks.includes(language));
+  const all = pool.length ? pool : VOICE_CATALOG.filter((v) => v.speaks.includes(language));
+  const used = new Set<string>();
+  const fixes: string[] = [];
+  const out = hosts.map((h) => {
+    const v = voiceInfo(h.voice);
+    const expected = h.gender ?? genderOfName(h.name) ?? null;
+    const problem = !v
+      ? 'has no voice'
+      : !v.speaks.includes(language)
+        ? `has a voice (${v.name}) that doesn't speak the podcast's language`
+        : expected && v.gender !== expected
+          ? `is ${expected} but had a ${v.gender} voice (${v.name})`
+          : used.has(v.id)
+            ? `shared a voice (${v.name}) with another host`
+            : null;
+    if (!problem && v) {
+      used.add(v.id);
+      return { ...h, gender: v.gender };
+    }
+    const want = expected ?? v?.gender ?? null;
+    const options = [
+      all.filter((x) => !used.has(x.id) && (!want || x.gender === want) && (!v || x.accent === v.accent)),
+      all.filter((x) => !used.has(x.id) && (!want || x.gender === want)),
+      all.filter((x) => !used.has(x.id)),
+    ].find((o) => o.length);
+    if (!options) return { ...h, ...(v ? { gender: v.gender } : {}) };
+    const pick = options[Math.floor(random() * options.length)]!;
+    used.add(pick.id);
+    fixes.push(`${h.name} ${problem}; now ${pick.name}`);
+    return { ...h, voice: pick.id, gender: pick.gender };
+  });
+  return { hosts: out, fixes };
 }
