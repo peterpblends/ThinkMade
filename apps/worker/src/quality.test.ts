@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateJudgements, judgeWindows, scriptChecks } from './quality';
+import { aggregateJudgements, judgeWindows, scriptChecks, swappedSpeakers } from './quality';
 
 const seg = (text: string, speaker: 'A' | 'B' | 'C' = 'A') => ({ speaker, text });
 const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(' ') + '.';
@@ -97,5 +97,59 @@ describe('aggregateJudgements', () => {
     expect(agg.scores.accuracy).toBe(3);
     expect(agg.problems).toEqual(['a', 'b']);
     expect(agg.sectionsToRevise).toEqual([1, 3]);
+  });
+});
+
+describe('hosts and their lines', () => {
+  const hosts = [
+    { id: 'A', name: 'Emma' },
+    { id: 'B', name: 'Edwin' },
+  ];
+  const turn = (speaker: 'A' | 'B', text: string) => ({ speaker, text });
+
+  it('finds lines given to the wrong host from the start', () => {
+    const swapped = [
+      turn('A', `Welcome back. I'm Edwin, and this week we're looking at second-order thinking.`),
+      turn('B', `And I'm Emma. It's one of my favourites.`),
+      turn('A', 'Emma, where do you want to start?'),
+      turn('B', 'With a story, actually.'),
+    ];
+    expect(swappedSpeakers(swapped, hosts)?.sort()).toEqual(['A', 'B']);
+  });
+
+  it('leaves a correctly assigned script alone', () => {
+    const right = [
+      turn('A', `Welcome back. I'm Emma, and this week we're looking at second-order thinking.`),
+      turn('B', `And I'm Edwin. It's one of my favourites.`),
+      turn('A', 'Edwin, where do you want to start?'),
+      turn('B', 'With a story, actually.'),
+    ];
+    expect(swappedSpeakers(right, hosts)).toBeNull();
+    expect(swappedSpeakers([turn('A', 'No names here.'), turn('B', 'None at all.')], hosts)).toBeNull();
+  });
+
+  it('flags hosts who keep opening with each other’s names', () => {
+    const named = Array.from({ length: 10 }, (_, i) => turn(i % 2 ? 'B' : 'A', `${i % 2 ? 'Emma' : 'Edwin'}, ${words(20 + i * 3)}`));
+    const problems = scriptChecks([named], { targetWords: 200, format: 'two_hosts', hosts });
+    expect(problems.find((p) => p.code === 'name_openers')).toMatchObject({ section: 1 });
+    const natural = named.map((x, i) => (i === 0 ? x : { ...x, text: x.text.replace(/^\w+, /, '') }));
+    expect(scriptChecks([natural], { targetWords: 200, format: 'two_hosts', hosts }).map((p) => p.code)).not.toContain('name_openers');
+  });
+
+  it('flags turns that keep opening with the same word', () => {
+    const so = Array.from({ length: 10 }, (_, i) => turn(i % 2 ? 'B' : 'A', `${i < 6 ? 'So' : 'Right'} ${words(20 + i * 3)}`));
+    expect(scriptChecks([so], { targetWords: 200, format: 'two_hosts', hosts }).find((p) => p.code === 'same_openers')?.message).toContain('"so"');
+    const varied = ['So', 'Hmm', 'Which', 'But', 'Right', 'Wait', 'Okay', 'Not', 'Yes', 'Exactly'].map((w, i) => turn(i % 2 ? 'B' : 'A', `${w} ${words(20 + i * 3)}`));
+    expect(scriptChecks([varied], { targetWords: 200, format: 'two_hosts', hosts }).map((p) => p.code)).not.toContain('same_openers');
+  });
+});
+
+describe('introductions', () => {
+  it('finds swapped lines even when the introductions are the first words', () => {
+    const hosts = [
+      { id: 'A', name: 'Hadley' },
+      { id: 'B', name: 'Parker' },
+    ];
+    expect(swappedSpeakers([{ speaker: 'A', text: "I'm Parker. That is the habit." }, { speaker: 'B', text: "And I'm Hadley. Here is how." }], hosts)?.sort()).toEqual(['A', 'B']);
   });
 });

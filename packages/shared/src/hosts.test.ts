@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { chooseHosts } from './hosts';
+import { chooseHosts, verifyCast } from './hosts';
+import * as names from './names';
 import { castableByDefault, DEFAULT_APP_SETTINGS, KOKORO_VOICE_INFO, PHONON_VOICES, upgradeAppSettings, usableVoices, voiceInfo, VOICE_CATALOG } from './settings';
 
 const pool = DEFAULT_APP_SETTINGS.voices.available;
@@ -153,5 +154,65 @@ describe('upgradeAppSettings', () => {
   it("leaves an administrator's own list alone", () => {
     const custom = { ...DEFAULT_APP_SETTINGS, voices: { ...DEFAULT_APP_SETTINGS.voices, available: ['phonon:zoey', 'am_adam'] } };
     expect(upgradeAppSettings(custom)).toBe(custom);
+  });
+});
+
+describe('voices match each host', () => {
+  it('reads the gender a first name usually has, and leaves unisex names alone', () => {
+    const { genderOfName } = names;
+    expect(genderOfName('Emma')).toBe('female');
+    expect(genderOfName('edwin smith')).toBe('male');
+    expect(genderOfName('Jordan')).toBeNull();
+    expect(genderOfName('')).toBeNull();
+  });
+
+  it("gives a host named without a gender a voice that suits the name, whatever the show's other hosts are", () => {
+    for (let i = 0; i < 20; i++) {
+      const r = (i + 1) / 21;
+      const hosts = chooseHosts({ count: 2, pool, requested: [{ name: 'Edwin' }, { name: 'Emma' }], random: () => r });
+      expect(voiceInfo(hosts[0]!.voice)!.gender).toBe('male');
+      expect(voiceInfo(hosts[1]!.voice)!.gender).toBe('female');
+      expect(hosts.map((h) => h.gender)).toEqual(['male', 'female']);
+    }
+  });
+
+  it('recasts a host whose voice is the wrong gender or shared, and leaves a right cast alone', () => {
+    const female = VOICE_CATALOG.find((v) => v.gender === 'female' && pool.includes(v.id))!;
+    const male = VOICE_CATALOG.find((v) => v.gender === 'male' && pool.includes(v.id))!;
+    const right = verifyCast(
+      [
+        { id: 'A', name: 'Emma', voice: female.id },
+        { id: 'B', name: 'Edwin', voice: male.id },
+      ],
+      { pool },
+    );
+    expect(right.fixes).toEqual([]);
+    expect(right.hosts.map((h) => [h.voice, h.gender])).toEqual([
+      [female.id, 'female'],
+      [male.id, 'male'],
+    ]);
+
+    // Reversed: Emma has a man's voice and Edwin a woman's.
+    const reversed = verifyCast(
+      [
+        { id: 'A', name: 'Emma', voice: male.id },
+        { id: 'B', name: 'Edwin', voice: female.id },
+      ],
+      { pool },
+    );
+    expect(reversed.fixes).toHaveLength(2);
+    expect(reversed.hosts.map((h) => voiceInfo(h.voice)!.gender)).toEqual(['female', 'male']);
+
+    // A recorded gender wins over the name, and two hosts never share a voice.
+    const shared = verifyCast(
+      [
+        { id: 'A', name: 'Jordan', voice: male.id, gender: 'male' },
+        { id: 'B', name: 'Casey', voice: male.id, gender: 'male' },
+      ],
+      { pool },
+    );
+    expect(shared.fixes).toHaveLength(1);
+    expect(new Set(shared.hosts.map((h) => h.voice)).size).toBe(2);
+    expect(shared.hosts.map((h) => voiceInfo(h.voice)!.gender)).toEqual(['male', 'male']);
   });
 });
