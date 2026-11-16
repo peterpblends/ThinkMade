@@ -1,0 +1,53 @@
+# Measures the audio with the real voices: background noise of each engine and of a mastered episode, and
+# every voice's pitch, brightness and timbre (to cast voices that sound clearly different). Run it from
+# Actions → Audio probe; it also runs on a pull request that changes audio code. Results are in the log and
+# the "audio-probe" artifact (report.json and episode MP3s).
+name: Audio probe
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - apps/worker/scripts/audio-probe.ts
+      - packages/ai/src/audio/**
+      - packages/shared/src/voice-traits.ts
+      - .github/workflows/audio-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      MODEL_CACHE_DIR: ${{ github.workspace }}/.models
+      PROBE_OUT: ${{ github.workspace }}/probe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Cache speech models
+        uses: actions/cache@v4
+        with:
+          path: .models
+          key: thinkmade-models-v1
+      - run: npm ci
+        env:
+          SKIP_SPEECH_MODEL: '1'
+      - name: Probe
+        run: npx tsx apps/worker/scripts/audio-probe.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audio-probe
+          path: probe/*.mp3
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audio-probe-report
+          path: probe/report.json
+          retention-days: 14
