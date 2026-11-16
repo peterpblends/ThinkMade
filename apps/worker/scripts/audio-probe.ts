@@ -77,7 +77,12 @@ function noise(s: Float32Array, sr: number) {
   const quiet = sorted.slice(0, Math.max(1, Math.floor(sorted.length * 0.1)));
   let hi = 0;
   let all = 0;
-  for (const f of quiet) for (let k = 1; k < N / 2; k++) (hz(k) > 4000 ? (hi += f.power[k]!) : 0, (all += f.power[k]!));
+  for (const f of quiet) {
+    for (let k = 1; k < N / 2; k++) {
+      if (hz(k) > 4000) hi += f.power[k]!;
+      all += f.power[k]!;
+    }
+  }
   return { floorDb: db(q(0.05)), p20Db: db(q(0.2)), speechDb: db(q(0.8)), quietHissShare: Math.round((hi / Math.max(all, 1e-12)) * 100) / 100 };
 }
 
@@ -112,7 +117,10 @@ function profile(s: Float32Array, sr: number) {
     for (let l = Math.round(sr / 400); l <= Math.round(sr / 70); l++) {
       let c = 0;
       for (let j = 0; j + l < W; j++) c += s[i + j]! * s[i + j + l]!;
-      if (c > best) (best = c), (lag = l);
+      if (c > best) {
+        best = c;
+        lag = l;
+      }
     }
     if (lag && best / e > 0.5) pitches.push(sr / lag);
   }
