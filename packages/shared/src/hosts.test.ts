@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { chooseHosts, verifyCast } from './hosts';
+import { chooseHosts, distinctCast, verifyCast } from './hosts';
+import { soundAlike, VOICE_TRAITS } from './voice-traits';
 import * as names from './names';
 import { castableByDefault, DEFAULT_APP_SETTINGS, KOKORO_VOICE_INFO, PHONON_VOICES, upgradeAppSettings, usableVoices, voiceInfo, VOICE_CATALOG } from './settings';
 
@@ -214,5 +215,69 @@ describe('voices match each host', () => {
     expect(shared.fixes).toHaveLength(1);
     expect(new Set(shared.hosts.map((h) => h.voice)).size).toBe(2);
     expect(shared.hosts.map((h) => voiceInfo(h.voice)!.gender)).toEqual(['male', 'male']);
+  });
+});
+
+describe('same-gender voices sound like different people', () => {
+  const females = VOICE_CATALOG.filter((v) => v.gender === 'female' && v.accent === 'US' && castableByDefault(v) && pool.includes(v.id)).slice(0, 4);
+  const [a, b, c, d] = females.map((v) => v.id);
+  const saved = { ...VOICE_TRAITS };
+  const flat = (db: number) => Array.from({ length: 16 }, () => db);
+  const measure = () => {
+    for (const k of Object.keys(VOICE_TRAITS)) delete VOICE_TRAITS[k];
+    // a and b are near twins; c and d are clearly different from both.
+    Object.assign(VOICE_TRAITS, { [a!]: { pitchHz: 220, timbre: flat(-12) }, [b!]: { pitchHz: 224, timbre: flat(-12.5) }, [c!]: { pitchHz: 180, timbre: flat(-16) }, [d!]: { pitchHz: 260, timbre: flat(-9) } });
+  };
+  const restore = () => {
+    for (const k of Object.keys(VOICE_TRAITS)) delete VOICE_TRAITS[k];
+    Object.assign(VOICE_TRAITS, saved);
+  };
+
+  it('knows when two voices sound alike', () => {
+    measure();
+    try {
+      expect(soundAlike(a!, b!)).toBe(true);
+      expect(soundAlike(a!, c!)).toBe(false);
+      expect(soundAlike(a!, 'unmeasured-voice')).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  it('recasts a host who sounds like the other host, keeping a name the listener gave', () => {
+    measure();
+    try {
+      const { hosts, fixes } = distinctCast(
+        [
+          { id: 'A', name: 'Emma', voice: a!, gender: 'female' },
+          { id: 'B', name: voiceInfo(b!)!.name, voice: b!, gender: 'female' },
+        ],
+        { pool: [a!, b!, c!, d!] },
+      );
+      expect(fixes).toHaveLength(1);
+      expect(hosts[0]).toMatchObject({ name: 'Emma', voice: a });
+      expect([c, d]).toContain(hosts[1]!.voice);
+      // Named after the old voice, so the host takes the new voice's name.
+      expect(hosts[1]!.name).toBe(voiceInfo(hosts[1]!.voice)!.name);
+      // Already distinct: nothing changes.
+      expect(distinctCast(hosts, { pool: [a!, b!, c!, d!] }).fixes).toEqual([]);
+    } finally {
+      restore();
+    }
+  });
+
+  it('never casts two hosts, or a host and guest, that sound alike', () => {
+    measure();
+    try {
+      for (let i = 0; i < 20; i++) {
+        const r = i / 20;
+        const hosts = chooseHosts({ count: 2, pool: [a!, b!, c!, d!], gender: 'female', random: () => r });
+        expect(soundAlike(hosts[0]!.voice, hosts[1]!.voice)).toBe(false);
+        const [guest] = chooseHosts({ count: 1, pool: [a!, b!, c!, d!], gender: 'female', exclude: [a!], distinctFrom: [a!], random: () => r, ids: ['B'] });
+        expect(guest!.voice).not.toBe(b);
+      }
+    } finally {
+      restore();
+    }
   });
 });

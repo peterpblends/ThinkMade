@@ -1,6 +1,7 @@
 import { languageInfo } from './languages.ts';
 import { genderOfName } from './names.ts';
 import { castableByDefault, voiceInfo, VOICE_CATALOG, type Heritage, type VoiceInfo, type VoiceProfile } from './settings.ts';
+import { soundAlike, voiceDistance } from './voice-traits.ts';
 
 export const HOST_IDS = ['A', 'B', 'C', 'D'] as const;
 export type HostId = (typeof HOST_IDS)[number];
@@ -52,6 +53,8 @@ export interface ChooseHostsInput {
   recent?: string[];
   /** Voices already taken (e.g. the series' main host, or earlier episodes' guests). */
   exclude?: string[];
+  /** Voices of others in the show: a new voice of the same gender must sound clearly different from them. */
+  distinctFrom?: string[];
   /** Names already taken by other people in the show. */
   takenNames?: string[];
   /** Ids to give the hosts, in order (defaults to A, B, C, D). */
@@ -122,13 +125,15 @@ export function chooseHosts(input: ChooseHostsInput): Host[] {
         qualityScore(v);
       // Asked for by the listener, so any allowed voice of that heritage will do (they aren't cast otherwise).
       const heritageMatch = want.heritage ? all.filter((v) => v.heritage === want.heritage && !used.has(v.id) && (!want.gender || v.gender === want.gender)) : [];
-      const candidates = [
-        heritageMatch,
-        usable.filter((v) => !used.has(v.id) && (!want.gender || v.gender === want.gender) && nameFree(v)),
-        usable.filter((v) => !used.has(v.id) && (!want.gender || v.gender === want.gender)),
-        all.filter((v) => !used.has(v.id)),
-        all,
-      ].find((c) => c.length)!;
+      // Two people of the same gender must not sound like one person: voices that sound alike come last.
+      const others = [...hosts.map((h) => h.voice), ...(input.distinctFrom ?? [])];
+      const distinct = (vs: VoiceInfo[]) => vs.filter((v) => !others.some((o) => voiceInfo(o)?.gender === v.gender && soundAlike(o, v.id)));
+      const fitting = usable.filter((v) => !used.has(v.id) && (!want.gender || v.gender === want.gender));
+      const unused = all.filter((v) => !used.has(v.id));
+      const tiers = heritageMatch.length
+        ? [distinct(heritageMatch), heritageMatch]
+        : [distinct(fitting.filter(nameFree)), distinct(fitting), fitting.filter(nameFree), fitting, distinct(unused), unused, all];
+      const candidates = tiers.find((c) => c.length)!;
       const best = Math.max(...candidates.map(score));
       const top = candidates.filter((v) => score(v) >= best - 0.6);
       voice = top[Math.floor(random() * top.length)]!;
@@ -192,5 +197,43 @@ export function verifyCast(
     fixes.push(`${h.name} ${problem}; now ${pick.name}`);
     return { ...h, voice: pick.id, gender: pick.gender };
   });
+  return { hosts: out, fixes };
+}
+
+/**
+ * Makes sure no two hosts of the same gender sound alike: a host whose voice is too close to an earlier
+ * host's is given the castable voice of that gender (same accent preferred) that sounds most different.
+ * A host named after their old voice takes the new voice's name. Returns the hosts and what was changed.
+ */
+export function distinctCast(hosts: Host[], opts: { pool: string[]; language?: string; random?: () => number }): { hosts: Host[]; fixes: string[] } {
+  const language = languageInfo(opts.language).code;
+  const random = opts.random ?? Math.random;
+  const pool = opts.pool.map(voiceInfo).filter((v): v is VoiceInfo => !!v && v.speaks.includes(language));
+  const all = pool.length ? pool : VOICE_CATALOG.filter((v) => v.speaks.includes(language));
+  const castable = language === 'en' ? all.filter(castableByDefault) : all;
+  const out: Host[] = [];
+  const fixes: string[] = [];
+  for (const h of hosts) {
+    const v = voiceInfo(h.voice);
+    const clash = v && out.find((o) => voiceInfo(o.voice)?.gender === v.gender && soundAlike(o.voice, h.voice));
+    if (!v || !clash) {
+      out.push(h);
+      continue;
+    }
+    const used = new Set([...out, ...hosts].map((x) => x.voice));
+    const fits = (x: VoiceInfo) => !used.has(x.id) && x.gender === v.gender && !out.some((o) => voiceInfo(o.voice)?.gender === x.gender && soundAlike(o.voice, x.id));
+    const options = [castable.filter((x) => fits(x) && x.accent === v.accent), castable.filter(fits)].find((o) => o.length);
+    if (!options) {
+      out.push(h);
+      continue;
+    }
+    // Among the three most different from the voice it clashed with, chosen at random for variety.
+    const ranked = [...options].sort((a, b) => (voiceDistance(clash.voice, b.id) ?? 0) - (voiceDistance(clash.voice, a.id) ?? 0)).slice(0, 3);
+    const pick = ranked[Math.floor(random() * ranked.length)]!;
+    const names = new Set(hosts.filter((x) => x !== h).map((x) => x.name.toLowerCase()));
+    const name = h.name === v.name && !names.has(pick.name.toLowerCase()) ? pick.name : h.name;
+    fixes.push(`${h.name} sounded too much like ${clash.name}; now ${pick.name}`);
+    out.push({ ...h, name, voice: pick.id, gender: pick.gender });
+  }
   return { hosts: out, fixes };
 }

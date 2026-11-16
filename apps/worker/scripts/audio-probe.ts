@@ -151,13 +151,11 @@ const turns = [
 ];
 report.episodes = {};
 for (const natural of [false, true]) {
-  for (const roomTone of [false, true]) {
-    const name = `episode-${natural ? 'natural' : 'plain'}-${roomTone ? 'room' : 'dry'}`;
-    const out = join(dir, `${name}.mp3`);
-    await assembleEpisode({ turns, tts, outFile: out, workDir: dir, natural, roomTone, bitrateKbps: 64 });
-    (report.episodes as Record<string, unknown>)[name] = noise(await decode(out), rate);
-    console.log(name, JSON.stringify((report.episodes as Record<string, unknown>)[name]));
-  }
+  const name = `episode-${natural ? 'natural' : 'plain'}`;
+  const out = join(dir, `${name}.mp3`);
+  await assembleEpisode({ turns, tts, outFile: out, workDir: dir, natural });
+  (report.episodes as Record<string, unknown>)[name] = noise(await decode(out), rate);
+  console.log(name, JSON.stringify((report.episodes as Record<string, unknown>)[name]));
 }
 
 // 3. Every castable English voice's profile.

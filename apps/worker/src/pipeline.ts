@@ -11,7 +11,7 @@ import {
   type ChatMessage,
 } from '@thinkmade/ai';
 import { getActivePrompts, indexSeriesEmbedding, queryRows, schema, settleCancelledSeries, type Db, type ModelStage } from '@thinkmade/db';
-import { APPROACHES, castHosts, chooseApproach, chooseHosts, chooseShowFormat, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, HOST_IDS, languageInfo, languageInstruction, speaksLanguage, verifyCast, voiceInfo, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowApproach, type ShowFormat } from '@thinkmade/shared';
+import { APPROACHES, castHosts, chooseApproach, chooseHosts, chooseShowFormat, distinctCast, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, HOST_IDS, languageInfo, languageInstruction, speaksLanguage, verifyCast, voiceInfo, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowApproach, type ShowFormat } from '@thinkmade/shared';
 import { JobCancelledError, LostLeaseError, PermanentJobError, type WorkerDeps } from './deps';
 import { overusedModels, rankForVariety } from './model-variety';
 import { voiceTranslation } from './translate';
@@ -580,6 +580,23 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       state.visitingGuests = approach?.guests === 'some' && state.hosts.length < HOST_IDS.length;
       await saveState(db, job.id, state);
     }
+    // Two hosts of the same gender must sound like two people. Changed only while nothing of the podcast is
+    // recorded (a new podcast, or one being made again in full), so a podcast never changes voice midway.
+    {
+      const episodes = seriesId ? await db.select({ id: schema.episode.id, status: schema.episode.status, hosts: schema.episode.hosts }).from(schema.episode).where(eq(schema.episode.seriesId, seriesId)) : [];
+      if (!episodes.some((e) => e.status === 'ready')) {
+        const fixed = distinctCast(state.hosts, { pool, language });
+        if (fixed.fixes.length) {
+          state.hosts = fixed.hosts;
+          for (const e of episodes) {
+            const hosts = (e.hosts ?? []).map((h) => (h.kind === 'guest' ? h : (fixed.hosts.find((x) => x.id === h.id) ?? h)));
+            await db.update(schema.episode).set({ hosts }).where(eq(schema.episode.id, e.id));
+          }
+          await saveState(db, job.id, state);
+          log('voices made distinct', { jobId: job.id, fixes: fixed.fixes });
+        }
+      }
+    }
     const hostsForPrompt = (hosts: Array<{ id: string; name: string; voice?: string; gender?: 'female' | 'male'; age?: number; role?: string; kind?: 'host' | 'guest'; simulated?: boolean }>) =>
       hosts.map((h) => ({
         speaker: h.id,
@@ -625,6 +642,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           ...(options.voiceProfiles ? { profiles: options.voiceProfiles } : {}),
           preferAccent: preferAccent ?? voiceInfo(base[0]!.voice)?.accent ?? null,
           exclude: others.map((h) => h.voice),
+          // A guest never sounds like the host they're talking with.
+          distinctFrom: base.map((h) => h.voice),
           takenNames: others.map((h) => h.name),
           ids: [HOST_IDS[base.length]!],
         });
@@ -1163,7 +1182,6 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           turns: done.flatMap((d, si) => d.segments.map((s, k) => ({ voice: voiceOf(s.speaker), text: s.text, ...(si > 0 && k === 0 ? { sectionBreak: true } : {}) }))),
           pacing: production.pacing,
           expressiveness: production.expressiveness,
-          roomTone: production.roomTone,
           natural: options.naturalDelivery === true,
           language,
           tts: deps.tts,

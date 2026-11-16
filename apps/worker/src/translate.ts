@@ -139,7 +139,6 @@ export async function voiceTranslation(opts: {
             turns: script.map((l) => ({ voice: voiceOf.get(l.speaker) ?? cast[0]!.voice, text: l.text })),
             pacing: production.pacing,
             expressiveness: production.expressiveness,
-            roomTone: production.roomTone,
             natural: options.naturalDelivery === true,
             language,
             tts: deps.tts,
