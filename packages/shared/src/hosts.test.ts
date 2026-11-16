@@ -281,3 +281,19 @@ describe('same-gender voices sound like different people', () => {
     }
   });
 });
+
+describe('measured voices', () => {
+  it('casts two hosts of the same gender who sound clearly different, every time', () => {
+    for (const gender of ['female', 'male'] as const) {
+      for (let i = 0; i < 40; i++) {
+        const r = seq(i / 40, (i * 7) % 40 / 40, 0.5);
+        const [a, b] = chooseHosts({ count: 2, pool, gender, random: r });
+        expect(soundAlike(a!.voice, b!.voice), `${a!.name} and ${b!.name}`).toBe(false);
+      }
+    }
+  });
+
+  it('every castable English voice has been measured', () => {
+    for (const v of VOICE_CATALOG.filter((x) => castableByDefault(x) && x.speaks.includes('en'))) expect(VOICE_TRAITS[v.id], v.id).toBeDefined();
+  });
+});

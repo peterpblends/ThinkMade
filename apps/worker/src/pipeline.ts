@@ -584,7 +584,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     // recorded (a new podcast, or one being made again in full), so a podcast never changes voice midway.
     {
       const episodes = seriesId ? await db.select({ id: schema.episode.id, status: schema.episode.status, hosts: schema.episode.hosts }).from(schema.episode).where(eq(schema.episode.seriesId, seriesId)) : [];
-      if (!episodes.some((e) => e.status === 'ready')) {
+      // Voices the listener picked themselves are theirs to choose.
+      if (!options.chosenVoices?.length && !episodes.some((e) => e.status === 'ready')) {
         const fixed = distinctCast(state.hosts, { pool, language });
         if (fixed.fixes.length) {
           state.hosts = fixed.hosts;
