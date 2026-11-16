@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { createToneTts } from '../tts/tone';
 import type { SpeakOptions, TtsEngine } from '../tts/types';
+import { runFfmpeg } from './ffmpeg';
 import { assembleEpisode, levelMatch, measureDuration, pauseBefore, rms, seededRandom, suspectTake, trimSilence } from './assemble';
 
 const dir = mkdtempSync(join(tmpdir(), 'tm-audio-'));
@@ -25,7 +26,7 @@ describe('assembleEpisode', () => {
       { voice: 'af_heart', text: 'Because the price you pay is invisible.', sectionBreak: true },
     ];
     const out = join(dir, 'ep.mp3');
-    const result = await assembleEpisode({ turns, tts, outFile: out, bitrateKbps: 64, workDir: dir, roomTone: true });
+    const result = await assembleEpisode({ turns, tts, outFile: out, bitrateKbps: 64, workDir: dir });
     expect(statSync(out).size).toBeGreaterThan(1000);
     // Two pauses (a quick reply, then a section break) and a short tail.
     expect(result.durationSeconds).toBeGreaterThan(result.speechSeconds + 0.15 + 0.75 + 0.3);
@@ -112,6 +113,37 @@ describe('joining lines', () => {
     expect(rms(quiet) / rms(loud)).toBeLessThan(1.15);
     expect(Math.max(...loud.map(Math.abs))).toBeLessThan(1);
   });
+
+  it('levels a line with a clean gain: the waveform keeps its shape, with headroom', () => {
+    const quiet = tone(1, 0.04);
+    const out = levelMatch(quiet);
+    const ratio = out[100]! / quiet[100]!;
+    // Every sample scaled alike: no saturation adding fuzz.
+    for (let i = 1; i < quiet.length; i += 97) if (Math.abs(quiet[i]!) > 0.01) expect(out[i]! / quiet[i]!).toBeCloseTo(ratio, 6);
+    // A line already peaking near full scale isn't pushed into clipping.
+    const hot = levelMatch(Float32Array.from({ length: RATE }, (_, i) => (i % 400 === 0 ? 0.98 : 0.02 * Math.sin(i / 7))));
+    expect(Math.max(...hot.map(Math.abs))).toBeLessThanOrEqual(0.89 + 1e-6);
+  });
+
+  it('keeps the pauses silent: no hiss or room noise between lines, in either mastering', async () => {
+    const tts = createToneTts();
+    const turns = [
+      { voice: 'af_heart', text: 'Here is a strange thing about opportunity cost.' },
+      { voice: 'af_bella', text: 'Wait, why strange?', sectionBreak: true },
+    ];
+    for (const natural of [false, true]) {
+      const out = join(dir, `quiet-${natural}.mp3`);
+      await assembleEpisode({ turns, tts, outFile: out, workDir: dir, natural });
+      await runFfmpeg(['-y', '-i', out, '-f', 'f32le', '-ac', '1', '-ar', '24000', `${out}.f32`]);
+      const b = readFileSync(`${out}.f32`);
+      const s = new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+      // The quietest 20 ms stretches are the pauses: well below -70 dBFS.
+      const frames: number[] = [];
+      for (let i = 0; i + 480 <= s.length; i += 480) frames.push(rms(s.subarray(i, i + 480)));
+      frames.sort((a, b2) => a - b2);
+      expect(20 * Math.log10(frames[Math.floor(frames.length * 0.05)]! + 1e-12)).toBeLessThan(-70);
+    }
+  }, 60_000);
 
   it('flags takes that are silent, cut off or rambling', () => {
     expect(suspectTake(3, 0.08, 8)).toBeNull();

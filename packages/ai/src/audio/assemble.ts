@@ -25,11 +25,15 @@ export interface AssembleOptions {
   pacing?: Pacing;
   /** How much the voices vary their delivery. */
   expressiveness?: Expressiveness;
-  /** A very quiet room tone under the whole episode, so pauses don't sound like dead air. */
+  /**
+   * No longer used: added noise under the speech is heard as hiss, so pauses are now clean silence, as in a
+   * studio recording. Kept so older callers still compile.
+   * @deprecated
+   */
   roomTone?: boolean;
   /**
-   * Natural delivery: each sentence at a slightly different pace, as people speak, and a gentle mastering chain
-   * (warmth, softer synthetic sibilance, light compression and a faint room) instead of a dry, clinical sound.
+   * Natural delivery: each sentence at a slightly different pace, as people speak, and a warmer mastering
+   * (body, softer synthetic sibilance and light compression) instead of a dry, clinical sound.
    */
   natural?: boolean;
   /** The language the lines are in (a LANGUAGES code); English when left out. */
@@ -49,24 +53,29 @@ export interface AssembleResult {
   checks: { chunks: number; retried: number; suspect: string[] };
 }
 
+/** Mono speech at 96 kbps is free of the swirly artefacts lower rates add. */
+export const DEFAULT_BITRATE_KBPS = 96;
 const PACE: Record<Pacing, number> = { relaxed: 1.25, natural: 1, brisk: 0.8 };
 const SPEED: Record<Pacing, number> = { relaxed: 0.96, natural: 1, brisk: 1.05 };
 const EXPRESSION: Record<Expressiveness, number> = { steady: 0.15, natural: 0.4, expressive: 0.75 };
 /** Speech level each line is brought to before the final loudness pass, so every voice sounds equally close. */
 const TARGET_RMS = 0.08;
-/** Room tone level: about -63 dBFS. */
-const ROOM_TONE_LEVEL = 0.0007;
-/** The final processing: plain clean-up and loudness, or the natural-delivery mastering chain. */
+/** Each line's peaks are kept below this before mastering, so nothing is ever clipped or saturated. */
+const PEAK_CEILING = 0.89;
+/** Podcast loudness: -16 LUFS integrated, peaks at most -1.5 dBTP. */
+const LOUDNESS = 'I=-16:TP=-1.5:LRA=11';
+/**
+ * The clean-up before loudness: plain (rumble removed) or the natural-delivery chain (warmth, presence, the
+ * synthetic fizz softened, light compression). No added noise or echo: those are heard as hiss and smear.
+ */
 export const MASTERING = {
-  plain: 'highpass=f=60,loudnorm=I=-16:TP=-1.5:LRA=11',
+  plain: ['highpass=f=60'].join(','),
   natural: [
     'highpass=f=70',
     'equalizer=f=200:t=q:w=1.2:g=1.5', // body and warmth
     'equalizer=f=3500:t=q:w=1.5:g=1', // presence
     'equalizer=f=7500:t=q:w=2:g=-2', // the "synthetic" fizz some voices have
     'acompressor=threshold=-21dB:ratio=2.2:attack=12:release=180',
-    'aecho=0.85:0.9:14|27:0.06|0.035', // a few early reflections: a small, quiet room
-    'loudnorm=I=-16:TP=-1.5:LRA=11',
   ].join(','),
 } as const;
 
@@ -122,14 +131,41 @@ export function rms(samples: Float32Array): number {
   return Math.sqrt(sum / samples.length);
 }
 
-/** Brings a line to the shared speech level, within limits, with a gentle ceiling so peaks never clip. */
+/**
+ * Brings a line to the shared speech level with a clean (linear) gain, within limits, and never so far that
+ * its peaks pass the ceiling. Saturating the peaks instead (as a soft clipper does) adds a fuzzy distortion.
+ */
 export function levelMatch(samples: Float32Array): Float32Array {
   const level = rms(samples);
   if (level < 1e-4) return samples;
-  const gain = Math.min(4, Math.max(0.4, TARGET_RMS / level));
+  let peak = 0;
+  for (const s of samples) peak = Math.max(peak, Math.abs(s));
+  const gain = Math.min(4, Math.max(0.4, TARGET_RMS / level), PEAK_CEILING / Math.max(peak, 1e-6));
   const out = new Float32Array(samples.length);
-  for (let i = 0; i < samples.length; i++) out[i] = Math.tanh(samples[i]! * gain * 1.1) / 1.1;
+  for (let i = 0; i < samples.length; i++) out[i] = samples[i]! * gain;
   return out;
+}
+
+/**
+ * Brings the whole episode to podcast loudness in two passes: the first measures it, the second applies one
+ * steady gain. A single-pass loudness filter keeps adjusting as it goes, lifting the quiet moments between
+ * lines (and any noise in them) and making the level pump.
+ */
+async function master(input: string[], chain: string, encode: string[]): Promise<void> {
+  const log = await runFfmpeg([...input, '-af', `${chain},loudnorm=${LOUDNESS}:print_format=json`, '-f', 'null', '-']);
+  const json = log.slice(log.lastIndexOf('{'), log.lastIndexOf('}') + 1);
+  let m: Record<string, string> | null = null;
+  try {
+    m = JSON.parse(json) as Record<string, string>;
+  } catch {
+    m = null;
+  }
+  const finite = (k: string) => m && Number.isFinite(Number(m[k]));
+  const measured =
+    m && ['input_i', 'input_tp', 'input_lra', 'input_thresh', 'target_offset'].every(finite)
+      ? `:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true`
+      : '';
+  await runFfmpeg([...input, '-af', `${chain},loudnorm=${LOUDNESS}${measured}`, ...encode]);
 }
 
 /**
@@ -173,17 +209,10 @@ export async function assembleEpisode(opts: AssembleOptions): Promise<AssembleRe
   const raw = join(opts.workDir, `pcm-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.raw`);
   const out = createWriteStream(raw);
   const random = seededRandom(hashString(opts.turns.map((t) => t.text).join('|').slice(0, 2000)));
-  // Room tone: quiet, slightly low-passed noise under everything, so a pause sounds like the same room.
-  let noise = 0;
-  const tone = () => {
-    if (!opts.roomTone) return 0;
-    noise = 0.97 * noise + 0.03 * (random() * 2 - 1);
-    return noise * ROOM_TONE_LEVEL * 6;
-  };
   const write = async (samples: Float32Array) => {
     const pcm = new Int16Array(samples.length);
     for (let i = 0; i < samples.length; i++) {
-      const s = Math.max(-1, Math.min(1, samples[i]! + tone()));
+      const s = Math.max(-1, Math.min(1, samples[i]!));
       pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
     if (!out.write(Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength))) await once(out, 'drain');
@@ -235,17 +264,16 @@ export async function assembleEpisode(opts: AssembleOptions): Promise<AssembleRe
       }
       await opts.onProgress?.(t + 1, opts.turns.length);
     }
-    // A moment of room tone at the end so the episode doesn't stop abruptly.
+    // A moment of quiet at the end so the episode doesn't stop abruptly.
     await write(silence(400));
     out.end();
     await once(out, 'finish');
     opts.signal?.throwIfAborted();
-    await runFfmpeg([
-      '-y', '-f', 's16le', '-ar', String(rate), '-ac', '1', '-i', raw,
-      '-af', opts.natural ? MASTERING.natural : MASTERING.plain,
-      '-ar', '44100', '-ac', '1', '-codec:a', 'libmp3lame', '-b:a', `${opts.bitrateKbps ?? 64}k`,
-      opts.outFile,
-    ]);
+    await master(
+      ['-y', '-f', 's16le', '-ar', String(rate), '-ac', '1', '-i', raw],
+      opts.natural ? MASTERING.natural : MASTERING.plain,
+      ['-ar', '44100', '-ac', '1', '-codec:a', 'libmp3lame', '-b:a', `${opts.bitrateKbps ?? DEFAULT_BITRATE_KBPS}k`, opts.outFile],
+    );
   } finally {
     out.destroy();
     rmSync(raw, { force: true });

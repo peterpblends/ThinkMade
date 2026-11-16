@@ -38,7 +38,7 @@ export async function ensureVoiceSamples(deps: Pick<WorkerDeps, 'db' | 'tts' | '
       if (Date.now() - started > budgetMs) break;
       const out = join(dir, `${language}-${voiceSampleKey(voice).split('/').pop()}`);
       try {
-        await assembleEpisode({ turns: [{ voice, text: voiceSampleText(voiceInfo(voice)!.name, language) }], tts: deps.tts, outFile: out, workDir: dir, bitrateKbps: 64, language });
+        await assembleEpisode({ turns: [{ voice, text: voiceSampleText(voiceInfo(voice)!.name, language) }], tts: deps.tts, outFile: out, workDir: dir, language });
         await deps.storage.putFile(voiceSampleKey(voice, language), out, 'audio/mpeg');
         done.add(voiceSampleEntry(voice, language));
         made++;

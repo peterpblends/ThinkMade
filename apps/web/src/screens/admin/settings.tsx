@@ -128,7 +128,7 @@ export function AdminSettingsScreen() {
         allowSimulatedGuests: f.get('production.allowSimulatedGuests') === 'on',
         rotateGuests: f.get('production.rotateGuests') === 'on',
         visitingGuests: f.get('production.visitingGuests') === 'on',
-        roomTone: f.get('production.roomTone') === 'on',
+        roomTone: false,
       },
       appearance: { splashSeconds: num('appearance.splashSeconds') },
       features: Object.fromEntries(FEATURE_KEYS.map((k) => [k, f.get(`features.${k}`) === 'on'])),
@@ -223,10 +223,6 @@ export function AdminSettingsScreen() {
           <label className="flex min-h-11 items-center gap-3 text-sm font-medium">
             <input type="checkbox" name="production.visitingGuests" defaultChecked={production.visitingGuests} className="h-5 w-5" />
             In other series, the host brings in a visiting guest now and then (about one episode in three)
-          </label>
-          <label className="flex min-h-11 items-center gap-3 text-sm font-medium">
-            <input type="checkbox" name="production.roomTone" defaultChecked={production.roomTone} className="h-5 w-5" />
-            Quiet room tone under the audio, so pauses don't sound like dead air
           </label>
         </Card>
         <Card className="flex flex-col gap-4">

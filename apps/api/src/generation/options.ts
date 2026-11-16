@@ -1,6 +1,7 @@
 import { languageInfo, languageLabel, speaksLanguage, usableVoices, type AppSettings, type CreateGenerationInput, type GenerationOptions } from '@thinkmade/shared';
 
-const BITRATE = { compact: 48, balanced: 64, high: 96 } as const;
+// Mono speech: 96 kbps is clean; lower rates add a swirly, fizzy edge.
+const BITRATE = { compact: 64, balanced: 96, high: 128 } as const;
 
 export class LimitError extends Error {}
 

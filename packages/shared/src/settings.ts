@@ -91,7 +91,8 @@ const productionSchema = z.strictObject({
   /** How much the voices vary their delivery. */
   expressiveness: z.enum(['steady', 'natural', 'expressive']),
   /** A very quiet room tone under the audio so silences don't sound like dead air. */
-  roomTone: z.boolean(),
+  /** No longer used (added noise is heard as hiss); kept so stored settings still load. */
+  roomTone: z.boolean().default(false),
 });
 export type ProductionSettings = z.infer<typeof productionSchema>;
 export const DEFAULT_PRODUCTION: ProductionSettings = {
@@ -102,7 +103,7 @@ export const DEFAULT_PRODUCTION: ProductionSettings = {
   hostStyle: '',
   pacing: 'natural',
   expressiveness: 'natural',
-  roomTone: true,
+  roomTone: false,
 };
 
 const playerSchema = z.strictObject({
