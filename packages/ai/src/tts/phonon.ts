@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { KOKORO_VOICE_INFO, PHONON_VOICES, phononVoice } from '@thinkmade/shared';
+import { GEMINI_VOICES, isGeminiVoice, KOKORO_VOICE_INFO, PHONON_VOICES, phononVoice } from '@thinkmade/shared';
 import type { TtsEngine } from './types';
 
 /** Hugging Face commits the files are pinned to, so a cached file never mixes with a newer upload. */
@@ -137,16 +137,51 @@ export function kokoroFallbackVoice(voice: string): string {
   return options[peers.findIndex((p) => p.key === v.key) % options.length]!.id;
 }
 
+/** The Kokoro voice closest to a Gemini voice, used only if Gemini fails partway through an episode. */
+function localForGemini(voice: string): string {
+  const v = GEMINI_VOICES.find((g) => `gemini:${g.key}` === voice);
+  return v?.gender === 'male' ? 'am_michael' : 'af_heart';
+}
+
 /**
- * Sends `phonon:` voices to Phonon (when given) and everything else to Kokoro. If Phonon fails, the episode is
- * finished with the closest Kokoro voice rather than failing, and the switch is logged.
+ * Sends `gemini:` voices to Gemini (when configured and working), `phonon:` voices to Phonon (when given) and
+ * everything else to Kokoro. If Phonon fails, the episode is finished with the closest Kokoro voice rather
+ * than failing, and the switch is logged. Gemini's rate limits are passed on (the step is tried again later)
+ * rather than switching an episode's voices midway.
  */
-export function createVoiceRouterTts(engines: { phonon?: TtsEngine | undefined; kokoro: TtsEngine }, log: (message: string) => void = console.warn): TtsEngine {
+export function createVoiceRouterTts(
+  engines: { gemini?: TtsEngine | undefined; phonon?: TtsEngine | undefined; kokoro: TtsEngine },
+  log: (message: string) => void = console.warn,
+): TtsEngine {
   let phononBroken = false;
+  let geminiChecked: Promise<void> | null = null;
+  let geminiWorks = !!engines.gemini;
+  const viaGemini = (voice: string) => isGeminiVoice(voice) && !!engines.gemini && geminiWorks;
+  const local = (text: string, voice: string, speak?: Parameters<TtsEngine['synthesize']>[2]) => {
+    if (isGeminiVoice(voice)) return engines.kokoro.synthesize(text, localForGemini(voice), speak);
+    return null;
+  };
   return {
-    name: 'phonon+kokoro',
+    name: engines.gemini ? 'gemini+phonon+kokoro' : 'phonon+kokoro',
     sampleRate: 24_000,
+    handles: (voice: string) => (isGeminiVoice(voice) ? viaGemini(voice) : true),
+    /** Checks once that Gemini can actually speak with this key; if not, its voices aren't offered. */
+    prepare() {
+      if (!engines.gemini) return Promise.resolve();
+      return (geminiChecked ??= engines.gemini.synthesize('Hello.', 'gemini:Kore').then(
+        () => undefined,
+        (err: unknown) => {
+          // Busy is fine (it works, just not this second); anything else means it can't be used.
+          if ((err as { name?: string }).name === 'TtsRateLimitedError') return;
+          geminiWorks = false;
+          log(`Gemini speech is not available, using the other voices: ${err instanceof Error ? err.message : String(err)}`);
+        },
+      ));
+    },
     async synthesize(text, voice, speak) {
+      if (viaGemini(voice)) return engines.gemini!.synthesize(text, voice, speak);
+      const fallback = local(text, voice, speak);
+      if (fallback) return fallback;
       if (!phononVoice(voice)) return engines.kokoro.synthesize(text, voice, speak);
       if (engines.phonon && !phononBroken) {
         try {
@@ -158,5 +193,13 @@ export function createVoiceRouterTts(engines: { phonon?: TtsEngine | undefined; 
       }
       return engines.kokoro.synthesize(text, kokoroFallbackVoice(voice), speak);
     },
+    ...(engines.gemini?.synthesizeDialogue
+      ? {
+          async synthesizeDialogue(lines, speak) {
+            if (!lines.every((l) => viaGemini(l.voice))) throw new Error('Only Gemini voices can be spoken as one conversation.');
+            return engines.gemini!.synthesizeDialogue!(lines, speak);
+          },
+        }
+      : {}),
   };
 }

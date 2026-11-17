@@ -11,6 +11,7 @@ on:
       - apps/worker/scripts/audio-probe.ts
       - packages/ai/src/audio/**
       - packages/shared/src/voice-traits.ts
+      - packages/ai/src/tts/**
       - .github/workflows/audio-probe.yml
 
 permissions:
@@ -19,10 +20,11 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       MODEL_CACHE_DIR: ${{ github.workspace }}/.models
       PROBE_OUT: ${{ github.workspace }}/probe
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

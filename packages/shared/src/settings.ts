@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { languageInfo, SAMPLE_LINES, type LanguageCode } from './languages.ts';
+import { languageInfo, LANGUAGES, SAMPLE_LINES, type LanguageCode } from './languages.ts';
 
 export const speakerFormatSchema = z.enum(['single', 'two_hosts', 'mixed']);
 export const learningModeSchema = z.enum(['explore', 'deepen', 'reinforce']);
@@ -344,14 +344,58 @@ export const KOKORO_NATIVE_VOICES = [
 /** Kokoro voice ids. af_heart is the highest-rated voice in the Kokoro model card. */
 export const KOKORO_VOICES = KOKORO_VOICE_INFO.map((v) => v.id);
 
+/**
+ * Gemini's speech voices (Google), stored as `gemini:<Name>`: the most natural, human-sounding voices
+ * ThinkMade can use, and the only ones cast while the Gemini speech engine is available. `name` is a person's
+ * name for a host the listener didn't name; `tone` is Google's description of the voice. They speak every
+ * podcast language.
+ */
+export const GEMINI_VOICES = [
+  { key: 'Zephyr', name: 'Claire', gender: 'female', tone: 'bright' },
+  { key: 'Kore', name: 'Kate', gender: 'female', tone: 'firm' },
+  { key: 'Leda', name: 'Lily', gender: 'female', tone: 'youthful' },
+  { key: 'Aoede', name: 'Ava', gender: 'female', tone: 'breezy' },
+  { key: 'Callirrhoe', name: 'Rachel', gender: 'female', tone: 'easy-going' },
+  { key: 'Autonoe', name: 'Nina', gender: 'female', tone: 'bright' },
+  { key: 'Despina', name: 'Diana', gender: 'female', tone: 'smooth' },
+  { key: 'Erinome', name: 'Erin', gender: 'female', tone: 'clear' },
+  { key: 'Laomedeia', name: 'Laura', gender: 'female', tone: 'upbeat' },
+  { key: 'Achernar', name: 'Grace', gender: 'female', tone: 'soft' },
+  { key: 'Gacrux', name: 'Margaret', gender: 'female', tone: 'mature' },
+  { key: 'Pulcherrima', name: 'Paige', gender: 'female', tone: 'forward' },
+  { key: 'Vindemiatrix', name: 'Vivian', gender: 'female', tone: 'gentle' },
+  { key: 'Sulafat', name: 'Sophie', gender: 'female', tone: 'warm' },
+  { key: 'Puck', name: 'Jake', gender: 'male', tone: 'upbeat' },
+  { key: 'Charon', name: 'Charles', gender: 'male', tone: 'informative' },
+  { key: 'Fenrir', name: 'Leo', gender: 'male', tone: 'excitable' },
+  { key: 'Orus', name: 'Oliver', gender: 'male', tone: 'firm' },
+  { key: 'Enceladus', name: 'Ethan', gender: 'male', tone: 'breathy' },
+  { key: 'Iapetus', name: 'Ian', gender: 'male', tone: 'clear' },
+  { key: 'Umbriel', name: 'Owen', gender: 'male', tone: 'easy-going' },
+  { key: 'Algieba', name: 'Adam', gender: 'male', tone: 'smooth' },
+  { key: 'Algenib', name: 'Graham', gender: 'male', tone: 'gravelly' },
+  { key: 'Rasalgethi', name: 'Robert', gender: 'male', tone: 'informative' },
+  { key: 'Alnilam', name: 'Alan', gender: 'male', tone: 'firm' },
+  { key: 'Schedar', name: 'Simon', gender: 'male', tone: 'even' },
+  { key: 'Achird', name: 'Andrew', gender: 'male', tone: 'friendly' },
+  { key: 'Zubenelgenubi', name: 'Zack', gender: 'male', tone: 'casual' },
+  { key: 'Sadachbia', name: 'Danny', gender: 'male', tone: 'lively' },
+  { key: 'Sadaltager', name: 'David', gender: 'male', tone: 'knowledgeable' },
+] as const;
+
+/** Whether a stored voice is one of Gemini's. */
+export const isGeminiVoice = (voice: string) => voice.startsWith('gemini:');
+
 export interface VoiceInfo {
-  /** Stored id: `phonon:<key>` or a Kokoro id. */
+  /** Stored id: `gemini:<Name>`, `phonon:<key>` or a Kokoro id. */
   id: string;
   /** A person's name that suits the voice. */
   name: string;
-  engine: 'Phonon' | 'Kokoro';
+  engine: 'Gemini' | 'Phonon' | 'Kokoro';
   accent: 'US' | 'UK';
   gender: 'female' | 'male';
+  /** Google's description of a Gemini voice (e.g. "warm", "bright"). */
+  tone?: string;
   /** Kokoro model card grade, where the engine publishes one. */
   grade?: string;
   /** A voice made for a special style (e.g. whispering), unsuited to most podcasts. */
@@ -377,6 +421,7 @@ export function castableByDefault(v: VoiceInfo): boolean {
 const KOKORO_OWN_LANGUAGE: Record<string, LanguageCode> = { e: 'es', h: 'hi' };
 
 export const VOICE_CATALOG: readonly VoiceInfo[] = [
+  ...GEMINI_VOICES.map((v) => ({ id: `gemini:${v.key}`, name: v.name, engine: 'Gemini' as const, accent: 'US' as const, gender: v.gender, tone: v.tone, speaks: LANGUAGES.map((l) => l.code) })),
   ...PHONON_VOICES.map((v) => ({ id: `phonon:${v.key}`, name: v.name, engine: 'Phonon' as const, accent: v.accent, gender: v.gender, speaks: ['en'] as const })),
   ...KOKORO_VOICE_INFO.map((v) => ({ id: v.id, name: v.name, engine: 'Kokoro' as const, accent: v.accent, gender: v.gender, grade: v.grade, ...('style' in v ? { style: v.style } : {}), speaks: ['en'] as const })),
   ...PHONON_HERITAGE_VOICES.map((v) => ({ id: `phonon:${v.key}`, name: v.name, engine: 'Phonon' as const, accent: v.accent, gender: v.gender, heritage: v.heritage, speaks: ['en'] as const })),
@@ -444,6 +489,10 @@ export function upgradeAppSettings(settings: AppSettings): AppSettings {
   const matches = (list: readonly string[]) => a.length === list.length && list.every((v) => a.includes(v));
   if (matches(LEGACY_AVAILABLE_VOICES) || matches(CATALOG_BEFORE_ACCENTS) || matches(CATALOG_BEFORE_LANGUAGES)) {
     return { ...settings, voices: { ...settings.voices, available: VOICE_CATALOG.map((v) => v.id) } };
+  }
+  // Settings saved before the Gemini voices existed get all of them (they are the most natural voices).
+  if (!a.some(isGeminiVoice)) {
+    return { ...settings, voices: { ...settings.voices, available: [...GEMINI_VOICES.map((v) => `gemini:${v.key}`), ...a] } };
   }
   return settings;
 }

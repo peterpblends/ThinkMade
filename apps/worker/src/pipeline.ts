@@ -11,7 +11,7 @@ import {
   type ChatMessage,
 } from '@thinkmade/ai';
 import { getActivePrompts, indexSeriesEmbedding, queryRows, schema, settleCancelledSeries, type Db, type ModelStage } from '@thinkmade/db';
-import { APPROACHES, castHosts, chooseApproach, chooseHosts, chooseShowFormat, distinctCast, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, HOST_IDS, languageInfo, languageInstruction, speaksLanguage, verifyCast, voiceInfo, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowApproach, type ShowFormat } from '@thinkmade/shared';
+import { APPROACHES, isGeminiVoice, castHosts, chooseApproach, chooseHosts, chooseShowFormat, distinctCast, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, HOST_IDS, languageInfo, languageInstruction, speaksLanguage, verifyCast, voiceInfo, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowApproach, type ShowFormat } from '@thinkmade/shared';
 import { JobCancelledError, LostLeaseError, PermanentJobError, type WorkerDeps } from './deps';
 import { overusedModels, rankForVariety } from './model-variety';
 import { voiceTranslation } from './translate';
@@ -523,7 +523,11 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     if (!state.plan && !state.adjusted) state.adjusted = listenerAdjustments(options, prefs);
     Object.assign(options, state.adjusted ?? {});
     const production = { ...DEFAULT_PRODUCTION, ...options.production };
-    const pool = options.voicePool ?? DEFAULT_APP_SETTINGS.voices.available;
+    // Only voices that sound fully human: Gemini's, whenever it works with this key; otherwise the best of the rest.
+    await deps.tts.prepare?.();
+    const allowed = options.voicePool ?? DEFAULT_APP_SETTINGS.voices.available;
+    const natural = allowed.filter((v) => isGeminiVoice(v) && deps.tts.handles?.(v) === true);
+    const pool = natural.length >= 4 ? natural : allowed.filter((v) => !isGeminiVoice(v));
     // A podcast in another language is cast from that language's native voices. With only one (French), it
     // has a single host rather than two hosts sharing a voice.
     const languageVoices = pool.filter((v) => speaksLanguage(v, language)).length;
@@ -980,7 +984,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         const series = state.hosts?.find((x) => x.id === h.id && x.name === h.name);
         return series ? { ...h, voice: series.voice, ...(series.gender ? { gender: series.gender } : {}) } : h;
       });
-      const cast = verifyCast(locked, { pool: options.voicePool ?? DEFAULT_APP_SETTINGS.voices.available, language });
+      const cast = verifyCast(locked, { pool, language });
       const hosts = cast.hosts;
       if (cast.fixes.length || hosts.some((h, i) => h.voice !== episodeHosts[i]?.voice || h.gender !== episodeHosts[i]?.gender)) {
         if (cast.fixes.length) log('voices corrected before writing', { jobId: job.id, episode: ep.number, fixes: cast.fixes });
@@ -1165,7 +1169,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       const done = progress.sections;
       const segments = done.flatMap((d) => d.segments);
       // Last check before audio: every line belongs to a host of this episode, and every host's voice is right.
-      const final = verifyCast(hosts, { pool: options.voicePool ?? DEFAULT_APP_SETTINGS.voices.available, language });
+      const final = verifyCast(hosts, { pool, language });
       if (final.fixes.length || segments.some((x) => !hostIds.includes(x.speaker))) {
         throw new Error(`Voice check failed before recording: ${final.fixes.join('; ') || 'a line belongs to no host'}`);
       }
@@ -1180,7 +1184,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         assembleEpisode({
           signal: stop.signal,
           // Section boundaries get a longer breath; the rest of the pacing follows the lines themselves.
-          turns: done.flatMap((d, si) => d.segments.map((s, k) => ({ voice: voiceOf(s.speaker), text: s.text, ...(si > 0 && k === 0 ? { sectionBreak: true } : {}) }))),
+          turns: done.flatMap((d, si) => d.segments.map((s, k) => ({ voice: voiceOf(s.speaker), speaker: nameFor(s.speaker), text: s.text, ...(si > 0 && k === 0 ? { sectionBreak: true } : {}) }))),
           pacing: production.pacing,
           expressiveness: production.expressiveness,
           natural: options.naturalDelivery === true,

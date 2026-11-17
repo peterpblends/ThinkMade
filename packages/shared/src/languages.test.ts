@@ -3,7 +3,8 @@ import { chooseHosts } from './hosts';
 import { languageInstruction, LANGUAGES, SAMPLE_LINES } from './languages';
 import { DEFAULT_APP_SETTINGS, speaksLanguage, voiceInfo, voiceSampleEntry, voiceSampleKey, voiceSampleText, VOICE_CATALOG } from './settings';
 
-const pool = DEFAULT_APP_SETTINGS.voices.available;
+const POOL = DEFAULT_APP_SETTINGS.voices.available;
+const pool = POOL;
 
 describe('languages', () => {
   it('every language has native voices of its own, and a sample line', () => {
@@ -20,6 +21,10 @@ describe('languages', () => {
   });
 
   it('casts only voices that speak the language', () => {
+    // Gemini's voices speak every podcast language.
+    expect(chooseHosts({ count: 2, pool: ['gemini:Kore', 'gemini:Puck', 'ef_dora'], language: 'ja' }).map((h) => h.voice).sort()).toEqual(['gemini:Kore', 'gemini:Puck']);
+    // Without them, only the local voices native to the language.
+    const pool = POOL.filter((v) => !v.startsWith('gemini:'));
     for (let i = 0; i < 10; i++) {
       const es = chooseHosts({ count: 2, pool, language: 'es' });
       expect(es.map((h) => h.voice).sort()).toEqual(['ef_dora', 'em_alex']);

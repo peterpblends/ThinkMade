@@ -171,3 +171,40 @@ describe('joining lines', () => {
     expect(new Set(xs).size).toBe(5);
   });
 });
+
+describe('natural voices: performed as a conversation', () => {
+  it('speaks two people in takes of a minute or so, never across a section, and passes speaker names', async () => {
+    const takes: Array<Array<{ speaker: string; voice: string; text: string }>> = [];
+    const tone = createToneTts();
+    const tts: TtsEngine = {
+      name: 'fake-gemini',
+      sampleRate: RATE,
+      handles: (v) => v.startsWith('gemini:'),
+      synthesize: () => Promise.reject(new Error('should speak as a conversation')),
+      async synthesizeDialogue(lines) {
+        takes.push(lines);
+        return tone.synthesize(lines.map((l) => l.text).join(' '), 'af_heart');
+      },
+    };
+    const long = 'This is a fairly long line that keeps going so that the takes have to be split eventually. '.repeat(3);
+    const turns = [
+      { voice: 'gemini:Sulafat', speaker: 'Sophie Lane', text: 'So here is the thing. [laughs]' },
+      { voice: 'gemini:Charon', speaker: 'Charles', text: 'Go on.' },
+      ...Array.from({ length: 8 }, (_, i) => ({ voice: i % 2 ? 'gemini:Charon' : 'gemini:Sulafat', speaker: i % 2 ? 'Charles' : 'Sophie Lane', text: long })),
+      { voice: 'gemini:Sulafat', speaker: 'Sophie Lane', text: 'New section.', sectionBreak: true },
+    ];
+    const progress: number[] = [];
+    const out = join(dir, 'convo.mp3');
+    const result = await assembleEpisode({ turns, tts, outFile: out, workDir: dir, onProgress: (d) => void progress.push(d) });
+    expect(statSync(out).size).toBeGreaterThan(1000);
+    expect(takes.length).toBeGreaterThanOrEqual(3);
+    for (const t of takes) expect(t.map((l) => l.text).join('').length).toBeLessThanOrEqual(1400 + long.length);
+    // The section's first line starts a take of its own.
+    expect(takes.at(-1)!.map((l) => l.text)).toEqual(['New section.']);
+    // First names label the speakers; performable cues are kept.
+    expect(takes[0]![0]).toEqual({ speaker: 'Sophie', voice: 'gemini:Sulafat', text: 'So here is the thing. [laughs]' });
+    expect(takes[0]![1]!.speaker).toBe('Charles');
+    expect(progress.at(-1)).toBe(turns.length);
+    expect(result.checks.chunks).toBe(takes.length);
+  }, 60_000);
+});

@@ -2,7 +2,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { assembleEpisode } from '@thinkmade/ai';
 import { getActiveAppSettings } from '@thinkmade/db';
-import { VOICE_SAMPLE_MANIFEST_KEY, voiceInfo, voiceSampleEntry, voiceSampleKey, voiceSampleText } from '@thinkmade/shared';
+import { isGeminiVoice, VOICE_SAMPLE_MANIFEST_KEY, voiceInfo, voiceSampleEntry, voiceSampleKey, voiceSampleText } from '@thinkmade/shared';
 import type { WorkerDeps } from './deps';
 
 async function readManifest(deps: Pick<WorkerDeps, 'storage'>): Promise<string[]> {
@@ -28,7 +28,10 @@ export async function ensureVoiceSamples(deps: Pick<WorkerDeps, 'db' | 'tts' | '
   // Samples in `redoLanguages` are rendered again (after a change to how those languages are spoken).
   const done = new Set((await readManifest(deps)).filter((e) => !redoLanguages.some((l) => (l === 'en' ? !e.includes(':') : e.startsWith(`${l}:`)))));
   // A sample in every language each voice speaks.
-  const missing = settings.voices.available.flatMap((voice) => (voiceInfo(voice)?.speaks ?? []).map((language) => ({ voice, language }))).filter((s) => !done.has(voiceSampleEntry(s.voice, s.language)));
+  // Gemini's voices are previewed in English only (they speak every language), and only when Gemini can speak.
+  await deps.tts.prepare?.();
+  const languagesOf = (voice: string) => (isGeminiVoice(voice) ? (deps.tts.handles?.(voice) === true ? (['en'] as const) : []) : (voiceInfo(voice)?.speaks ?? []));
+  const missing = settings.voices.available.flatMap((voice) => languagesOf(voice).map((language) => ({ voice, language }))).filter((s) => !done.has(voiceSampleEntry(s.voice, s.language)));
   if (!missing.length) return 0;
   const dir = join(deps.workDir, 'voice-samples');
   mkdirSync(dir, { recursive: true });
