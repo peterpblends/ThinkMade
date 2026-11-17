@@ -8,6 +8,8 @@ import { useVoiceConversation, type ConversationTurn, type VoiceConversation } f
 import { useFeatures } from '../lib/features';
 import { useVoiceInput, type VoiceInput } from '../lib/voice';
 import { Button, Notice } from '../components/ui';
+import { VisualView } from '../components/visual';
+import { splitVisuals, withoutVisuals } from '@thinkmade/shared';
 
 interface CoachMessage {
   id: string;
@@ -33,6 +35,24 @@ function speak(text: string) {
   const u = new SpeechSynthesisUtterance(text);
   u.rate = 1;
   window.speechSynthesis.speak(u);
+}
+
+/** A coach reply: its words, then any chart or diagram it drew (a placeholder while one is being drawn). */
+function CoachReply({ content }: { content: string }) {
+  const { text, visuals, drawing } = splitVisuals(content);
+  return (
+    <>
+      {text && <p className="whitespace-pre-line text-[0.98rem] leading-relaxed">{text}</p>}
+      {visuals.map((v, i) => (
+        <VisualView key={i} v={v} />
+      ))}
+      {drawing && (
+        <p role="status" className="mt-3 rounded-xl border border-dashed border-line px-3 py-4 text-center text-sm text-muted">
+          Drawing a visual…
+        </p>
+      )}
+    </>
+  );
 }
 
 const PHASE_LABEL = { listening: 'Listening…', thinking: 'Thinking…', speaking: 'Speaking…', error: 'Stopped', off: '' } as const;
@@ -134,7 +154,7 @@ export function CoachView({
     // In a spoken conversation the coach already says its replies.
     if (speakReplies && !talking && last?.role === 'coach' && last.id !== 'streaming' && last.id !== lastSpoken.current) {
       lastSpoken.current = last.id;
-      speak(last.content);
+      speak(withoutVisuals(last.content));
     }
   }, [messages, speakReplies, talking]);
 
@@ -171,7 +191,7 @@ export function CoachView({
         {messages.map((m) => (
           <div key={m.id} className={m.role === 'user' ? 'self-end max-w-[85%] rounded-2xl rounded-br-md bg-accent-strong px-4 py-3 text-on-accent' : 'self-start max-w-[90%] rounded-2xl rounded-bl-md border border-line bg-surface px-4 py-3 shadow-card'}>
             <span className="sr-only">{m.role === 'user' ? 'You: ' : 'Coach: '}</span>
-            <p className="whitespace-pre-line text-[0.98rem] leading-relaxed">{m.content}</p>
+            {m.role === 'user' ? <p className="whitespace-pre-line text-[0.98rem] leading-relaxed">{m.content}</p> : <CoachReply content={m.content} />}
           </div>
         ))}
         {sending && (
@@ -287,7 +307,7 @@ export function CoachScreen() {
           signal,
         );
         void qc.invalidateQueries({ queryKey: ['coach', episodeId] });
-        return res.reply.content;
+        return withoutVisuals(res.reply.content);
       } catch (err) {
         const body = err instanceof ApiError ? (err.body as { message?: string } | null) : null;
         throw new Error(body?.message ?? 'The coach could not answer just now. Please try again.');

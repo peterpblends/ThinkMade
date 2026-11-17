@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { LlmError, ProviderNotConfiguredError, type ChatMessage } from '@thinkmade/ai';
 import { getActivePrompts, schema } from '@thinkmade/db';
 import type { AppContext } from '../create-context';
-import { languageInfo, languageInstruction, PRACTICE_COACH_INSTRUCTIONS, SPOKEN_COACH_INSTRUCTIONS } from '@thinkmade/shared';
+import { languageInfo, languageInstruction, PRACTICE_COACH_INSTRUCTIONS, SPOKEN_COACH_INSTRUCTIONS, VISUAL_COACH_INSTRUCTIONS } from '@thinkmade/shared';
 import { COACH_INSTRUCTIONS, selectExcerpts } from '../coach/context';
 import { requireFeature } from '../middleware/feature';
 import { rateLimit } from '../middleware/rate-limit';
@@ -119,7 +119,7 @@ export function coachRoutes(ctx: AppContext) {
       };
       const instructions = prompts.get('coach') ?? COACH_INSTRUCTIONS;
       const languageRule = languageInstruction(language);
-      const system = `STAGE: coach\n${instructions}\n\n${PRACTICE_COACH_INSTRUCTIONS}${spoken ? `\n\n${SPOKEN_COACH_INSTRUCTIONS}` : ''}${languageRule ? `\n\n${languageRule} Reply in that language unless the listener writes in another.` : ''}\n\nEpisode context (JSON):\n${JSON.stringify(context)}\n\nTranscript excerpts:\n${excerpts.map((x, i) => `[${i + 1}] ${x}`).join('\n\n') || '(none)'}`;
+      const system = `STAGE: coach\n${instructions}\n\n${PRACTICE_COACH_INSTRUCTIONS}${spoken ? `\n\n${SPOKEN_COACH_INSTRUCTIONS}` : `\n\n${VISUAL_COACH_INSTRUCTIONS}`}${languageRule ? `\n\n${languageRule} Reply in that language unless the listener writes in another.` : ''}\n\nEpisode context (JSON):\n${JSON.stringify(context)}\n\nTranscript excerpts:\n${excerpts.map((x, i) => `[${i + 1}] ${x}`).join('\n\n') || '(none)'}`;
       const messages: ChatMessage[] = [
         { role: 'system', content: system },
         ...history.map((m) => ({ role: m.role === 'coach' ? ('assistant' as const) : ('user' as const), content: m.content })),
@@ -133,7 +133,7 @@ export function coachRoutes(ctx: AppContext) {
 
       // Someone is waiting: a model at its limit hands over to the next at once instead of waiting.
       // A model that hasn't started answering within a few seconds hands over too.
-      const options = spoken ? { temperature: 0.7, maxTokens: 300, maxRateLimitWaitMs: 1500, firstTokenTimeoutMs: 4000 } : { temperature: 0.6, maxTokens: 700, maxRateLimitWaitMs: 1500, firstTokenTimeoutMs: 6000 };
+      const options = spoken ? { temperature: 0.7, maxTokens: 300, maxRateLimitWaitMs: 1500, firstTokenTimeoutMs: 4000 } : { temperature: 0.6, maxTokens: 1200, maxRateLimitWaitMs: 1500, firstTokenTimeoutMs: 6000 };
       const failure = (err: unknown) => {
         if (err instanceof ProviderNotConfiguredError) return { status: 503 as const, body: { error: 'coach_unavailable', message: 'Coaching is not configured on this server yet.' } };
         console.error('[coach] model call failed', err instanceof LlmError ? err.message : err);
