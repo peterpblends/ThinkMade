@@ -6,11 +6,17 @@ name: Audio probe
 
 on:
   workflow_dispatch:
+    inputs:
+      gemini_voices:
+        description: Also measure every Gemini voice (uses a day's free Gemini speech allowance)
+        type: boolean
+        default: false
   pull_request:
     paths:
       - apps/worker/scripts/audio-probe.ts
       - packages/ai/src/audio/**
       - packages/shared/src/voice-traits.ts
+      - packages/ai/src/tts/**
       - .github/workflows/audio-probe.yml
 
 permissions:
@@ -19,10 +25,12 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       MODEL_CACHE_DIR: ${{ github.workspace }}/.models
       PROBE_OUT: ${{ github.workspace }}/probe
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      PROBE_GEMINI_VOICES: ${{ inputs.gemini_voices && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

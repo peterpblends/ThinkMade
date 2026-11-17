@@ -143,3 +143,60 @@ export async function verifyBook(claim: BookClaim, opts: { fetch?: typeof fetch 
   }
   return { verified: false, reason: lookupsFailed === 2 ? 'lookup_failed' : 'no_match' };
 }
+
+const plain = (html: string) =>
+  html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&(?:amp|#38);/g, '&')
+    .replace(/&(?:quot|#34);/g, '"')
+    .replace(/&(?:#39|apos);/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/**
+ * What a verified book is actually about, from the catalogues and Wikipedia: the publisher's description
+ * (Google Books or Open Library) and, when there is one, the book's own Wikipedia summary. Episodes are
+ * written from this, so stories and ideas attributed to the book are the book's. Empty when nothing is found.
+ */
+export async function describeBook(
+  book: { title: string; authors: string[]; googleBooksId?: string; openLibraryId?: string; isbn13?: string },
+  opts: { fetch?: typeof fetch; maxChars?: number } = {},
+): Promise<string> {
+  const fetchFn = opts.fetch ?? fetch;
+  const parts: string[] = [];
+  const author = surname(book.authors[0] ?? '');
+  // Google Books: by id, else by ISBN or title and author.
+  try {
+    const url = book.googleBooksId
+      ? `https://www.googleapis.com/books/v1/volumes/${encodeURIComponent(book.googleBooksId)}`
+      : `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(book.isbn13 ? `isbn:${book.isbn13}` : `intitle:${mainTitle(book.title)} inauthor:${author}`)}&maxResults=3`;
+    const data = (await getJson(fetchFn, url)) as { volumeInfo?: { title?: string; description?: string }; items?: Array<{ volumeInfo: { title: string; description?: string } }> };
+    const info = data.volumeInfo ?? data.items?.find((i) => titlesMatch(book.title, i.volumeInfo.title) && i.volumeInfo.description)?.volumeInfo;
+    if (info?.description) parts.push(plain(info.description));
+  } catch {
+    /* the other sources may still answer */
+  }
+  // Open Library: the work's own description.
+  if (!parts.length && book.openLibraryId?.startsWith('/works/')) {
+    try {
+      const work = (await getJson(fetchFn, `https://openlibrary.org${book.openLibraryId}.json`)) as { description?: string | { value?: string } };
+      const d = typeof work.description === 'string' ? work.description : work.description?.value;
+      if (d) parts.push(plain(d.replace(/\[[^\]]*\]\([^)]*\)/g, '').split(/-{3,}|\n\s*\n\s*\(/)[0]!));
+    } catch {
+      /* fine */
+    }
+  }
+  // Wikipedia: only an article about this book (it names the author).
+  try {
+    const page = encodeURIComponent(mainTitle(book.title).replace(/\s+/g, '_'));
+    const w = (await getJson(fetchFn, `https://en.wikipedia.org/api/rest_v1/page/summary/${page}`)) as { type?: string; extract?: string; description?: string };
+    const text = `${w.description ?? ''} ${w.extract ?? ''}`;
+    if (w.type === 'standard' && w.extract && author && text.toLowerCase().includes(author)) parts.push(plain(w.extract));
+  } catch {
+    /* fine */
+  }
+  const max = opts.maxChars ?? 1500;
+  const about = parts.join(' ').trim();
+  return about.length > max ? `${about.slice(0, about.lastIndexOf('.', max) + 1 || max)}` : about;
+}

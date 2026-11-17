@@ -201,7 +201,7 @@ export function verifyCast(
 }
 
 /**
- * Makes sure no two hosts of the same gender sound alike: a host whose voice is too close to an earlier
+ * Makes sure every host has a voice from the pool and no two hosts of the same gender sound alike: a host whose voice is too close to an earlier
  * host's is given the castable voice of that gender (same accent preferred) that sounds most different.
  * A host named after their old voice takes the new voice's name. Returns the hosts and what was changed.
  */
@@ -216,23 +216,25 @@ export function distinctCast(hosts: Host[], opts: { pool: string[]; language?: s
   for (const h of hosts) {
     const v = voiceInfo(h.voice);
     const clash = v && out.find((o) => voiceInfo(o.voice)?.gender === v.gender && soundAlike(o.voice, h.voice));
-    if (!v || !clash) {
+    // A voice from outside the pool (e.g. an older, less natural voice) is replaced too.
+    const outside = !!v && !all.some((x) => x.id === v.id);
+    if (!v || (!clash && !outside)) {
       out.push(h);
       continue;
     }
     const used = new Set([...out, ...hosts].map((x) => x.voice));
     const fits = (x: VoiceInfo) => !used.has(x.id) && x.gender === v.gender && !out.some((o) => voiceInfo(o.voice)?.gender === x.gender && soundAlike(o.voice, x.id));
-    const options = [castable.filter((x) => fits(x) && x.accent === v.accent), castable.filter(fits)].find((o) => o.length);
+    const options = [castable.filter((x) => fits(x) && x.accent === v.accent), castable.filter(fits), all.filter(fits)].find((o) => o.length);
     if (!options) {
       out.push(h);
       continue;
     }
     // Among the three most different from the voice it clashed with, chosen at random for variety.
-    const ranked = [...options].sort((a, b) => (voiceDistance(clash.voice, b.id) ?? 0) - (voiceDistance(clash.voice, a.id) ?? 0)).slice(0, 3);
+    const ranked = clash ? [...options].sort((a, b) => (voiceDistance(clash.voice, b.id) ?? 0) - (voiceDistance(clash.voice, a.id) ?? 0)).slice(0, 3) : options;
     const pick = ranked[Math.floor(random() * ranked.length)]!;
     const names = new Set(hosts.filter((x) => x !== h).map((x) => x.name.toLowerCase()));
     const name = h.name === v.name && !names.has(pick.name.toLowerCase()) ? pick.name : h.name;
-    fixes.push(`${h.name} sounded too much like ${clash.name}; now ${pick.name}`);
+    fixes.push(clash ? `${h.name} sounded too much like ${clash.name}; now ${pick.name}` : `${h.name} now has a more natural voice (${pick.name})`);
     out.push({ ...h, name, voice: pick.id, gender: pick.gender });
   }
   return { hosts: out, fixes };

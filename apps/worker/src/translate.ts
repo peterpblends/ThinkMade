@@ -1,3 +1,4 @@
+import { storageTakeCache } from './take-cache';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -136,6 +137,7 @@ export async function voiceTranslation(opts: {
           const outFile = join(dir, 'episode.mp3');
           const audio = await assembleEpisode({
             signal,
+            takeCache: storageTakeCache(deps.storage),
             turns: script.map((l) => ({ voice: voiceOf.get(l.speaker) ?? cast[0]!.voice, text: l.text })),
             pacing: production.pacing,
             expressiveness: production.expressiveness,

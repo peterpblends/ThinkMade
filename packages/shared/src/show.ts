@@ -37,9 +37,9 @@ const PERSONAS: Record<ShowFormat, string[]> = {
   ],
   interview: [
     'A thoughtful interviewer. Listens closely, asks follow-ups that build on the last answer, asks for examples and pushes back politely.',
-    'A simulated expert guest who knows the research and well-documented cases on this subject. Speaks with authority but never claims personal experiences, never claims to be a real person, and says what is uncertain.',
+    'An expert guest who knows the research and well-documented cases on this subject. Speaks with authority and warmth, tells the real stories from the books, admits what is uncertain, and never cites studies or numbers of their own.',
     'A second interviewer who asks the practical "so what do I do on Monday?" questions.',
-    'A second simulated expert guest with a different view, so the two can disagree respectfully.',
+    'A second expert guest with a different view, so the two can disagree respectfully.',
   ],
 };
 
@@ -83,7 +83,7 @@ export function artworkOf(series: { id: string; artwork?: { seeds: string[]; sel
  * How a podcast is made, kept for all its episodes: a podcast has its own identity, and a listener's podcasts
  * differ from one another.
  */
-export const SHOW_APPROACHES = ['storyteller', 'co_hosts', 'co_hosts_with_visitors', 'expert_guests', 'founder_guests'] as const;
+export const SHOW_APPROACHES = ['storyteller', 'book_story', 'co_hosts', 'co_hosts_with_visitors', 'expert_guests', 'founder_guests'] as const;
 export type ShowApproach = (typeof SHOW_APPROACHES)[number];
 
 export const APPROACHES: Record<ShowApproach, { showFormat: ShowFormat; hosts: 1 | 2; guests: 'none' | 'some' | 'every'; label: string; describe: string }> = {
@@ -93,6 +93,14 @@ export const APPROACHES: Record<ShowApproach, { showFormat: ShowFormat; hosts: 1
     guests: 'none',
     label: 'A storyteller',
     describe: 'One host tells each episode as a story: real, well-documented cases, the best books on the subject, and what they mean for the listener.',
+  },
+  book_story: {
+    showFormat: 'storytelling',
+    hosts: 1,
+    guests: 'none',
+    label: 'One great book an episode',
+    describe:
+      "Each episode, one host takes one great book (often the biography of a founder or leader) and tells its story with real energy: the scenes, the turning points and decisions, the host's own reactions, and the lessons pulled from it, connected to the books and people of earlier episodes.",
   },
   co_hosts: {
     showFormat: 'conversation',
@@ -161,7 +169,7 @@ export function chooseApproach(input: {
   if (!allowed.length) return input.speakerFormat === 'two_hosts' || (input.speakerFormat === 'mixed' && input.voices > 1) ? 'co_hosts' : 'storyteller';
   const fromFormat: ShowApproach[] = input.suggestedFormat === 'interview' ? ['expert_guests'] : input.suggestedFormat === 'storytelling' ? ['storyteller'] : input.suggestedFormat === 'conversation' ? ['co_hosts'] : [];
   // Best first: what suits the topic, then the rest (founders only when the topic suits them).
-  const ranked = [...new Set([...(input.suitable ?? []), ...fromFormat, 'co_hosts', 'expert_guests', 'storyteller', 'co_hosts_with_visitors'] as ShowApproach[])].filter((a) => allowed.includes(a));
+  const ranked = [...new Set([...(input.suitable ?? []), ...fromFormat, 'co_hosts', 'expert_guests', 'storyteller', 'book_story', 'co_hosts_with_visitors'] as ShowApproach[])].filter((a) => allowed.includes(a));
   const options = ranked.length ? ranked : allowed;
   const recent = input.recent ?? [];
   return options.find((a) => !recent.slice(0, 2).includes(a)) ?? options.find((a) => a !== recent[0]) ?? options[0]!;

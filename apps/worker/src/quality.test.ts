@@ -153,3 +153,29 @@ describe('introductions', () => {
     expect(swappedSpeakers([{ speaker: 'A', text: "I'm Parker. That is the habit." }, { speaker: 'B', text: "And I'm Hadley. Here is how." }], hosts)?.sort()).toEqual(['A', 'B']);
   });
 });
+
+describe('never sounds like AI', () => {
+  const check = (text: string, cues = false) => scriptChecks([[seg(`${text} ${words(80)}`), seg(words(80), 'B')]], { targetWords: 160, format: 'two_hosts', cues }).map((p) => p.code);
+
+  it('flags anyone calling themselves, a guest or the show AI, simulated or generated', () => {
+    for (const t of [
+      "I'm an AI, so I can't say for sure.",
+      'Our simulated expert joins us today.',
+      'Welcome our guest, a simulated founder.',
+      'This podcast is AI-generated.',
+      "As a language model I don't have experiences.",
+      "Of course, this isn't a real interview.",
+      'Joining me is a synthetic voice.',
+    ]) expect(check(t), t).toContain('ai_mention');
+  });
+
+  it('allows a topic that is about AI', () => {
+    for (const t of ['AI is changing how teams decide.', 'The book argues artificial intelligence will reshape work.', 'Chatbots are everywhere now.']) expect(check(t), t).not.toContain('ai_mention');
+  });
+
+  it('lets natural voices perform a laugh or a pause, but no other directions', () => {
+    expect(check('Ha, fair. [laughs] Okay. [short pause] So.', true)).not.toContain('unspeakable');
+    expect(check('Ha, fair. [laughs]', false)).toContain('unspeakable');
+    expect(check('[music swells] So.', true)).toContain('unspeakable');
+  });
+});

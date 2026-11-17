@@ -152,9 +152,14 @@ describe('upgradeAppSettings', () => {
     expect(up.voices.available).toEqual(expect.arrayContaining(['phonon:regina', 'phonon:lalo', 'hf_alpha', 'jm_kumo', 'zf_xiaoxiao', 'em_alex']));
   });
 
-  it("leaves an administrator's own list alone", () => {
+  it("keeps an administrator's own list, adding the Gemini voices once", () => {
     const custom = { ...DEFAULT_APP_SETTINGS, voices: { ...DEFAULT_APP_SETTINGS.voices, available: ['phonon:zoey', 'am_adam'] } };
-    expect(upgradeAppSettings(custom)).toBe(custom);
+    const up = upgradeAppSettings(custom);
+    expect(up.voices.available).toEqual(expect.arrayContaining(['phonon:zoey', 'am_adam', 'gemini:Kore', 'gemini:Puck']));
+    expect(up.voices.available.filter((v) => !v.startsWith('gemini:'))).toEqual(['phonon:zoey', 'am_adam']);
+    // Once the list has Gemini voices, it is left exactly as the administrator saved it.
+    const chosen = { ...custom, voices: { ...custom.voices, available: ['gemini:Kore', 'am_adam'] } };
+    expect(upgradeAppSettings(chosen)).toBe(chosen);
   });
 });
 
@@ -293,7 +298,7 @@ describe('measured voices', () => {
     }
   });
 
-  it('every castable English voice has been measured', () => {
-    for (const v of VOICE_CATALOG.filter((x) => castableByDefault(x) && x.speaks.includes('en'))) expect(VOICE_TRAITS[v.id], v.id).toBeDefined();
+  it('every castable English voice has been measured (Gemini voices as the allowance permits)', () => {
+    for (const v of VOICE_CATALOG.filter((x) => castableByDefault(x) && x.speaks.includes('en') && x.engine !== 'Gemini')) expect(VOICE_TRAITS[v.id], v.id).toBeDefined();
   });
 });

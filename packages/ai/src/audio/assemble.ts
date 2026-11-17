@@ -1,14 +1,18 @@
 import { createWriteStream, rmSync } from 'node:fs';
 import { once } from 'node:events';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { toSpeechText } from '../text/speech-text';
 import { countWords, splitForSpeech } from '../text/split';
 import type { SpeakOptions, TtsEngine } from '../tts/types';
 import { runFfmpeg } from './ffmpeg';
+import { isGeminiVoice } from '@thinkmade/shared';
 
 export interface SpeakerTurn {
   voice: string;
   text: string;
+  /** Who says it (their name), for engines that perform a conversation in one take. */
+  speaker?: string;
   /** The turn starts a new section of the episode: take a longer breath before it. */
   sectionBreak?: boolean;
 }
@@ -39,10 +43,20 @@ export interface AssembleOptions {
   /** The language the lines are in (a LANGUAGES code); English when left out. */
   language?: string;
   bitrateKbps?: number;
+  /**
+   * Keeps takes from a natural-voice engine, so a retry (after its allowance runs out) carries on from where
+   * it stopped instead of paying for the same takes again.
+   */
+  takeCache?: TakeCache;
   /** Stops between speech chunks (for example when the listener cancels). */
   signal?: AbortSignal;
   /** Called after each turn is synthesised with (turnsDone, totalTurns). */
   onProgress?: (done: number, total: number) => void | Promise<void>;
+}
+
+export interface TakeCache {
+  get(key: string): Promise<Float32Array | null>;
+  put(key: string, samples: Float32Array): Promise<void>;
 }
 
 export interface AssembleResult {
@@ -105,7 +119,8 @@ export function trimSilence(samples: Float32Array, rate: number, threshold = 0.0
   const win = Math.max(1, Math.round(rate * 0.01));
   const loud = (i: number) => {
     let peak = 0;
-    for (let j = i; j < Math.min(samples.length, i + win); j++) peak = Math.max(peak, Math.abs(samples[j]!));
+    for (let j = i; j < Math.min(samples.length, i + win); j++)
+      peak = Math.max(peak, Math.abs(samples[j]!));
     return peak >= threshold;
   };
   let start = 0;
@@ -152,7 +167,14 @@ export function levelMatch(samples: Float32Array): Float32Array {
  * lines (and any noise in them) and making the level pump.
  */
 async function master(input: string[], chain: string, encode: string[]): Promise<void> {
-  const log = await runFfmpeg([...input, '-af', `${chain},loudnorm=${LOUDNESS}:print_format=json`, '-f', 'null', '-']);
+  const log = await runFfmpeg([
+    ...input,
+    '-af',
+    `${chain},loudnorm=${LOUDNESS}:print_format=json`,
+    '-f',
+    'null',
+    '-',
+  ]);
   const json = log.slice(log.lastIndexOf('{'), log.lastIndexOf('}') + 1);
   let m: Record<string, string> | null = null;
   try {
@@ -206,16 +228,27 @@ export async function assembleEpisode(opts: AssembleOptions): Promise<AssembleRe
   const rate = opts.tts.sampleRate;
   const pacing = opts.pacing ?? 'natural';
   const expressiveness = EXPRESSION[opts.expressiveness ?? 'natural'];
-  const raw = join(opts.workDir, `pcm-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.raw`);
+  const raw = join(
+    opts.workDir,
+    `pcm-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.raw`,
+  );
   const out = createWriteStream(raw);
-  const random = seededRandom(hashString(opts.turns.map((t) => t.text).join('|').slice(0, 2000)));
+  const random = seededRandom(
+    hashString(
+      opts.turns
+        .map((t) => t.text)
+        .join('|')
+        .slice(0, 2000),
+    ),
+  );
   const write = async (samples: Float32Array) => {
     const pcm = new Int16Array(samples.length);
     for (let i = 0; i < samples.length; i++) {
       const s = Math.max(-1, Math.min(1, samples[i]!));
       pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
-    if (!out.write(Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength))) await once(out, 'drain');
+    if (!out.write(Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength)))
+      await once(out, 'drain');
   };
   const silence = (ms: number) => new Float32Array(Math.round((ms / 1000) * rate * PACE[pacing]));
 
@@ -224,12 +257,20 @@ export async function assembleEpisode(opts: AssembleOptions): Promise<AssembleRe
     const words = countWords(text);
     // People don't speak every sentence at one pace: with natural delivery, each varies by up to ±3%.
     const drift = opts.natural ? 1 + (random() - 0.5) * 0.06 : 1;
-    const base: SpeakOptions = { speed: SPEED[pacing] * (words <= 4 ? 1.04 : 1) * drift, expressiveness, ...(opts.language && opts.language !== 'en' ? { language: opts.language } : {}) };
+    const base: SpeakOptions = {
+      speed: SPEED[pacing] * (words <= 4 ? 1.04 : 1) * drift,
+      expressiveness,
+      ...(opts.language && opts.language !== 'en' ? { language: opts.language } : {}),
+    };
     let best: { samples: Float32Array; problem: string | null } | null = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       opts.signal?.throwIfAborted();
-      const audio = await opts.tts.synthesize(text, voice, { ...base, variation: hashString(`${voice}|${text}|${attempt}`) });
-      if (audio.sampleRate !== rate) throw new Error(`TTS returned ${audio.sampleRate} Hz, expected ${rate} Hz`);
+      const audio = await opts.tts.synthesize(text, voice, {
+        ...base,
+        variation: hashString(`${voice}|${text}|${attempt}`),
+      });
+      if (audio.sampleRate !== rate)
+        throw new Error(`TTS returned ${audio.sampleRate} Hz, expected ${rate} Hz`);
       const trimmed = trimSilence(audio.samples, rate);
       const problem = suspectTake(trimmed.length / rate, rms(trimmed), words);
       if (!best || (best.problem && !problem)) best = { samples: trimmed, problem };
@@ -243,26 +284,30 @@ export async function assembleEpisode(opts: AssembleOptions): Promise<AssembleRe
 
   let speechSamples = 0;
   try {
-    let prev: { text: string; turn: number; midSentence: boolean } | null = null;
-    for (let t = 0; t < opts.turns.length; t++) {
-      const turn = opts.turns[t]!;
-      const chunks = splitForSpeech(toSpeechText(turn.text, opts.language));
-      for (let c = 0; c < chunks.length; c++) {
-        const text = chunks[c]!;
-        if (prev) {
-          const gap = pauseBefore(
-            { text: prev.text, sameSpeaker: prev.turn === t, midSentence: prev.midSentence },
-            { words: countWords(text), sectionBreak: c === 0 && !!turn.sectionBreak },
-            random,
-          );
-          await write(silence(gap));
+    if (dialogueEngine(opts)) {
+      speechSamples = await speakAsConversation(opts, write, silence, checks);
+    } else {
+      let prev: { text: string; turn: number; midSentence: boolean } | null = null;
+      for (let t = 0; t < opts.turns.length; t++) {
+        const turn = opts.turns[t]!;
+        const chunks = splitForSpeech(toSpeechText(turn.text, opts.language));
+        for (let c = 0; c < chunks.length; c++) {
+          const text = chunks[c]!;
+          if (prev) {
+            const gap = pauseBefore(
+              { text: prev.text, sameSpeaker: prev.turn === t, midSentence: prev.midSentence },
+              { words: countWords(text), sectionBreak: c === 0 && !!turn.sectionBreak },
+              random,
+            );
+            await write(silence(gap));
+          }
+          const samples = await speak(text, turn.voice);
+          speechSamples += samples.length;
+          await write(samples);
+          prev = { text, turn: t, midSentence: !/[.!?]["')\]]*\s*$/.test(text) };
         }
-        const samples = await speak(text, turn.voice);
-        speechSamples += samples.length;
-        await write(samples);
-        prev = { text, turn: t, midSentence: !/[.!?]["')\]]*\s*$/.test(text) };
+        await opts.onProgress?.(t + 1, opts.turns.length);
       }
-      await opts.onProgress?.(t + 1, opts.turns.length);
     }
     // A moment of quiet at the end so the episode doesn't stop abruptly.
     await write(silence(400));
@@ -272,7 +317,17 @@ export async function assembleEpisode(opts: AssembleOptions): Promise<AssembleRe
     await master(
       ['-y', '-f', 's16le', '-ar', String(rate), '-ac', '1', '-i', raw],
       opts.natural ? MASTERING.natural : MASTERING.plain,
-      ['-ar', '44100', '-ac', '1', '-codec:a', 'libmp3lame', '-b:a', `${opts.bitrateKbps ?? DEFAULT_BITRATE_KBPS}k`, opts.outFile],
+      [
+        '-ar',
+        '44100',
+        '-ac',
+        '1',
+        '-codec:a',
+        'libmp3lame',
+        '-b:a',
+        `${opts.bitrateKbps ?? DEFAULT_BITRATE_KBPS}k`,
+        opts.outFile,
+      ],
     );
   } finally {
     out.destroy();
@@ -294,4 +349,111 @@ export async function measureDuration(file: string): Promise<number> {
   const last = times.at(-1);
   if (!last) throw new Error('Could not measure audio duration');
   return Number(last[1]) * 3600 + Number(last[2]) * 60 + Number(last[3]);
+}
+
+/** Longest stretch of conversation performed in one take (characters): about a minute and a half of talk. */
+const MAX_TAKE_CHARS = 1400;
+
+/** The episode can be performed as conversation: every voice belongs to an engine that does that. */
+function dialogueEngine(opts: AssembleOptions): boolean {
+  const tts = opts.tts;
+  return (
+    !!tts.synthesizeDialogue &&
+    opts.turns.length > 0 &&
+    opts.turns.every((t) => isGeminiVoice(t.voice) && tts.handles?.(t.voice) !== false)
+  );
+}
+
+/**
+ * Splits the turns into takes a natural-voice engine performs in one go: at most two people, a minute or two
+ * of talk, never across a new section.
+ */
+export function conversationTakes(
+  turns: SpeakerTurn[],
+  maxChars = MAX_TAKE_CHARS,
+): Array<{ turns: SpeakerTurn[]; first: number; sectionBreak: boolean }> {
+  const takes: Array<{ turns: SpeakerTurn[]; first: number; sectionBreak: boolean }> = [];
+  let cur: { turns: SpeakerTurn[]; first: number; sectionBreak: boolean } | null = null;
+  turns.forEach((t, i) => {
+    const voices = new Set([...(cur?.turns.map((x) => x.voice) ?? []), t.voice]);
+    const chars = (cur?.turns.reduce((n, x) => n + x.text.length, 0) ?? 0) + t.text.length;
+    if (!cur || t.sectionBreak || voices.size > 2 || (chars > maxChars && cur.turns.length > 0)) {
+      cur = { turns: [], first: i, sectionBreak: !!t.sectionBreak && i > 0 };
+      takes.push(cur);
+    }
+    cur.turns.push(t);
+  });
+  return takes;
+}
+
+/** A take that came back far too short for its words was cut off (the engine stopped early). */
+function suspectConversation(seconds: number, level: number, words: number): string | null {
+  if (level < 0.004) return 'silent';
+  if (words >= 8 && seconds < words * 0.22) return 'cut off';
+  if (seconds > words * 0.9 + 3) return 'too long';
+  return null;
+}
+
+/** Performs the episode take by take, as a conversation, with a breath between takes. Returns speech samples. */
+async function speakAsConversation(
+  opts: AssembleOptions,
+  write: (s: Float32Array) => Promise<void>,
+  silence: (ms: number) => Float32Array,
+  checks: AssembleResult['checks'],
+): Promise<number> {
+  const rate = opts.tts.sampleRate;
+  // Each voice is labelled by its speaker's first name (or a neutral label when names repeat or are missing).
+  const labels = new Map<string, string>();
+  for (const t of opts.turns) {
+    if (labels.has(t.voice)) continue;
+    const name =
+      (t.speaker ?? '')
+        .trim()
+        .split(/\s+/)[0]
+        ?.replace(/[^\p{L}'-]/gu, '') ?? '';
+    labels.set(
+      t.voice,
+      name && ![...labels.values()].includes(name) ? name : `Host${labels.size + 1}`,
+    );
+  }
+  let speech = 0;
+  const takes = conversationTakes(opts.turns);
+  for (let k = 0; k < takes.length; k++) {
+    const take = takes[k]!;
+    if (k > 0) await write(silence(take.sectionBreak ? 900 : 260));
+    const lines = take.turns
+      .map((t) => ({
+        speaker: labels.get(t.voice)!,
+        voice: t.voice,
+        text: toSpeechText(t.text, opts.language, { keepCues: true }),
+      }))
+      .filter((l) => l.text);
+    const words = lines.reduce((n, l) => n + countWords(l.text.replace(/\[[^\]]*\]/g, '')), 0);
+    const key = `take-${createHash('sha256').update(JSON.stringify([opts.tts.name, opts.language ?? 'en', lines])).digest('hex').slice(0, 40)}`;
+    const cached = await opts.takeCache?.get(key).catch(() => null);
+    let best: { samples: Float32Array; problem: string | null } | null = cached ? { samples: cached, problem: null } : null;
+    for (let attempt = 0; attempt < 2 && !cached; attempt++) {
+      opts.signal?.throwIfAborted();
+      const audio = await opts.tts.synthesizeDialogue!(
+        lines,
+        opts.language && opts.language !== 'en' ? { language: opts.language } : {},
+      );
+      if (audio.sampleRate !== rate)
+        throw new Error(`TTS returned ${audio.sampleRate} Hz, expected ${rate} Hz`);
+      const trimmed = trimSilence(audio.samples, rate);
+      const problem = suspectConversation(trimmed.length / rate, rms(trimmed), words);
+      if (!best || (best.problem && !problem)) best = { samples: trimmed, problem };
+      if (!problem) break;
+      if (attempt === 0) checks.retried++;
+    }
+    checks.chunks++;
+    if (best!.problem)
+      checks.suspect.push(`${best!.problem}: "${lines[0]?.text.slice(0, 60) ?? ''}"`);
+    else if (!cached) await opts.takeCache?.put(key, best!.samples).catch(() => {});
+    const samples = levelMatch(best!.samples);
+    speech += samples.length;
+    await write(samples);
+    await opts.onProgress?.(take.first + take.turns.length, opts.turns.length);
+  }
+  return speech;
 }

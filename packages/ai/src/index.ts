@@ -25,3 +25,4 @@ export * from './text/split';
 export * from './media/media';
 export * from './embed/embed';
 export * from './tts/phonon';
+export * from './tts/gemini';

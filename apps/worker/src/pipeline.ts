@@ -6,13 +6,15 @@ import {
   completeJson,
   countWords,
   LlmError,
+  TtsRateLimitedError,
   ProviderNotConfiguredError,
   type BookVerification,
   type ChatMessage,
 } from '@thinkmade/ai';
 import { getActivePrompts, indexSeriesEmbedding, queryRows, schema, settleCancelledSeries, type Db, type ModelStage } from '@thinkmade/db';
-import { APPROACHES, castHosts, chooseApproach, chooseHosts, chooseShowFormat, distinctCast, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, HOST_IDS, languageInfo, languageInstruction, speaksLanguage, verifyCast, voiceInfo, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowApproach, type ShowFormat } from '@thinkmade/shared';
+import { APPROACHES, isGeminiVoice, castHosts, chooseApproach, chooseHosts, chooseShowFormat, distinctCast, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, HOST_IDS, languageInfo, languageInstruction, speaksLanguage, verifyCast, voiceInfo, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowApproach, type ShowFormat } from '@thinkmade/shared';
 import { JobCancelledError, LostLeaseError, PermanentJobError, type WorkerDeps } from './deps';
+import { storageTakeCache } from './take-cache';
 import { overusedModels, rankForVariety } from './model-variety';
 import { voiceTranslation } from './translate';
 import { input, PLAN_TASK, RESEARCH_TASK, SCRIPT_TASK, SELECT_MODELS_TASK, stageSystem, UNDERSTAND_TASK } from './prompts';
@@ -44,6 +46,8 @@ interface VerifiedBook {
   googleBooksId?: string;
   via: string;
   why: string;
+  /** What the book is actually about, from the catalogues and Wikipedia; episodes are written from it. */
+  about?: string;
 }
 
 interface ResearchState {
@@ -241,6 +245,7 @@ function retryable(err: unknown): boolean {
   if (err instanceof PermanentJobError || err instanceof ProviderNotConfiguredError || err instanceof JobCancelledError || err instanceof LostLeaseError) return false;
   // Usage limits wait for the job's longer, scheduled retry; a rejected key needs an administrator.
   if (err instanceof LlmError && (err.status === 429 || err.status === 401 || err.status === 403)) return false;
+  if (err instanceof TtsRateLimitedError) return false;
   if (err instanceof Error && err.name === 'AbortError') return false;
   return true;
 }
@@ -523,7 +528,12 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     if (!state.plan && !state.adjusted) state.adjusted = listenerAdjustments(options, prefs);
     Object.assign(options, state.adjusted ?? {});
     const production = { ...DEFAULT_PRODUCTION, ...options.production };
-    const pool = options.voicePool ?? DEFAULT_APP_SETTINGS.voices.available;
+    // Only voices that sound fully human: Gemini's, whenever it works with this key; otherwise the best of the rest.
+    await deps.tts.prepare?.();
+    const allowed = options.voicePool ?? DEFAULT_APP_SETTINGS.voices.available;
+    const natural = allowed.filter((v) => isGeminiVoice(v) && deps.tts.handles?.(v) === true);
+    // (Gemini's voices are for English podcasts; other languages are cast from their native voices.)
+    const pool = language === 'en' && natural.length >= 4 ? natural : allowed.filter((v) => !isGeminiVoice(v));
     // A podcast in another language is cast from that language's native voices. With only one (French), it
     // has a single host rather than two hosts sharing a voice.
     const languageVoices = pool.filter((v) => speaksLanguage(v, language)).length;
@@ -607,7 +617,6 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         ...(h.age ? { age: h.age } : {}),
         ...(h.role ? { role: h.role } : {}),
         ...(h.kind ? { kind: h.kind } : {}),
-        ...(h.simulated ? { simulated: true } : {}),
       }));
     const listener = { audience: u.audience, listenerRequests: prefs.requests, ...(options.naturalDelivery ? { naturalDelivery: true } : {}) };
     /**
@@ -654,8 +663,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           ...guest!,
           role:
             state.approach === 'founder_guests'
-              ? `A simulated founder: ${ep.guest?.expertise ?? `someone who built a business where ${model ?? 'this idea'} mattered`}${ep.guest?.perspective ? `. ${ep.guest.perspective}` : ''}. A composite voice drawn from well-documented founders' stories and business cases: talks through the decisions, mistakes and lessons of building something, but never claims to be a real person or a real company's founder.`
-              : `${rotating ? 'A simulated expert guest' : 'A visiting simulated expert guest the host brought in for this episode'}: ${about} Speaks from the research and well-documented cases, never claims personal experiences or to be a real person.`,
+              ? `A seasoned founder and business builder: ${ep.guest?.expertise ?? `has built companies where ${model ?? 'this idea'} mattered`}${ep.guest?.perspective ? `. ${ep.guest.perspective}` : ''}. Knows the great founders' stories in the books inside out and tells them vividly; talks about building companies from hard-won experience in general terms, never inventing a named company, figures or events and presenting them as real.`
+              : `${rotating ? 'An expert guest' : 'A visiting expert guest the host brought in for this episode'}: ${about} Speaks from the books and well-documented cases with warmth and conviction, admits what's uncertain, and never cites studies or numbers of their own.`,
           kind: 'guest',
           simulated: true,
         };
@@ -732,7 +741,9 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
             await extendLease(db, job.id, deps.workerId, lease);
             if (v.verified) {
               if (!verified.some((b) => b.title === v.title)) {
+                const about = deps.describeBook ? await deps.describeBook(v).catch(() => '') : '';
                 verified.push({
+                  ...(about ? { about } : {}),
                   title: v.title, authors: v.authors, via: v.via, why: claim.why,
                   ...(v.year ? { year: v.year } : {}), ...(v.isbn13 ? { isbn13: v.isbn13 } : {}),
                   ...(v.openLibraryId ? { openLibraryId: v.openLibraryId } : {}), ...(v.googleBooksId ? { googleBooksId: v.googleBooksId } : {}),
@@ -792,7 +803,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
           ...(earlier.length ? { earlierEpisodes: earlier.map((e) => ({ number: e.number, title: e.title, primaryModelSlug: e.primaryModelSlug, learningObjective: e.learningObjective })) } : {}),
           ...(instruction ? { instruction } : {}),
           episodes: batch,
-          models: state.models!.map((m) => ({ slug: m.slug, name: m.name, summary: m.summary, relevance: m.relevance, verifiedBooks: state.research![m.slug]?.books.map((b) => ({ title: b.title, author: b.authors.join(', ') })) ?? [], related: state.research![m.slug]?.related ?? [] })),
+          models: state.models!.map((m) => ({ slug: m.slug, name: m.name, summary: m.summary, relevance: m.relevance, verifiedBooks: state.research![m.slug]?.books.map((b) => ({ title: b.title, author: b.authors.join(', '), ...(b.about ? { about: b.about.slice(0, 500) } : {}) })) ?? [], related: state.research![m.slug]?.related ?? [] })),
         }, planSchema.refine((p) => p.episodes.length >= batch.length, {
           // Sent back to the model, which then corrects its plan instead of the job failing.
           message: `Plan all ${batch.length} episodes, numbered ${batch[0]!.number} to ${batch.at(-1)!.number}; the reply had fewer.`,
@@ -980,13 +991,20 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         const series = state.hosts?.find((x) => x.id === h.id && x.name === h.name);
         return series ? { ...h, voice: series.voice, ...(series.gender ? { gender: series.gender } : {}) } : h;
       });
-      const cast = verifyCast(locked, { pool: options.voicePool ?? DEFAULT_APP_SETTINGS.voices.available, language });
+      const cast = verifyCast(locked, { pool, language });
       const hosts = cast.hosts;
       if (cast.fixes.length || hosts.some((h, i) => h.voice !== episodeHosts[i]?.voice || h.gender !== episodeHosts[i]?.gender)) {
         if (cast.fixes.length) log('voices corrected before writing', { jobId: job.id, episode: ep.number, fixes: cast.fixes });
         await db.update(schema.episode).set({ hosts }).where(eq(schema.episode.id, episodeId));
       }
+      // The book the episode is built on, with what it is actually about, so its stories and ideas are the book's.
+      const episodeBooks = [ep.primaryModelSlug, ...ep.supportingModelSlugs].flatMap((sl) => state.research![sl]?.books ?? []);
+      const sameTitle = (a: string, b: string) => a.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() === b.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const anchor = episodeBooks.find((b) => !!ep.book && (sameTitle(b.title, ep.book) || sameTitle(b.title.split(':')[0]!, ep.book.split(':')[0]!))) ?? episodeBooks[0];
+      const anchorBook = anchor ? { title: anchor.title, author: anchor.authors.join(', '), ...(anchor.about ? { about: anchor.about } : {}) } : null;
       const hostIds: string[] = hosts.map((h) => h.id);
+      // Natural (Gemini) voices perform a few cues, like a laugh, that the writer may use.
+      const naturalVoices = hosts.every((h) => isGeminiVoice(h.voice) && deps.tts.handles?.(h.voice) === true);
       // Lines given to a speaker this episode doesn't have go to the first host.
       const ownSpeakers = <T extends { speaker: string }>(segs: T[]) => segs.map((x) => (hostIds.includes(x.speaker) ? x : { ...x, speaker: 'A' as const }));
       const totalWords = WORDS_PER_MINUTE * options.lengthMinutes;
@@ -1013,10 +1031,12 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
             seriesTitle: state.understanding!.seriesTitle,
             show,
             showFormat,
+            ...(naturalVoices ? { naturalVoices: true } : {}),
             episode: { number: ep.number, title: ep.title, learningObjective: ep.learningObjective, outcomes: ep.outcomes, keyTakeaways: ep.keyTakeaways, examples: ep.examples, hook: ep.hook, throughline: ep.throughline },
             primaryModel: state.models!.find((m) => m.slug === ep.primaryModelSlug),
             supportingModels: ep.supportingModelSlugs.map((s) => state.models!.find((m) => m.slug === s)?.name).filter(Boolean),
             verifiedBooks: [ep.primaryModelSlug, ...ep.supportingModelSlugs].flatMap((s) => state.research![s]?.books ?? []).map((b) => ({ title: b.title, author: b.authors.join(', ') })),
+            ...(anchorBook ? { book: anchorBook } : {}),
             hosts: hostsForPrompt(hosts),
             format,
             ...listener,
@@ -1046,6 +1066,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
               format,
               show,
               showFormat,
+              ...(naturalVoices ? { naturalVoices: true } : {}),
               ...listener,
               section: { index: i + 1, of: ep.sections.length, heading: ep.sections[i]!.heading, goal: ep.sections[i]!.goal },
               isLastSection: i === ep.sections.length - 1,
@@ -1089,7 +1110,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         const reviewNumber = (progress.reviews ?? 0) + 1;
         const verdict = await runner.run('validate', async () => {
           const sections = done.map((d) => d.segments);
-          const checks = scriptChecks(sections, { targetWords: totalWords, format, hostIds, hosts });
+          const checks = scriptChecks(sections, { targetWords: totalWords, format, hostIds, hosts, cues: naturalVoices });
           // Review windows must fit the review model's request limit: about 1.4 tokens a word, plus room for instructions and the verdict.
           const limit = (await deps.llm('validate')).requestTokenLimit;
           const windowWords = limit ? Math.max(1000, Math.floor((limit - 2000 - 1500) / 1.4)) : 4500;
@@ -1102,6 +1123,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
                 show,
                 showFormat,
                 verifiedBooks: [ep.primaryModelSlug, ...ep.supportingModelSlugs].flatMap((s) => state.research![s]?.books ?? []).map((b) => ({ title: b.title, author: b.authors.join(', ') })),
+                ...(anchorBook ? { book: anchorBook } : {}),
                 format,
                 hosts: hostsForPrompt(hosts),
                 ...listener,
@@ -1165,7 +1187,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       const done = progress.sections;
       const segments = done.flatMap((d) => d.segments);
       // Last check before audio: every line belongs to a host of this episode, and every host's voice is right.
-      const final = verifyCast(hosts, { pool: options.voicePool ?? DEFAULT_APP_SETTINGS.voices.available, language });
+      const final = verifyCast(hosts, { pool, language });
       if (final.fixes.length || segments.some((x) => !hostIds.includes(x.speaker))) {
         throw new Error(`Voice check failed before recording: ${final.fixes.join('; ') || 'a line belongs to no host'}`);
       }
@@ -1179,8 +1201,9 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       const audio = await runner.run('synthesize', () =>
         assembleEpisode({
           signal: stop.signal,
+          takeCache: storageTakeCache(deps.storage),
           // Section boundaries get a longer breath; the rest of the pacing follows the lines themselves.
-          turns: done.flatMap((d, si) => d.segments.map((s, k) => ({ voice: voiceOf(s.speaker), text: s.text, ...(si > 0 && k === 0 ? { sectionBreak: true } : {}) }))),
+          turns: done.flatMap((d, si) => d.segments.map((s, k) => ({ voice: voiceOf(s.speaker), speaker: nameFor(s.speaker), text: s.text, ...(si > 0 && k === 0 ? { sectionBreak: true } : {}) }))),
           pacing: production.pacing,
           expressiveness: production.expressiveness,
           natural: options.naturalDelivery === true,
@@ -1247,7 +1270,9 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       log('lost lease; another worker owns this job', { jobId: job.id });
       return 'lost_lease';
     }
-    const rateLimitedNow = err instanceof LlmError && err.status === 429;
+    // The language model's or the voice service's allowance is used up: wait for it to reset.
+    const voiceLimited = err instanceof TtsRateLimitedError;
+    const rateLimitedNow = (err instanceof LlmError && err.status === 429) || voiceLimited;
     if (rateLimitedNow) {
       state.rateLimitRetries = (state.rateLimitRetries ?? 0) + 1;
       state.rateLimitedSince ??= Date.now();
@@ -1260,7 +1285,7 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     }
     const rateLimited = rateLimitedNow && Date.now() - (state.rateLimitedSince ?? Date.now()) < RATE_LIMIT_PATIENCE_MS;
     if (rateLimitedNow && !rateLimited) {
-      const outcome = await finalise('failed', 'The AI service is busy right now (its usage limit was reached). Please try again later.');
+      const outcome = await finalise('failed', voiceLimited ? "The voice service's usage limit was reached. Please try again later." : 'The AI service is busy right now (its usage limit was reached). Please try again later.');
       return outcome;
     }
     // A rejected key (401/403) won't fix itself by retrying.
@@ -1269,7 +1294,8 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
     if (!permanent && (rateLimited || job.attempts < job.max_attempts)) {
       // A daily allowance resets hours later: wait for the time the provider gave (up to 6 hours at a time)
       // instead of using up the retries in an hour.
-      const resetSeconds = err instanceof LlmError && err.retryAfterMs ? Math.ceil(err.retryAfterMs / 1000) + 60 : 0;
+      const retryAfterMs = err instanceof LlmError ? err.retryAfterMs : err instanceof TtsRateLimitedError ? err.retryAfterMs : undefined;
+      const resetSeconds = retryAfterMs ? Math.ceil(retryAfterMs / 1000) + 60 : 0;
       const backoff = Math.min(1800, 60 * 2 ** ((state.rateLimitRetries ?? 1) - 1));
       const delay = rateLimited ? Math.min(21_600, Math.max(backoff, resetSeconds)) : 15 * 2 ** (job.attempts - 1);
       await requeueJob(db, job.id, delay, message, !rateLimited, deps.workerId);

@@ -9,11 +9,21 @@ export { CRITERIA, CRITERIA_LABELS, judgementSchema, VALIDATE_TASK, type Criteri
 type Segment = { speaker: string; text: string };
 
 export interface CheckProblem {
-  code: 'too_short' | 'too_long' | 'announced_labels' | 'one_sided' | 'repetition' | 'unspeakable' | 'stock_phrases' | 'echo_openers' | 'monotone_turns' | 'monologue' | 'name_openers' | 'same_openers';
+  code: 'too_short' | 'too_long' | 'announced_labels' | 'one_sided' | 'repetition' | 'unspeakable' | 'stock_phrases' | 'echo_openers' | 'monotone_turns' | 'monologue' | 'name_openers' | 'same_openers' | 'ai_mention';
   /** 1-based section number, or null for the whole script. */
   section: number | null;
   message: string;
 }
+
+/** Cues natural voices perform rather than read. */
+const PERFORMED_CUE = /\[(laughs|chuckles|sighs|short pause|pause)\]/gi;
+
+/**
+ * Someone on the show calling themselves (or the show) AI, simulated or generated. The topic itself may be
+ * AI; only self-reference counts.
+ */
+export const AI_SELF_REFERENCE =
+  /\b(?:(?:i'?m|i am|we'?re|we are|as)\s+(?:an?\s+|just\s+an?\s+)?(?:ai|a\.i\.|artificial intelligence|language model|chatbot|bot|virtual (?:host|guest|voice))\b|(?:simulated|synthetic|ai[- ]generated|computer[- ]generated|generated|artificial)\s+(?:voice|host|guest|expert|founder|version|interview|co-?host|podcast|show|episode)s?\b|(?:this|our)\s+(?:podcast|show|episode|conversation)\s+(?:is|was)\s+(?:ai[- ]generated|generated|created by (?:an? )?ai|made by (?:an? )?ai)|(?:not|isn'?t|aren'?t|wasn'?t)\s+(?:a\s+)?real\s+(?:person|human|people|interview|conversation))/i;
 
 /** Phrases that make a script sound generated rather than spoken. */
 export const STOCK_PHRASES: ReadonlyArray<readonly [RegExp, string]> = [
@@ -80,7 +90,7 @@ export function swappedSpeakers(segments: Segment[], hosts: Array<{ id: string; 
 }
 
 /** Fast deterministic checks that do not need a model. */
-export function scriptChecks(sections: Segment[][], opts: { targetWords: number; format: EpisodeFormat; hostIds?: string[]; hosts?: Array<{ id: string; name: string }> }): CheckProblem[] {
+export function scriptChecks(sections: Segment[][], opts: { targetWords: number; format: EpisodeFormat; hostIds?: string[]; hosts?: Array<{ id: string; name: string }>; cues?: boolean }): CheckProblem[] {
   const problems: CheckProblem[] = [];
   const all = sections.flat();
   const total = all.reduce((n, s) => n + countWords(s.text), 0);
@@ -123,7 +133,13 @@ export function scriptChecks(sections: Segment[][], opts: { targetWords: number;
         problems.push({ code: 'same_openers', section: i + 1, message: `${n} of ${segs.length} turns start with "${word}". Vary how turns open: react, ask, push back, or pick up the thread mid-thought.` });
       }
     }
-    if (/(\*\*|__|#{1,6}\s|\[[^\]]*(music|laughs|pause|sound)[^\]]*\]|\((music|laughs|pause|sound)[^)]*\)|\*[^*]*(music|plays|laughs)[^*]*\*)/i.test(text)) {
+    const ai = segs.find((x) => AI_SELF_REFERENCE.test(x.text));
+    if (ai) {
+      problems.push({ code: 'ai_mention', section: i + 1, message: `Someone talks about being AI or simulated ("${ai.text.match(AI_SELF_REFERENCE)![0]}"). Everyone is simply the person described: never mention or hint at AI, simulation or generated voices.` });
+    }
+    // Natural voices perform a few cues ([laughs], [short pause]); any other direction would be read aloud.
+    const directions = opts.cues ? text.replace(PERFORMED_CUE, '') : text;
+    if (/(\*\*|__|#{1,6}\s|\[[^\]]*(music|laughs|pause|sound)[^\]]*\]|\((music|laughs|pause|sound)[^)]*\)|\*[^*]*(music|plays|laughs)[^*]*\*)/i.test(directions)) {
       problems.push({ code: 'unspeakable', section: i + 1, message: 'Contains markdown or stage directions that would be read aloud.' });
     }
   });

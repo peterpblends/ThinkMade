@@ -3,8 +3,15 @@
  * symbols and common abbreviations spelled out, and dashes turned into the pauses a speaker would make.
  * Scripts are asked to write for the ear; this catches what slips through.
  */
-export function toSpeechText(text: string, language = 'en'): string {
-  const cleaned = text
+/** Delivery cues a natural-voice engine performs (a laugh, a sigh, a beat) rather than reads. */
+export const PERFORMED_CUES = ['laughs', 'chuckles', 'sighs', 'short pause', 'pause'] as const;
+const CUE = new RegExp(`\\[(${PERFORMED_CUES.join('|')})\\]`, 'gi');
+
+export function toSpeechText(text: string, language = 'en', opts: { keepCues?: boolean } = {}): string {
+  // Cues the engine can perform are kept (as placeholders while the rest is cleaned); all others go.
+  const cues: string[] = [];
+  const marked = opts.keepCues ? text.replace(CUE, (_m, c: string) => `\u0001${cues.push(c.toLowerCase()) - 1}\u0002`) : text;
+  const cleaned = marked
     // Markdown emphasis, headings and stage directions are never spoken.
     .replace(/[*_#`]+/g, '')
     .replace(/\[[^\]]*\]/g, ' ')
@@ -32,5 +39,6 @@ export function toSpeechText(text: string, language = 'en'): string {
       .replace(/^[\s,]+/, '')
       .replace(/\s+/g, ' ')
       .trim()
+      .replace(/\u0001(\d+)\u0002/g, (_m, i: string) => `[${cues[Number(i)]}]`)
   );
 }

@@ -14,6 +14,8 @@ export interface WorkerDeps {
   notifyAdmins?: (subject: string, text: string) => Promise<boolean>;
   storage: ObjectStorage;
   verifyBook: (claim: BookClaim) => Promise<BookVerification>;
+  /** What a verified book is about (catalogue descriptions, Wikipedia); empty when unknown. */
+  describeBook?: (book: { title: string; authors: string[]; googleBooksId?: string; openLibraryId?: string; isbn13?: string }) => Promise<string>;
   workDir: string;
   workerId: string;
   leaseSeconds?: number;

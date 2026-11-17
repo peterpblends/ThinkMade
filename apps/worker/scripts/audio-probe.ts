@@ -14,6 +14,9 @@ const dir = process.env.PROBE_OUT ?? 'probe';
 mkdirSync(dir, { recursive: true });
 const tts = createTts({ ...process.env, TTS_PROVIDER: process.env.TTS_PROVIDER ?? 'phonon' } as never);
 const rate = tts.sampleRate;
+await tts.prepare?.();
+const geminiUsable = tts.handles?.('gemini:Kore') === true;
+console.log(`GEMINI_TTS ${geminiUsable ? 'usable' : 'not usable'}`);
 
 const db = (x: number) => Math.round((x > 0 ? 20 * Math.log10(x) : -120) * 10) / 10;
 
@@ -166,8 +169,26 @@ for (const natural of [false, true]) {
   console.log(name, JSON.stringify((report.episodes as Record<string, unknown>)[name]));
 }
 
+// 2b. A two-host conversation in Gemini's voices, performed as one conversation.
+if (geminiUsable) {
+  const convo = [
+    { voice: 'gemini:Sulafat', speaker: 'Sophie', text: "Okay, so I have to tell you about this. In 1975, Kodak had the first digital camera. They built it. In their own lab." },
+    { voice: 'gemini:Charon', speaker: 'Charles', text: 'Wait, Kodak? The film company?' },
+    { voice: 'gemini:Sulafat', speaker: 'Sophie', text: "[laughs] The film company. And the reason they sat on it is the whole story of today's idea." },
+    { voice: 'gemini:Charon', speaker: 'Charles', text: "Hm. Because it would have eaten their film business. Which, honestly, I get. I'd have been nervous too." },
+  ];
+  const out = join(dir, 'episode-gemini.mp3');
+  try {
+    const r = await assembleEpisode({ turns: convo, tts, outFile: out, workDir: dir, natural: true });
+    console.log('episode-gemini', JSON.stringify({ seconds: r.durationSeconds, checks: r.checks, ...noise(await decode(out), rate) }));
+  } catch (err) {
+    console.log('episode-gemini failed', err instanceof Error ? err.message : err);
+  }
+}
+
 // 3. Every castable English voice's profile.
-const voices = VOICE_CATALOG.filter((v) => v.speaks.includes('en') && (castableByDefault(v) || v.heritage));
+// Gemini voices only when asked (PROBE_GEMINI_VOICES=1): measuring them uses a day's free allowance.
+const voices = VOICE_CATALOG.filter((v) => v.speaks.includes('en') && (castableByDefault(v) || v.heritage) && tts.handles?.(v.id) !== false && (v.engine !== 'Gemini' || process.env.PROBE_GEMINI_VOICES === '1'));
 const profiles: Record<string, ReturnType<typeof profile> & { gender: string; name: string }> = {};
 for (const v of voices) {
   try {

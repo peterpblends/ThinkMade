@@ -48,4 +48,33 @@ describe('CoachView', () => {
     expect(screen.getByRole('log')).toHaveTextContent('First question:');
     expect(screen.getByRole('button', { name: 'Quiz me' })).toBeDisabled();
   });
+
+  it('draws a chart or diagram the coach includes, never showing its code', () => {
+    const bar = { type: 'bar', title: 'Hours lost to switching', unit: 'h', illustrative: true, data: [{ label: 'Monday', value: 3 }, { label: 'Friday', value: 1 }] };
+    const flow = { type: 'flow', title: 'Second-order thinking', steps: [{ title: 'Ask: and then what?' }, { title: 'Look a year out' }] };
+    render(
+      <CoachView
+        episodeTitle="T"
+        messages={[
+          { id: '1', role: 'user', content: 'Show me' },
+          { id: '2', role: 'coach', content: `Here is the shape of it.\n\n\`\`\`visual\n${JSON.stringify(bar)}\n\`\`\`` },
+          { id: '3', role: 'coach', content: `And the steps:\n\`\`\`visual\n${JSON.stringify(flow)}\n\`\`\`` },
+          { id: 'streaming', role: 'coach', content: 'One more:\n```visual\n{"type":"pie"' },
+        ]}
+        onSend={vi.fn()}
+        onCreatePodcast={vi.fn()}
+        sending={false}
+        busy
+        voice={idle}
+      />,
+    );
+    const log = screen.getByRole('log');
+    expect(log).toHaveTextContent('Here is the shape of it.');
+    expect(screen.getByRole('figure', { name: /Hours lost to switching/ })).toHaveTextContent('Illustrative');
+    expect(screen.getByRole('table', { name: 'Hours lost to switching' })).toHaveTextContent('Monday');
+    expect(screen.getByRole('figure', { name: /Second-order thinking/ })).toHaveTextContent('Look a year out');
+    expect(log).not.toHaveTextContent('```');
+    expect(log).not.toHaveTextContent('"type"');
+    expect(screen.getByText('Drawing a visual…')).toBeInTheDocument();
+  });
 });

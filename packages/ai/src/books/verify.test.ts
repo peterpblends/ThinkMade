@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normaliseTitle, verifyBook } from './verify';
+import { describeBook, normaliseTitle, verifyBook } from './verify';
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 
@@ -69,5 +69,39 @@ describe('verifyBook display values', () => {
     const fetchFn = (async () => json({ docs: [{ key: '/works/OL1W', title: 'The goal', author_name: ['Eliyahu M. Goldratt', 'Jeff Cox', 'Ensemble cast'] }] })) as typeof fetch;
     const r = await verifyBook({ title: 'The Goal: A Process of Ongoing Improvement', author: 'Eliyahu M. Goldratt' }, { fetch: fetchFn });
     expect(r).toMatchObject({ verified: true, title: 'The Goal', authors: ['Eliyahu M. Goldratt'] });
+  });
+});
+
+describe('describeBook', () => {
+  const route = (map: Record<string, unknown>) =>
+    (async (url: string) => {
+      const hit = Object.entries(map).find(([k]) => url.includes(k));
+      return hit ? new Response(JSON.stringify(hit[1]), { status: 200 }) : new Response('{}', { status: 404 });
+    }) as unknown as typeof fetch;
+
+  it('combines the publisher description and the book’s own Wikipedia summary', async () => {
+    const about = await describeBook(
+      { title: 'Shoe Dog', authors: ['Phil Knight'], googleBooksId: 'abc' },
+      {
+        fetch: route({
+          'volumes/abc': { volumeInfo: { title: 'Shoe Dog', description: '<p>In this candid memoir, Nike founder <b>Phil Knight</b> shares the story.</p>' } },
+          'wikipedia.org': { type: 'standard', description: '2016 memoir by Phil Knight', extract: 'Shoe Dog is a memoir by Nike co-founder Phil Knight.' },
+        }),
+      },
+    );
+    expect(about).toBe('In this candid memoir, Nike founder Phil Knight shares the story. Shoe Dog is a memoir by Nike co-founder Phil Knight.');
+  });
+
+  it('ignores a Wikipedia article about something else, and falls back to Open Library', async () => {
+    const about = await describeBook(
+      { title: 'Grit', authors: ['Angela Duckworth'], openLibraryId: '/works/OL1W' },
+      {
+        fetch: route({
+          'openlibrary.org/works/OL1W.json': { description: { value: 'Duckworth shows that passion and persistence matter more than talent.' } },
+          'wikipedia.org': { type: 'standard', description: 'Personality trait', extract: 'Grit is a personality trait.' },
+        }),
+      },
+    );
+    expect(about).toBe('Duckworth shows that passion and persistence matter more than talent.');
   });
 });

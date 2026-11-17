@@ -40,7 +40,8 @@ describe('each podcast has its own mission and approach', () => {
     const host = eps[0]!.hosts![0]!;
     for (const ep of eps) {
       expect(ep.hosts![0]).toEqual(host);
-      expect(ep.hosts![1]).toMatchObject({ kind: 'guest', simulated: true, role: expect.stringContaining('simulated founder') });
+      expect(ep.hosts![1]).toMatchObject({ kind: 'guest', simulated: true, role: expect.stringContaining('founder') });
+      expect(ep.hosts![1]!.role).not.toMatch(/simulat|composite/i);
     }
     expect(eps[0]!.hosts![1]!.name).not.toBe(eps[1]!.hosts![1]!.name);
     expect(seen.plan![0]).toMatchObject({ showFormat: 'interview', rotatingGuests: true, guestsAreFounders: true, show: { mission, approach: expect.stringContaining('founder') } });

@@ -1,6 +1,7 @@
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import {
+  createGeminiTts,
   createKokoroTts,
   createPhononTts,
   createVoiceRouterTts,
@@ -12,6 +13,7 @@ import {
   createToneTts,
   setFakeResponder,
   verifyBook,
+  describeBook,
   type TtsEngine,
 } from '@thinkmade/ai';
 import { defaultStageModel, getActiveAppSettings, getStageModel, indexSeriesEmbedding, seriesNeedingIndex, schema, seedModelConfig, type Db } from '@thinkmade/db';
@@ -47,7 +49,9 @@ export function createTts(env: Env): TtsEngine {
   }
   const kokoro = createKokoroTts({ dtype: (env.KOKORO_DTYPE as 'q8' | 'fp32' | undefined) ?? 'q8' });
   if (provider === 'kokoro') return createVoiceRouterTts({ kokoro }); // Phonon voices map to the closest Kokoro ones
-  return createVoiceRouterTts({ phonon: createPhononTts(env.MODEL_CACHE_DIR ? { cacheDir: join(env.MODEL_CACHE_DIR, 'phonon') } : {}), kokoro });
+  // Gemini's voices are the most natural; used whenever the key can speak with them (TTS_GEMINI=off turns them off).
+  const gemini = env.GEMINI_API_KEY && env.TTS_GEMINI !== 'off' ? createGeminiTts({ apiKey: env.GEMINI_API_KEY }) : undefined;
+  return createVoiceRouterTts({ gemini, phonon: createPhononTts(env.MODEL_CACHE_DIR ? { cacheDir: join(env.MODEL_CACHE_DIR, 'phonon') } : {}), kokoro });
 }
 
 /** Builds worker dependencies from environment variables. */
@@ -77,6 +81,7 @@ export async function createWorkerDeps(db: Db, env: Env = process.env, overrides
     },
     storage: createStorage(env),
     verifyBook: env.BOOK_VERIFIER === 'fake' || (fake && env.BOOK_VERIFIER !== 'live') ? fakeVerifyBook : (claim) => verifyBook(claim),
+    ...(env.BOOK_VERIFIER === 'fake' || (fake && env.BOOK_VERIFIER !== 'live') ? {} : { describeBook: (book) => describeBook(book) }),
     workDir: env.WORK_DIR ?? join('.data', 'work'),
     workerId: `${hostname()}:${process.pid}`,
     leaseSeconds: 600,

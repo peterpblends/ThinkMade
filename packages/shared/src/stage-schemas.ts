@@ -105,6 +105,8 @@ export const planSchema = z.object({
         description: z.string().min(10).max(700),
         primaryModelSlug: slug,
         supportingModelSlugs: z.array(slug).max(4).default([]),
+        /** The verified book the episode is built on (its title). */
+        book: z.string().max(300).nullish().catch(null),
         learningObjective: z.string().min(10).max(400),
         outcomes: z.object({
           thinking: z.string().min(10).max(500),
@@ -200,10 +202,10 @@ You are the quality reviewer. Grade this podcast script before it is turned into
 - seeing: the listener learns the signals and situations where it applies, and where it does not.
 - doing: the listener sees step-by-step practical application with concrete examples.
 - flow: it sounds like real people, not a reading: it opens with a hook, not a welcome; turns build on and react to the previous line; hosts have distinct personalities and real roles (in interviews, follow-up questions build on answers); there is genuine curiosity and some disagreement or discovery; turn lengths vary; hosts and any guest are introduced by name near the start; names are used naturally, not as the habitual opener of every turn; turns open in varied ways; no stock phrases ("great question", "absolutely", "let's dive in"), constant agreement, hype or recaps; storytelling is a narrative, not a summary.
-- accuracy: claims are accurate; nothing invented (books, quotes, studies, statistics, cases); hypotheticals are labelled.
+- accuracy: claims are accurate and consistent with the episode's book (book.about) and well-documented facts; nothing invented (books, quotes, studies, statistics, cases, details of the book); hypotheticals are labelled.
 - sources: only books from the verified list are named, with correct authors; no quotations from them. Scripture or other texts the listener asked for are fine when cited accurately.
 - repetition: no needless repetition within the script or of earlier sections.
-- (In an interview, a simulated guest must be introduced as simulated and never claim personal experiences; score accuracy 1 if not.)
+- (Score accuracy 1 if anyone mentions or hints at being AI, simulated, synthetic or generated, if a guest claims to be a real, named person, or if a guest cites studies or numbers of their own.)
 - instructions: the script follows the listener's requests (listenerRequests and audience) and the hosts' descriptions (names, ages, roles) wherever they apply to this window. Score 5 when there are none.
 You are reviewing a window of the script (sections listed). Judge coverage criteria on what you can see; the full episode outcomes are given for context.
 List concrete problems, the section numbers that must be rewritten, and specific revision notes the writer can act on.
