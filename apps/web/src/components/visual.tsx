@@ -64,7 +64,8 @@ function Bars({ v }: { v: Extract<Visual, { type: 'bar' }> }) {
     <div>
       <ul aria-hidden className="flex flex-col gap-1.5">
         {v.data.map((d, i) => {
-          const pct = (Math.abs(d.value) / max) * (hasNegative ? 50 : 100);
+          // The longest bar leaves room for its value.
+          const pct = (Math.abs(d.value) / max) * (hasNegative ? 40 : 78);
           return (
             <li key={i} className="grid grid-cols-[minmax(0,7rem)_1fr] items-center gap-2 text-xs">
               <span className="truncate text-ink" title={d.label}>{d.label}</span>
@@ -73,7 +74,7 @@ function Bars({ v }: { v: Extract<Visual, { type: 'bar' }> }) {
                   className="absolute h-4 rounded"
                   style={{ background: SERIES[i % 2 === 0 ? 0 : 1], width: `${Math.max(pct, 1)}%`, left: hasNegative ? (d.value < 0 ? `${50 - pct}%` : '50%') : 0 }}
                 />
-                <span className="relative ml-auto pl-1 font-semibold tabular-nums text-ink" style={hasNegative ? undefined : { marginLeft: `calc(${Math.max(pct, 1)}% + 0.25rem)` }}>
+                <span className="relative ml-auto whitespace-nowrap pl-1 font-semibold tabular-nums text-ink" style={hasNegative ? undefined : { marginLeft: `calc(${Math.max(pct, 1)}% + 0.25rem)` }}>
                   {fmt(d.value)}
                   {v.unit ? ` ${v.unit}` : ''}
                 </span>
