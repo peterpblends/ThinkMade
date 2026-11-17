@@ -150,7 +150,7 @@ function localForGemini(voice: string): string {
  * rather than switching an episode's voices midway.
  */
 export function createVoiceRouterTts(
-  engines: { gemini?: TtsEngine | undefined; phonon?: TtsEngine | undefined; kokoro: TtsEngine },
+  engines: { gemini?: (TtsEngine & { available?(): Promise<boolean> }) | undefined; phonon?: TtsEngine | undefined; kokoro: TtsEngine },
   log: (message: string) => void = console.warn,
 ): TtsEngine {
   let phononBroken = false;
@@ -168,7 +168,9 @@ export function createVoiceRouterTts(
     /** Checks once that Gemini can actually speak with this key; if not, its voices aren't offered. */
     prepare() {
       if (!engines.gemini) return Promise.resolve();
-      return (geminiChecked ??= engines.gemini.synthesize('Hello.', 'gemini:Kore').then(
+      const gemini = engines.gemini;
+      const check = gemini.available ? gemini.available().then((ok) => (ok ? undefined : Promise.reject(new Error('no Gemini speech model is available to this key')))) : gemini.synthesize('Hello.', 'gemini:Kore');
+      return (geminiChecked ??= check.then(
         () => undefined,
         (err: unknown) => {
           // Busy is fine (it works, just not this second); anything else means it can't be used.

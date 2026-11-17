@@ -187,7 +187,8 @@ if (geminiUsable) {
 }
 
 // 3. Every castable English voice's profile.
-const voices = VOICE_CATALOG.filter((v) => v.speaks.includes('en') && (castableByDefault(v) || v.heritage) && tts.handles?.(v.id) !== false);
+// Gemini voices only when asked (PROBE_GEMINI_VOICES=1): measuring them uses a day's free allowance.
+const voices = VOICE_CATALOG.filter((v) => v.speaks.includes('en') && (castableByDefault(v) || v.heritage) && tts.handles?.(v.id) !== false && (v.engine !== 'Gemini' || process.env.PROBE_GEMINI_VOICES === '1'));
 const profiles: Record<string, ReturnType<typeof profile> & { gender: string; name: string }> = {};
 for (const v of voices) {
   try {

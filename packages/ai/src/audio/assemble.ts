@@ -1,5 +1,6 @@
 import { createWriteStream, rmSync } from 'node:fs';
 import { once } from 'node:events';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { toSpeechText } from '../text/speech-text';
 import { countWords, splitForSpeech } from '../text/split';
@@ -42,10 +43,20 @@ export interface AssembleOptions {
   /** The language the lines are in (a LANGUAGES code); English when left out. */
   language?: string;
   bitrateKbps?: number;
+  /**
+   * Keeps takes from a natural-voice engine, so a retry (after its allowance runs out) carries on from where
+   * it stopped instead of paying for the same takes again.
+   */
+  takeCache?: TakeCache;
   /** Stops between speech chunks (for example when the listener cancels). */
   signal?: AbortSignal;
   /** Called after each turn is synthesised with (turnsDone, totalTurns). */
   onProgress?: (done: number, total: number) => void | Promise<void>;
+}
+
+export interface TakeCache {
+  get(key: string): Promise<Float32Array | null>;
+  put(key: string, samples: Float32Array): Promise<void>;
 }
 
 export interface AssembleResult {
@@ -418,8 +429,10 @@ async function speakAsConversation(
       }))
       .filter((l) => l.text);
     const words = lines.reduce((n, l) => n + countWords(l.text.replace(/\[[^\]]*\]/g, '')), 0);
-    let best: { samples: Float32Array; problem: string | null } | null = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    const key = `take-${createHash('sha256').update(JSON.stringify([opts.tts.name, opts.language ?? 'en', lines])).digest('hex').slice(0, 40)}`;
+    const cached = await opts.takeCache?.get(key).catch(() => null);
+    let best: { samples: Float32Array; problem: string | null } | null = cached ? { samples: cached, problem: null } : null;
+    for (let attempt = 0; attempt < 2 && !cached; attempt++) {
       opts.signal?.throwIfAborted();
       const audio = await opts.tts.synthesizeDialogue!(
         lines,
@@ -436,6 +449,7 @@ async function speakAsConversation(
     checks.chunks++;
     if (best!.problem)
       checks.suspect.push(`${best!.problem}: "${lines[0]?.text.slice(0, 60) ?? ''}"`);
+    else if (!cached) await opts.takeCache?.put(key, best!.samples).catch(() => {});
     const samples = levelMatch(best!.samples);
     speech += samples.length;
     await write(samples);

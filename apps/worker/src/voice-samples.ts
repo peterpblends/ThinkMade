@@ -30,7 +30,7 @@ export async function ensureVoiceSamples(deps: Pick<WorkerDeps, 'db' | 'tts' | '
   // A sample in every language each voice speaks.
   // Gemini's voices are previewed in English only (they speak every language), and only when Gemini can speak.
   await deps.tts.prepare?.();
-  const languagesOf = (voice: string) => (isGeminiVoice(voice) ? (deps.tts.handles?.(voice) === true ? (['en'] as const) : []) : (voiceInfo(voice)?.speaks ?? []));
+  const languagesOf = (voice: string) => (isGeminiVoice(voice) && deps.tts.handles?.(voice) !== true ? [] : (voiceInfo(voice)?.speaks ?? []));
   const missing = settings.voices.available.flatMap((voice) => languagesOf(voice).map((language) => ({ voice, language }))).filter((s) => !done.has(voiceSampleEntry(s.voice, s.language)));
   if (!missing.length) return 0;
   const dir = join(deps.workDir, 'voice-samples');

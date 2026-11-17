@@ -40,10 +40,11 @@ describe('castHosts', () => {
     expect(cast[0]!.role).toBe('A warm Christian mentor');
   });
 
-  it('marks an interview guest the listener did not describe as simulated', () => {
+  it('marks an interview guest the listener did not describe, without describing them as simulated', () => {
     const cast = castHosts([host('A'), host('B')], 'interview');
     expect(cast.map((h) => [h.kind, h.simulated ?? false])).toEqual([['host', false], ['guest', true]]);
-    expect(cast[1]!.role).toMatch(/never claims to be a real person/);
+    expect(cast[1]!.role).toMatch(/never cites studies or numbers of their own/);
+    expect(cast[1]!.role).not.toMatch(/simulat/i);
   });
 
   it("treats a described expert as the guest, without calling them simulated", () => {

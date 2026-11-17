@@ -62,7 +62,7 @@ function retryAfterMs(res: Response, body: string): number {
  * people is performed in one request, so turn-taking, timing and reactions sound like real people. Voices are
  * `gemini:<Name>` from GEMINI_VOICES.
  */
-export function createGeminiTts(options: GeminiTtsOptions): TtsEngine & { synthesizeDialogue: NonNullable<TtsEngine['synthesizeDialogue']> } {
+export function createGeminiTts(options: GeminiTtsOptions): TtsEngine & { synthesizeDialogue: NonNullable<TtsEngine['synthesizeDialogue']>; available(): Promise<boolean> } {
   const doFetch = options.fetch ?? fetch;
   const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
   const maxWaitMs = options.maxWaitMs ?? 90_000;
@@ -110,6 +110,25 @@ export function createGeminiTts(options: GeminiTtsOptions): TtsEngine & { synthe
   }
 
   return {
+    /**
+     * Whether this key can use a Gemini speech model, asked without generating speech (which would use up
+     * the allowance): the first model the key can see is used from then on.
+     */
+    async available() {
+      for (let i = model; i < models.length; i++) {
+        try {
+          const res = await doFetch(`${BASE}/models/${models[i]}`, { headers: { 'x-goog-api-key': options.apiKey } });
+          if (res.ok) {
+            model = i;
+            return true;
+          }
+          if (res.status === 429 || res.status >= 500) return true;
+        } catch {
+          return true;
+        }
+      }
+      return false;
+    },
     name: 'gemini',
     sampleRate: 24_000,
     handles: (voice: string) => voice.startsWith('gemini:') && GEMINI_VOICES.some((v) => v.key === voiceName(voice)),

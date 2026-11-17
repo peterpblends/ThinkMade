@@ -13,6 +13,7 @@ import {
   createToneTts,
   setFakeResponder,
   verifyBook,
+  describeBook,
   type TtsEngine,
 } from '@thinkmade/ai';
 import { defaultStageModel, getActiveAppSettings, getStageModel, indexSeriesEmbedding, seriesNeedingIndex, schema, seedModelConfig, type Db } from '@thinkmade/db';
@@ -80,6 +81,7 @@ export async function createWorkerDeps(db: Db, env: Env = process.env, overrides
     },
     storage: createStorage(env),
     verifyBook: env.BOOK_VERIFIER === 'fake' || (fake && env.BOOK_VERIFIER !== 'live') ? fakeVerifyBook : (claim) => verifyBook(claim),
+    ...(env.BOOK_VERIFIER === 'fake' || (fake && env.BOOK_VERIFIER !== 'live') ? {} : { describeBook: (book) => describeBook(book) }),
     workDir: env.WORK_DIR ?? join('.data', 'work'),
     workerId: `${hostname()}:${process.pid}`,
     leaseSeconds: 600,

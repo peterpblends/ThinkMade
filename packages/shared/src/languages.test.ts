@@ -21,10 +21,9 @@ describe('languages', () => {
   });
 
   it('casts only voices that speak the language', () => {
-    // Gemini's voices speak every podcast language.
-    expect(chooseHosts({ count: 2, pool: ['gemini:Kore', 'gemini:Puck', 'ef_dora'], language: 'ja' }).map((h) => h.voice).sort()).toEqual(['gemini:Kore', 'gemini:Puck']);
-    // Without them, only the local voices native to the language.
-    const pool = POOL.filter((v) => !v.startsWith('gemini:'));
+    // Gemini's voices are used for English podcasts; other languages keep their native voices.
+    expect(chooseHosts({ count: 1, pool: ['gemini:Kore', 'ef_dora'], language: 'es' })[0]!.voice).toBe('ef_dora');
+    const pool = POOL;
     for (let i = 0; i < 10; i++) {
       const es = chooseHosts({ count: 2, pool, language: 'es' });
       expect(es.map((h) => h.voice).sort()).toEqual(['ef_dora', 'em_alex']);

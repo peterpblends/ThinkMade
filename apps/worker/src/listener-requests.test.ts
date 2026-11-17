@@ -117,7 +117,10 @@ describe("the listener's requests", () => {
     expect(seen.plan![0]!.showFormat).toBe('interview');
     const [first, second] = seen.script!.filter((x) => !x.continueFrom);
     expect(first).toMatchObject({ showFormat: 'interview', episode: { hook: 'A surgeon who stopped a routine operation halfway.', throughline: 'When should you stop?' } });
-    expect(first!.hosts[1]).toMatchObject({ kind: 'guest', simulated: true });
+    // The writer gets the guest as a person with a role; nothing tells it to call them simulated.
+    expect(first!.hosts[1]).toMatchObject({ kind: 'guest' });
+    expect(first!.hosts[1].simulated).toBeUndefined();
+    expect(JSON.stringify(first!.hosts)).not.toMatch(/simulat/i);
     expect(first!.previousLines).toBeUndefined();
     // The second section sees how the first one ended, word for word, with names.
     expect(second!.previousLines.length).toBeGreaterThan(0);

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { languageInfo, LANGUAGES, SAMPLE_LINES, type LanguageCode } from './languages.ts';
+import { languageInfo, SAMPLE_LINES, type LanguageCode } from './languages.ts';
 
 export const speakerFormatSchema = z.enum(['single', 'two_hosts', 'mixed']);
 export const learningModeSchema = z.enum(['explore', 'deepen', 'reinforce']);
@@ -347,8 +347,8 @@ export const KOKORO_VOICES = KOKORO_VOICE_INFO.map((v) => v.id);
 /**
  * Gemini's speech voices (Google), stored as `gemini:<Name>`: the most natural, human-sounding voices
  * ThinkMade can use, and the only ones cast while the Gemini speech engine is available. `name` is a person's
- * name for a host the listener didn't name; `tone` is Google's description of the voice. They speak every
- * podcast language.
+ * name for a host the listener didn't name; `tone` is Google's description of the voice. Used for English
+ * podcasts (other languages keep their native voices).
  */
 export const GEMINI_VOICES = [
   { key: 'Zephyr', name: 'Claire', gender: 'female', tone: 'bright' },
@@ -421,7 +421,7 @@ export function castableByDefault(v: VoiceInfo): boolean {
 const KOKORO_OWN_LANGUAGE: Record<string, LanguageCode> = { e: 'es', h: 'hi' };
 
 export const VOICE_CATALOG: readonly VoiceInfo[] = [
-  ...GEMINI_VOICES.map((v) => ({ id: `gemini:${v.key}`, name: v.name, engine: 'Gemini' as const, accent: 'US' as const, gender: v.gender, tone: v.tone, speaks: LANGUAGES.map((l) => l.code) })),
+  ...GEMINI_VOICES.map((v) => ({ id: `gemini:${v.key}`, name: v.name, engine: 'Gemini' as const, accent: 'US' as const, gender: v.gender, tone: v.tone, speaks: ['en'] as const })),
   ...PHONON_VOICES.map((v) => ({ id: `phonon:${v.key}`, name: v.name, engine: 'Phonon' as const, accent: v.accent, gender: v.gender, speaks: ['en'] as const })),
   ...KOKORO_VOICE_INFO.map((v) => ({ id: v.id, name: v.name, engine: 'Kokoro' as const, accent: v.accent, gender: v.gender, grade: v.grade, ...('style' in v ? { style: v.style } : {}), speaks: ['en'] as const })),
   ...PHONON_HERITAGE_VOICES.map((v) => ({ id: `phonon:${v.key}`, name: v.name, engine: 'Phonon' as const, accent: v.accent, gender: v.gender, heritage: v.heritage, speaks: ['en'] as const })),

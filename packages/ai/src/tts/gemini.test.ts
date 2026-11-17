@@ -48,3 +48,14 @@ describe('Gemini speech', () => {
     expect(tts.handles!('af_heart')).toBe(false);
   });
 });
+
+describe('checking Gemini is available', () => {
+  it('asks for the model without generating speech, and skips a model the key cannot see', async () => {
+    const urls: string[] = [];
+    const tts = createGeminiTts({ apiKey: 'k', fetch: (async (url: string) => (urls.push(url), urls.length === 1 ? new Response('', { status: 404 }) : new Response('{}', { status: 200 }))) as unknown as typeof fetch });
+    expect(await tts.available()).toBe(true);
+    expect(urls.every((u) => !u.includes(':generateContent'))).toBe(true);
+    const none = createGeminiTts({ apiKey: 'bad', fetch: (async () => new Response('', { status: 403 })) as unknown as typeof fetch });
+    expect(await none.available()).toBe(false);
+  });
+});
