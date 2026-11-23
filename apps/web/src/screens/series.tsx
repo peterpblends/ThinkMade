@@ -1,3 +1,4 @@
+import { AiContentNote } from '../components/terms-gate';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router';
@@ -230,6 +231,7 @@ export function PublicEpisodeScreen() {
         </div>
       </div>
       <EpisodeCard ep={ep} seriesTitle={s.title} queue={[toPlayable(ep, s.title)]} />
+      <AiContentNote />
       <Link to={`/p/${slug}`} className="self-start font-semibold text-accent-ink underline underline-offset-4">
         All {s.episodes.length} episode{s.episodes.length === 1 ? '' : 's'} of {s.title}
       </Link>
@@ -389,6 +391,7 @@ function SeriesView({ s }: { s: SeriesDetail }) {
       <ShowArt seriesId={s.id} title={s.title} art={s.artwork?.selected} decorative className="mb-4 w-40 rounded-2xl shadow-card sm:w-48" />
       {s.isOwner && <ArtworkPicker s={s} />}
       <PageHeader title={s.title} subtitle={s.description} />
+      <AiContentNote className="-mt-3 mb-4" />
       {s.isOwner ? <LanguageSwitch s={s} /> : s.language && s.language !== 'en' ? <p className="-mt-3 mb-5 text-sm text-muted">In {languageInfo(s.language).native}</p> : null}
       {!s.isOwner && s.visibility === 'public' && <PublicActions s={s} />}
       {busy && (

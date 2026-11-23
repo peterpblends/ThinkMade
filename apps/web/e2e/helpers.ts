@@ -19,6 +19,7 @@ export async function signUp(page: Page, email: string, password = 'correct-hors
   await page.getByLabel('Name').fill('Test Person');
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
+  await page.getByRole('checkbox', { name: /I have read and agree to the Terms of Service/ }).check();
   await page.getByRole('button', { name: 'Create account' }).click();
 }
 

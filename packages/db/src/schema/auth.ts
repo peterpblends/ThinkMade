@@ -110,3 +110,25 @@ export const twoFactor = pgTable(
   },
   (t) => [index('two_factor_user_id_idx').on(t.userId)],
 );
+
+/**
+ * Each time a person agreed to ThinkMade's Terms of Service and Privacy Policy: which version, when, and from
+ * where (IP address and browser), so the agreement can be shown later. Kept for every version they accept.
+ */
+export const termsAcceptance = pgTable(
+  'terms_acceptance',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** The terms version agreed to (see TERMS_VERSION). */
+    version: text('version').notNull(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }).notNull().defaultNow(),
+    /** "sign_up", or "update" when an existing account agreed to new terms. */
+    context: text('context').notNull(),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+  },
+  (t) => [index('terms_acceptance_user_idx').on(t.userId, t.version)],
+);

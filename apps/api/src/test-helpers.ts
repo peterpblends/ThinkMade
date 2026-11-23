@@ -1,3 +1,4 @@
+import { TERMS_VERSION } from '@thinkmade/shared';
 import { createDb, runMigrations, type DbHandle } from '@thinkmade/db';
 import { memoryEmailSender } from '@thinkmade/ai';
 import { createAuth } from './auth';
@@ -73,7 +74,7 @@ export async function signUpVerified(
   const signUp = await app.request('/api/auth/sign-up/email', {
     method: 'POST',
     headers,
-    body: JSON.stringify({ email: opts.email, password, name: 'Test User' }),
+    body: JSON.stringify({ email: opts.email, password, name: 'Test User', acceptTerms: TERMS_VERSION }),
   });
   if (signUp.status !== 200) throw new Error(`sign-up failed: ${signUp.status}`);
   if (opts.role) {

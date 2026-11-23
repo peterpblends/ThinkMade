@@ -11,3 +11,4 @@ export * from './prompts.ts';
 export * from './stage-schemas.ts';
 export * from './voice-traits.ts';
 export * from './visuals.ts';
+export * from './legal.ts';

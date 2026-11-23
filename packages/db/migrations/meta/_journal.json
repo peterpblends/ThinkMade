@@ -50,6 +50,13 @@
       "when": 1793690921184,
       "tag": "0006_series_artwork",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795404477642,
+      "tag": "0007_terms_acceptance",
+      "breakpoints": true
     }
   ]
 }

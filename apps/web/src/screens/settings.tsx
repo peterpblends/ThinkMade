@@ -1,3 +1,4 @@
+import { LegalLinks } from '../components/terms-gate';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import QRCode from 'qrcode';
@@ -326,6 +327,7 @@ export function SettingsScreen() {
       <VoiceSection />
       <StorageSection />
       <DataSection />
+      <LegalLinks className="text-center" />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import type { AppContext } from '../create-context';
 import { LimitError, resolveOptions } from '../generation/options';
 import { restartJob } from '../generation/restart';
 import { requireVerified, type AppVariables } from '../middleware/session';
+import { requireTerms } from '../terms';
 
 type StepState = 'pending' | 'active' | 'done' | 'failed';
 
@@ -41,7 +42,7 @@ export async function dailyLimitMessage(ctx: AppContext, user: { id: string; rol
 export function generationRoutes(ctx: AppContext) {
   const r = new Hono<{ Variables: AppVariables }>();
 
-  r.post('/generations', requireVerified(), async (c) => {
+  r.post('/generations', requireVerified(), requireTerms(ctx.db), async (c) => {
     const user = c.var.session!.user;
     const parsed = createGenerationSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);

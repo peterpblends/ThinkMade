@@ -8,6 +8,7 @@ import type { AppContext } from '../create-context';
 import { requireFeature } from '../middleware/feature';
 import { rateLimit } from '../middleware/rate-limit';
 import { requireVerified, type AppVariables } from '../middleware/session';
+import { requireTerms } from '../terms';
 
 const plannerBody = z.strictObject({
   /** The conversation so far, oldest first; the last message is the listener's newest. */
@@ -91,6 +92,7 @@ export function plannerRoutes(ctx: AppContext) {
   r.post(
     '/planner',
     requireVerified(),
+    requireTerms(ctx.db),
     requireFeature(ctx, 'planner'),
     rateLimit({ db: ctx.db, name: 'planner', key: (c) => (c.var as AppVariables).session!.user.id, limit: 120, windowSeconds: 15 * 60, now: ctx.now }),
     async (c) => {

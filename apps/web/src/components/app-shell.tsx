@@ -1,3 +1,4 @@
+import { TermsGate } from './terms-gate';
 import { Navigate, Outlet, useLocation } from 'react-router';
 import { useSession } from '../lib/auth-client';
 import { BottomNav } from './bottom-nav';
@@ -29,6 +30,7 @@ export function AppShell() {
       {showMini && <MiniPlayer />}
       <BottomNav />
       <UpdatePrompt />
+      <TermsGate />
     </div>
   );
 }

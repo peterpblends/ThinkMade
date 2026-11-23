@@ -1,3 +1,4 @@
+import { TERMS_VERSION } from '@thinkmade/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { schema } from '@thinkmade/db';
@@ -32,7 +33,7 @@ describe('promoteToAdmin', () => {
     await createApp(ctx).request('/api/auth/sign-up/email', {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: ctx.env.APP_URL },
-      body: JSON.stringify({ email: 'new@example.com', password: 'correct-horse-battery', name: 'N' }),
+      body: JSON.stringify({ email: 'new@example.com', password: 'correct-horse-battery', name: 'N', acceptTerms: TERMS_VERSION }),
     });
     await expect(promoteToAdmin(ctx.db, 'new@example.com')).rejects.toThrow(/not verified/);
   });

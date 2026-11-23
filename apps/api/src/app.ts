@@ -7,6 +7,7 @@ import { loadSession, requireAdmin, type AppVariables } from './middleware/sessi
 import { adminRoutes } from './routes/admin';
 import { healthRoutes } from './routes/health';
 import { meRoutes } from './routes/me';
+import { termsRoutes } from './terms';
 import { publicSettingsRoutes } from './routes/settings';
 import { accountRoutes } from './routes/account';
 import { testOnlyRoutes } from './routes/test-only';
@@ -55,6 +56,7 @@ export function createApp(ctx: AppContext) {
   );
   api.route('/', healthRoutes(ctx));
   api.route('/', meRoutes());
+  api.route('/', termsRoutes(ctx.db));
   api.route('/', publicSettingsRoutes(ctx));
   api.route('/', accountRoutes(ctx));
   api.route('/', bugReportRoutes(ctx));
