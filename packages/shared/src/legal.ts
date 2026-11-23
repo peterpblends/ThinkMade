@@ -5,16 +5,13 @@
 export const TERMS_VERSION = '2026-11-23';
 export const TERMS_EFFECTIVE_DATE = 'November 23, 2026';
 
-/**
- * Who offers ThinkMade, as named in the terms. Fill in the registered company name, the state whose law
- * governs the terms and a contact address before relying on them.
- */
+/** Who offers ThinkMade, as named in the terms. */
 export const LEGAL = {
-  /** The registered company that operates ThinkMade (e.g. "Kaspar Companies LLC"). */
-  company: 'ThinkMade',
+  /** The registered company that operates ThinkMade. */
+  company: 'Thinkmade Inc.',
   /** The state (US) whose laws govern the terms and whose courts hear disputes. */
-  governingState: 'Delaware',
-  contactEmail: 'legal@thinkmade.app',
+  governingState: 'Texas',
+  contactEmail: 'support@thinkmade.ai',
 } as const;
 
 /** The short notice shown beside the sign-up checkbox and on every podcast. */
