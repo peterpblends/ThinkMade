@@ -13,6 +13,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# onnxruntime-node (used by the Kokoro voice engine) would download GPU binaries on install; that download
+# now fails (404), which makes npm drop the whole optional Kokoro package. ThinkMade runs on CPU only.
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+
 jobs:
   check:
     runs-on: ubuntu-latest
