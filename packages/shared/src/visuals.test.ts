@@ -28,10 +28,27 @@ describe('coach visuals', () => {
 
   it('hides a visual still being written while the reply streams', () => {
     const r = splitVisuals('Let me sketch it.\n```visual\n{"type":"flow","title":"St');
-    expect(r).toEqual({ text: 'Let me sketch it.', visuals: [], drawing: true });
+    expect(r).toEqual({ text: 'Let me sketch it.', visuals: [], documents: [], drawing: true });
   });
 
   it('never reads a visual aloud', () => {
     expect(withoutVisuals(`First this. ${block(matrix)} Then that.`)).toBe('First this. Then that.');
+  });
+
+  it('pulls out a file to download, and drops one that is not valid', () => {
+    const deck = { format: 'pptx', title: 'Second-order thinking', slides: [{ title: 'And then what?', bullets: ['Look one step further'], chart: { type: 'bar', data: [{ label: 'Now', value: 1 }, { label: 'Later', value: 3 }] } }] };
+    const sheet = { format: 'xlsx', title: 'Habit tracker', sheets: [{ name: 'Week 1', columns: ['Day', 'Done?'], rows: [['Mon', null, 'extra'], ['Tue', 1]] }] };
+    const r = splitVisuals(`Here are your slides.\n\`\`\`document\n${JSON.stringify(deck)}\n\`\`\`\nAnd a tracker:\n\`\`\`document\n${JSON.stringify(sheet)}\n\`\`\``);
+    expect(r.text).toBe('Here are your slides.\n\nAnd a tracker:');
+    expect(r.documents.map((d) => d.format)).toEqual(['pptx', 'xlsx']);
+    // Rows are cut to the sheet's columns.
+    expect(r.documents[1]).toMatchObject({ sheets: [{ rows: [['Mon', null], ['Tue', 1]] }] });
+    expect(splitVisuals('```document\n{"format":"docx","title":"x"}\n```').documents).toEqual([]);
+  });
+
+  it('accepts the new graphs and images', () => {
+    const scatter = { type: 'scatter', title: 'Effort vs result', xLabel: 'Hours', yLabel: 'Score', illustrative: true, points: [{ x: 1, y: 2 }, { x: 3, y: 5 }] };
+    const image = { type: 'image', title: 'The bottleneck', prompt: 'A busy kitchen where every order waits at one small oven', alt: 'Orders piling up at one oven' };
+    expect(splitVisuals(`${block(scatter)}${block(image)}`).visuals).toEqual([scatter, image]);
   });
 });

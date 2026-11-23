@@ -9,6 +9,7 @@ import { useFeatures } from '../lib/features';
 import { useVoiceInput, type VoiceInput } from '../lib/voice';
 import { Button, Notice } from '../components/ui';
 import { VisualView } from '../components/visual';
+import { DocumentCard } from '../components/document-card';
 import { splitVisuals, withoutVisuals } from '@thinkmade/shared';
 
 interface CoachMessage {
@@ -39,16 +40,19 @@ function speak(text: string) {
 
 /** A coach reply: its words, then any chart or diagram it drew (a placeholder while one is being drawn). */
 function CoachReply({ content }: { content: string }) {
-  const { text, visuals, drawing } = splitVisuals(content);
+  const { text, visuals, documents, drawing } = splitVisuals(content);
   return (
     <>
       {text && <p className="whitespace-pre-line text-[0.98rem] leading-relaxed">{text}</p>}
       {visuals.map((v, i) => (
         <VisualView key={i} v={v} />
       ))}
+      {documents.map((d, i) => (
+        <DocumentCard key={i} d={d} />
+      ))}
       {drawing && (
         <p role="status" className="mt-3 rounded-xl border border-dashed border-line px-3 py-4 text-center text-sm text-muted">
-          Drawing a visual…
+          Making it…
         </p>
       )}
     </>

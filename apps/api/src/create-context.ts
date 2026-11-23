@@ -1,5 +1,5 @@
 import { createDb, defaultStageModel, getStageModel, runMigrations, schema, type Db, type ModelStage } from '@thinkmade/db';
-import { createEmailSender, createEmbedder, createLlm, createStorage, createLocalStorage, createStt, memoryEmailSender, type EmailSender, type Embedder, type LlmClient, type ObjectStorage, type SttEngine } from '@thinkmade/ai';
+import { createEmailSender, createEmbedder, createGeminiImages, createLlm, createStorage, createLocalStorage, createStt, memoryEmailSender, type EmailSender, type Embedder, type ImageGenerator, type LlmClient, type ObjectStorage, type SttEngine } from '@thinkmade/ai';
 import { createAuth, type Auth } from './auth';
 import { loadEnv, type Env } from './env';
 import { createSettingsService, type SettingsService } from './settings/settings-service';
@@ -20,6 +20,8 @@ export interface AppContext {
   settings: SettingsService;
   storage: ObjectStorage;
   stt: SttEngine | null;
+  /** Pictures for coaching (Gemini), when a key is configured; tests set their own. */
+  images: ImageGenerator | null;
   /** Language model for a stage, as configured by administrators. */
   llm: (stage: ModelStage) => Promise<LlmClient>;
   /** Text embedder for search vectors, as configured by administrators. */
@@ -40,6 +42,8 @@ export interface CreateContextOptions {
   email?: EmailSender;
   pgliteDir?: string;
   storageDir?: string;
+  /** The image generator (null for none); defaults to Gemini when GEMINI_API_KEY is set. */
+  images?: ImageGenerator | null;
   /**
    * Apply pending migrations at startup. Defaults to true. Serverless production sets this to false
    * and runs `npm run db:migrate` as a deploy step instead.
@@ -153,6 +157,7 @@ export async function createContext(
     settings,
     storage,
     stt,
+    images: options.images !== undefined ? options.images : env.NODE_ENV !== 'test' && process.env.GEMINI_API_KEY ? createGeminiImages({ apiKey: process.env.GEMINI_API_KEY }) : null,
     llm: async (stage) => {
       const { DEFAULT_LLM_PROVIDER: provider, DEFAULT_LLM_MODEL: model } = process.env;
       const override = provider && model ? { provider, model } : null;

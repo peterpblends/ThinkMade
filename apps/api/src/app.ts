@@ -7,6 +7,7 @@ import { loadSession, requireAdmin, type AppVariables } from './middleware/sessi
 import { adminRoutes } from './routes/admin';
 import { healthRoutes } from './routes/health';
 import { meRoutes } from './routes/me';
+import { coachImageRoutes } from './routes/coach-images';
 import { termsRoutes } from './terms';
 import { publicSettingsRoutes } from './routes/settings';
 import { accountRoutes } from './routes/account';
@@ -66,6 +67,7 @@ export function createApp(ctx: AppContext) {
   api.route('/', uploadRoutes(ctx));
   api.route('/', libraryRoutes(ctx));
   api.route('/', coachRoutes(ctx));
+  api.route('/', coachImageRoutes(ctx));
   api.route('/', plannerRoutes(ctx));
   api.route('/', discoverRoutes(ctx));
   if (ctx.env.NODE_ENV === 'test') api.route('/_test', testOnlyRoutes(ctx));
