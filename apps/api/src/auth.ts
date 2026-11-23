@@ -6,7 +6,9 @@ import { passkey } from '@better-auth/passkey';
 import { eq, inArray } from 'drizzle-orm';
 import { schema, type Db } from '@thinkmade/db';
 import type { EmailSender, ObjectStorage } from '@thinkmade/ai';
-import { BRAND } from '@thinkmade/shared';
+import { BRAND, TERMS_VERSION } from '@thinkmade/shared';
+import { APIError } from 'better-auth/api';
+import { recordTermsAcceptance } from './terms';
 import { promoteToAdmin } from './admin/promote';
 import type { Env } from './env';
 
@@ -84,6 +86,25 @@ export function createAuth({ db, env, email, storage }: AuthDeps) {
           `Confirm your email for ${BRAND.name}`,
           `Welcome to ${BRAND.name}. ${BRAND.tagline}\n\nConfirm your email address: ${url}\n\nIf you didn't create an account, you can ignore this email.`,
         );
+      },
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          // An account is only created by someone who ticked the box agreeing to the current terms.
+          before: async (_user, ctx) => {
+            if (ctx?.path !== '/sign-up/email') return;
+            const body = (ctx.body ?? {}) as { acceptTerms?: unknown };
+            if (body.acceptTerms !== TERMS_VERSION) {
+              throw new APIError('BAD_REQUEST', { code: 'TERMS_NOT_ACCEPTED', message: 'Please agree to the Terms of Service and Privacy Policy to create an account.' });
+            }
+          },
+          // Their agreement is recorded: version, time, IP address and browser.
+          after: async (created, ctx) => {
+            if (ctx?.path !== '/sign-up/email') return;
+            await recordTermsAcceptance(db, created.id, 'sign_up', ctx.request?.headers ?? (ctx.headers as Headers | undefined));
+          },
+        },
       },
     },
     user: {

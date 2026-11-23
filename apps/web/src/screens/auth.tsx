@@ -4,6 +4,8 @@ import { KeyRound } from 'lucide-react';
 import { authClient, safeNext, supportsPasskeys } from '../lib/auth-client';
 import { classifySignInError } from '../lib/auth-errors';
 import { Button, Field, Notice, PageHeader } from '../components/ui';
+import { TermsAgreement } from '../components/terms-gate';
+import { TERMS_VERSION } from '@thinkmade/shared';
 
 function useNext() {
   const [params] = useSearchParams();
@@ -23,11 +25,13 @@ export function SignUpScreen() {
   const next = useNext();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [agreed, setAgreed] = useState(false);
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const email = String(form.get('email') ?? '').trim();
+    if (!agreed) return setError('Please agree to the Terms of Service and Privacy Policy to create an account.');
     setBusy(true);
     setError(null);
     const { error } = await authClient.signUp.email({
@@ -35,7 +39,9 @@ export function SignUpScreen() {
       email,
       password: String(form.get('password') ?? ''),
       callbackURL: next,
-    });
+      // The server records which version of the terms the person agreed to.
+      acceptTerms: TERMS_VERSION,
+    } as Parameters<typeof authClient.signUp.email>[0]);
     setBusy(false);
     if (error) return setError(messageFor(error));
     navigate(`/verify-email?email=${encodeURIComponent(email)}&next=${encodeURIComponent(next)}`);
@@ -56,12 +62,13 @@ export function SignUpScreen() {
           required
           hint="At least 10 characters. A short phrase is easy to remember."
         />
+        <TermsAgreement checked={agreed} onChange={setAgreed} />
         {error && (
           <Notice tone="error" role="alert">
             {error}
           </Notice>
         )}
-        <Button type="submit" block busy={busy}>
+        <Button type="submit" block busy={busy} disabled={!agreed}>
           Create account
         </Button>
       </form>

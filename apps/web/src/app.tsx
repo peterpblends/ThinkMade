@@ -27,6 +27,9 @@ const ResetPasswordScreen = lazyNamed(auth, 'ResetPasswordScreen');
 const pages = () => import('./screens/pages');
 const HelpScreen = lazyNamed(pages, 'HelpScreen');
 const ReportBugScreen = lazyNamed(pages, 'ReportBugScreen');
+const legal = () => import('./screens/legal');
+const TermsScreen = lazyNamed(legal, 'TermsScreen');
+const PrivacyScreen = lazyNamed(legal, 'PrivacyScreen');
 const SettingsScreen = lazyNamed(() => import('./screens/settings'), 'SettingsScreen');
 const AdminSettingsScreen = lazyNamed(() => import('./screens/admin/settings'), 'AdminSettingsScreen');
 const AdminLayout = lazyNamed(() => import('./screens/admin/layout'), 'AdminLayout');
@@ -79,6 +82,8 @@ const router = createBrowserRouter([
       { path: '/forgot-password', element: page(<ForgotPasswordScreen />) },
       { path: '/reset-password', element: page(<ResetPasswordScreen />) },
       { path: '/help', element: page(<HelpScreen />) },
+      { path: '/terms', element: page(<TermsScreen />) },
+      { path: '/privacy', element: page(<PrivacyScreen />) },
       { path: '/report-bug', element: page(<ReportBugScreen />) },
       { path: '/generations/:id', element: <RequireAuth>{page(<GenerationProgressScreen />)}</RequireAuth> },
       { path: '/series/:id', element: page(<SeriesScreen />) },

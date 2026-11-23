@@ -1,3 +1,4 @@
+import { TERMS_VERSION } from '@thinkmade/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../app';
 import { createContext } from '../create-context';
@@ -40,7 +41,7 @@ describe('verification links', () => {
     await app.request('/api/auth/sign-up/email', {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: ctx.env.APP_URL },
-      body: JSON.stringify({ email: 'link@example.com', password: 'correct-horse-battery', name: 'L' }),
+      body: JSON.stringify({ email: 'link@example.com', password: 'correct-horse-battery', name: 'L', acceptTerms: TERMS_VERSION }),
     });
     expect(ctx.email.sent[0]!.text).toContain(`${ctx.env.APP_URL}/api/auth/verify-email?token=`);
   });

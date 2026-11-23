@@ -7,8 +7,13 @@ export class ApiError extends Error {
     public readonly body: unknown,
   ) {
     super(`${status} ${code}`);
+    // The terms changed since this person last agreed: the app asks them to agree again.
+    if (code === 'terms_required' && typeof window !== 'undefined') window.dispatchEvent(new Event(TERMS_REQUIRED_EVENT));
   }
 }
+
+/** Fired when the server needs the person to agree to the current terms first. */
+export const TERMS_REQUIRED_EVENT = 'thinkmade:terms-required';
 
 /** Same-origin JSON fetch with cookies. Throws ApiError on non-2xx. */
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {

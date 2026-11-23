@@ -10,6 +10,7 @@ import { COACH_INSTRUCTIONS, selectExcerpts } from '../coach/context';
 import { requireFeature } from '../middleware/feature';
 import { rateLimit } from '../middleware/rate-limit';
 import { requireVerified, type AppVariables } from '../middleware/session';
+import { requireTerms } from '../terms';
 import { episodeDetails, readableSeries } from './series';
 
 const messageBody = z.strictObject({
@@ -68,6 +69,7 @@ export function coachRoutes(ctx: AppContext) {
   r.post(
     '/coach/:episodeId/messages',
     requireVerified(),
+    requireTerms(ctx.db),
     requireFeature(ctx, 'coach'),
     // A spoken conversation takes many short turns, so the allowance is generous.
     rateLimit({ db: ctx.db, name: 'coach', key: (c) => (c.var as AppVariables).session!.user.id, limit: 120, windowSeconds: 15 * 60, now: ctx.now }),

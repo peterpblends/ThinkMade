@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { schema } from '@thinkmade/db';
+import { TERMS_VERSION } from '@thinkmade/shared';
 import { authRequest, cookieFrom, extractUrl, makeAuthHarness } from './test-helpers';
 
 type Harness = Awaited<ReturnType<typeof makeAuthHarness>>;
@@ -9,7 +12,7 @@ afterEach(async () => {
   h = undefined;
 });
 
-const creds = { email: 'ada@example.com', password: 'correct-horse-battery', name: 'Ada' };
+const creds = { email: 'ada@example.com', password: 'correct-horse-battery', name: 'Ada', acceptTerms: TERMS_VERSION };
 
 describe('auth', () => {
   it('sign up sends a verification email and blocks sign-in until verified', async () => {
@@ -71,5 +74,25 @@ describe('auth', () => {
     expect(res.status).toBe(200);
     const reset = h.email.sent.find((m) => m.subject.toLowerCase().includes('reset'));
     expect(reset).toBeDefined();
+  });
+
+  it('creates an account only when the person agreed to the current terms, and records the agreement', async () => {
+    h = await makeAuthHarness();
+    const { acceptTerms: _a, ...noTerms } = creds;
+    for (const body of [noTerms, { ...creds, acceptTerms: true }, { ...creds, acceptTerms: '2020-01-01' }]) {
+      const res = await h.auth.handler(authRequest('/api/auth/sign-up/email', { body }));
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { message: string }).message).toMatch(/agree to the Terms of Service/);
+    }
+    expect(await h.handle.db.select().from(schema.user)).toHaveLength(0);
+
+    const req = authRequest('/api/auth/sign-up/email', { body: creds });
+    req.headers.set('x-forwarded-for', '203.0.113.7, 10.0.0.1');
+    req.headers.set('user-agent', 'TestBrowser/1.0');
+    expect((await h.auth.handler(req)).status).toBe(200);
+    const [user] = await h.handle.db.select().from(schema.user).where(eq(schema.user.email, creds.email));
+    const rows = await h.handle.db.select().from(schema.termsAcceptance).where(eq(schema.termsAcceptance.userId, user!.id));
+    expect(rows).toEqual([expect.objectContaining({ version: TERMS_VERSION, context: 'sign_up', ipAddress: '203.0.113.7', userAgent: 'TestBrowser/1.0' })]);
+    expect(rows[0]!.acceptedAt).toBeInstanceOf(Date);
   });
 });
