@@ -26,3 +26,4 @@ export * from './media/media';
 export * from './embed/embed';
 export * from './tts/phonon';
 export * from './tts/gemini';
+export * from './images/gemini-image';

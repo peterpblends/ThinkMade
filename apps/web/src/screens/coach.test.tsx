@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
@@ -75,6 +76,31 @@ describe('CoachView', () => {
     expect(screen.getByRole('figure', { name: /Second-order thinking/ })).toHaveTextContent('Look a year out');
     expect(log).not.toHaveTextContent('```');
     expect(log).not.toHaveTextContent('"type"');
-    expect(screen.getByText('Drawing a visual…')).toBeInTheDocument();
+    expect(screen.getByText('Making it…')).toBeInTheDocument();
+  });
+
+  it('offers a file the coach made to download, and builds it on tap', async () => {
+    const deck = { format: 'pptx', title: 'Opportunity cost', slides: [{ title: 'The hidden price', bullets: ['Every yes is a no'] }, { title: 'Try it' }] };
+    const saved: Blob[] = [];
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: (b: Blob) => (saved.push(b), 'blob:x'), revokeObjectURL: () => {} }));
+    render(<CoachView episodeTitle="T" messages={[{ id: '1', role: 'coach', content: `Here are slides.\n\`\`\`document\n${JSON.stringify(deck)}\n\`\`\`` }]} onSend={vi.fn()} onCreatePodcast={vi.fn()} sending={false} voice={idle} />);
+    expect(screen.getByRole('log')).toHaveTextContent('PowerPoint · 3 slides');
+    await userEvent.click(screen.getByRole('button', { name: 'Download PowerPoint: Opportunity cost' }));
+    await vi.waitFor(() => expect(saved).toHaveLength(1), { timeout: 10_000 });
+    expect(saved[0]!.size).toBeGreaterThan(1000);
+    vi.unstubAllGlobals();
+  }, 20_000);
+
+  it('shows what a picture shows when pictures are not available', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'image_unavailable' }), { status: 503 })));
+    const image = { type: 'image', title: 'The bottleneck', prompt: 'A kitchen where every order waits at one oven', alt: 'Orders piling up at a single small oven' };
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <CoachView episodeTitle="T" messages={[{ id: '1', role: 'coach', content: `Picture this:\n\`\`\`visual\n${JSON.stringify(image)}\n\`\`\`` }]} onSend={vi.fn()} onCreatePodcast={vi.fn()} sending={false} voice={idle} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText('Orders piling up at a single small oven')).toBeInTheDocument();
+    expect(screen.getByRole('figure', { name: 'The bottleneck' })).toBeInTheDocument();
+    vi.unstubAllGlobals();
   });
 });

@@ -1,4 +1,7 @@
+import { useQuery } from '@tanstack/react-query';
+import { ImageOff } from 'lucide-react';
 import type { Visual } from '@thinkmade/shared';
+import { api } from '../lib/api';
 
 /** Series colours, from the theme, so charts read well in light and dark. */
 const SERIES = ['var(--color-accent)', 'var(--color-sage)', 'var(--color-accent-ink)', 'var(--color-sage-ink)', 'var(--color-muted)', 'var(--color-accent-strong)'];
@@ -23,6 +26,12 @@ function Body({ v }: { v: Visual }) {
       return <Bars v={v} />;
     case 'line':
       return <Lines v={v} />;
+    case 'area':
+      return <Lines v={v} area />;
+    case 'scatter':
+      return <Scatter v={v} />;
+    case 'image':
+      return <Picture v={v} />;
     case 'pie':
       return <Pie v={v} />;
     case 'matrix':
@@ -88,7 +97,7 @@ function Bars({ v }: { v: Extract<Visual, { type: 'bar' }> }) {
   );
 }
 
-function Lines({ v }: { v: Extract<Visual, { type: 'line' }> }) {
+function Lines({ v, area = false }: { v: Extract<Visual, { type: 'line' | 'area' }>; area?: boolean }) {
   const W = 320;
   const H = 170;
   const pad = { l: 34, r: 10, t: 10, b: 28 };
@@ -116,6 +125,7 @@ function Lines({ v }: { v: Extract<Visual, { type: 'line' }> }) {
         ))}
         {v.series.map((s, k) => (
           <g key={s.name}>
+            {area && <polygon fill={SERIES[k]} fillOpacity={0.18} points={`${x(0)},${y(lo)} ${s.points.map((p, i) => `${x(i)},${y(p.y)}`).join(' ')} ${x(s.points.length - 1)},${y(lo)}`} />}
             <polyline fill="none" stroke={SERIES[k]} strokeWidth="2.5" strokeLinejoin="round" points={s.points.map((p, i) => `${x(i)},${y(p.y)}`).join(' ')} />
             {s.points.map((p, i) => (
               <circle key={i} cx={x(i)} cy={y(p.y)} r="3" fill={SERIES[k]} />
@@ -325,5 +335,79 @@ function Timeline({ v }: { v: Extract<Visual, { type: 'timeline' }> }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/** Points showing how two things relate, each optionally labelled. */
+function Scatter({ v }: { v: Extract<Visual, { type: 'scatter' }> }) {
+  const W = 320;
+  const H = 190;
+  const pad = { l: 36, r: 12, t: 10, b: 32 };
+  const xs = v.points.map((p) => p.x);
+  const ys = v.points.map((p) => p.y);
+  const span = (a: number[]) => {
+    const lo = Math.min(...a);
+    const hi = Math.max(...a);
+    return hi > lo ? [lo, hi] : [lo - 1, hi + 1];
+  };
+  const [x0, x1] = span(xs);
+  const [y0, y1] = span(ys);
+  const x = (val: number) => pad.l + ((val - x0!) / (x1! - x0!)) * (W - pad.l - pad.r);
+  const y = (val: number) => pad.t + (1 - (val - y0!) / (y1! - y0!)) * (H - pad.t - pad.b);
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" aria-hidden>
+        <line x1={pad.l} x2={W - pad.r} y1={H - pad.b} y2={H - pad.b} stroke="var(--color-line)" />
+        <line x1={pad.l} x2={pad.l} y1={pad.t} y2={H - pad.b} stroke="var(--color-line)" />
+        {[y0!, y1!].map((t) => (
+          <text key={`y${t}`} x={pad.l - 4} y={y(t) + 3} textAnchor="end" fontSize="9" fill="var(--color-muted)">
+            {fmt(t)}
+          </text>
+        ))}
+        {[x0!, x1!].map((t) => (
+          <text key={`x${t}`} x={x(t)} y={H - pad.b + 12} textAnchor="middle" fontSize="9" fill="var(--color-muted)">
+            {fmt(t)}
+          </text>
+        ))}
+        <text x={(W + pad.l) / 2} y={H - 4} textAnchor="middle" fontSize="10" fill="var(--color-ink)">
+          {v.xLabel}
+        </text>
+        <text x={10} y={(H - pad.b) / 2} textAnchor="middle" fontSize="10" fill="var(--color-ink)" transform={`rotate(-90 10 ${(H - pad.b) / 2})`}>
+          {v.yLabel}
+        </text>
+        {v.points.map((p, i) => (
+          <g key={i}>
+            <circle cx={x(p.x)} cy={y(p.y)} r="4.5" fill={SERIES[0]} fillOpacity={0.85} />
+            {p.label && (
+              <text x={x(p.x) + 6} y={y(p.y) - 6} fontSize="9" fill="var(--color-ink)">
+                {p.label}
+              </text>
+            )}
+          </g>
+        ))}
+      </svg>
+      <DataTable caption={v.title} head={[v.xLabel, v.yLabel, 'Label']} rows={v.points.map((p) => [p.x, p.y, p.label ?? ''])} />
+    </div>
+  );
+}
+
+/** A picture drawn from the coach's description; its description is shown when pictures aren't available. */
+function Picture({ v }: { v: Extract<Visual, { type: 'image' }> }) {
+  const q = useQuery({
+    queryKey: ['coach-image', v.prompt],
+    queryFn: () => api<{ url: string }>('/api/coach/images', { method: 'POST', body: JSON.stringify({ prompt: v.prompt }) }),
+    staleTime: Infinity,
+    retry: false,
+  });
+  if (q.isPending) return <div role="status" aria-label="Drawing the picture" className="aspect-video w-full animate-pulse rounded-lg bg-surface" />;
+  if (q.data) return <img src={q.data.url} alt={v.alt} className="aspect-video w-full rounded-lg object-cover" loading="lazy" />;
+  return (
+    <div className="flex items-start gap-2 rounded-lg bg-surface p-3 text-sm">
+      <ImageOff aria-hidden size={18} className="mt-0.5 shrink-0 text-muted" />
+      <p>
+        <span className="sr-only">Picture not available: </span>
+        {v.alt}
+      </p>
+    </div>
   );
 }

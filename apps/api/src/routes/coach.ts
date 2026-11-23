@@ -135,7 +135,7 @@ export function coachRoutes(ctx: AppContext) {
 
       // Someone is waiting: a model at its limit hands over to the next at once instead of waiting.
       // A model that hasn't started answering within a few seconds hands over too.
-      const options = spoken ? { temperature: 0.7, maxTokens: 300, maxRateLimitWaitMs: 1500, firstTokenTimeoutMs: 4000 } : { temperature: 0.6, maxTokens: 1200, maxRateLimitWaitMs: 1500, firstTokenTimeoutMs: 6000 };
+      const options = spoken ? { temperature: 0.7, maxTokens: 300, maxRateLimitWaitMs: 1500, firstTokenTimeoutMs: 4000 } : { temperature: 0.6, maxTokens: 3000, maxRateLimitWaitMs: 1500, firstTokenTimeoutMs: 6000 };
       const failure = (err: unknown) => {
         if (err instanceof ProviderNotConfiguredError) return { status: 503 as const, body: { error: 'coach_unavailable', message: 'Coaching is not configured on this server yet.' } };
         console.error('[coach] model call failed', err instanceof LlmError ? err.message : err);

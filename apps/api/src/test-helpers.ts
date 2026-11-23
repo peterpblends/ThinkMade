@@ -1,3 +1,4 @@
+import type { ImageGenerator } from '@thinkmade/ai';
 import { TERMS_VERSION } from '@thinkmade/shared';
 import { createDb, runMigrations, type DbHandle } from '@thinkmade/db';
 import { memoryEmailSender } from '@thinkmade/ai';
@@ -49,13 +50,13 @@ import { createOTP } from '@better-auth/utils/otp';
 import { base32 } from '@better-auth/utils/base32';
 
 /** App context on an in-memory database with a capturing email sender. */
-export async function createTestContext() {
+export async function createTestContext(overrides: { images?: ImageGenerator | null } = {}) {
   const env = loadEnv({ NODE_ENV: 'test', AUTH_SECRET: 'test-secret-test-secret-test-secret-00' });
   const email = memoryEmailSender();
   const { mkdtempSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
-  const ctx = await createContext({ env, email, pgliteDir: ':memory:', storageDir: mkdtempSync(join(tmpdir(), 'tm-api-store-')), embeddedWorker: false });
+  const ctx = await createContext({ env, email, pgliteDir: ':memory:', storageDir: mkdtempSync(join(tmpdir(), 'tm-api-store-')), embeddedWorker: false, ...overrides });
   return { ...ctx, email };
 }
 
