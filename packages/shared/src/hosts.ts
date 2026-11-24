@@ -239,3 +239,34 @@ export function distinctCast(hosts: Host[], opts: { pool: string[]; language?: s
   }
   return { hosts: out, fixes };
 }
+
+/** The most natural non-Gemini voices, best first, used when Gemini's voices can't be (see fallbackVoices). */
+export const FALLBACK_VOICE_ORDER = ['af_heart', 'af_bella', 'am_michael', 'am_fenrir', 'bf_emma', 'bm_george', 'phonon:zoey', 'phonon:juniper', 'phonon:easton', 'phonon:trevor', 'phonon:hadley', 'phonon:miles'];
+
+/**
+ * Stand-in voices for Gemini voices, when Gemini's allowance has run out: for each Gemini voice not yet
+ * mapped, the best local voice of the same gender that no one else in the show uses and that doesn't sound
+ * like one already chosen. `existing` maps are kept, so a podcast's hosts keep the same stand-ins.
+ */
+export function fallbackVoices(voices: string[], opts: { pool: string[]; existing?: Record<string, string> | undefined; others?: string[] }): Record<string, string> {
+  const map: Record<string, string> = { ...(opts.existing ?? {}) };
+  const used = new Set([...Object.values(map), ...(opts.others ?? [])]);
+  const rank = (id: string) => {
+    const i = FALLBACK_VOICE_ORDER.indexOf(id);
+    return i < 0 ? FALLBACK_VOICE_ORDER.length : i;
+  };
+  const local = opts.pool
+    .map(voiceInfo)
+    .filter((v): v is VoiceInfo => !!v && v.engine !== 'Gemini' && v.speaks.includes('en') && castableByDefault(v))
+    .sort((a, b) => rank(a.id) - rank(b.id));
+  for (const voice of voices) {
+    if (map[voice] || !voice.startsWith('gemini:')) continue;
+    const gender = voiceInfo(voice)?.gender;
+    const fits = (v: VoiceInfo) => v.gender === gender && !used.has(v.id);
+    const pick = local.find((v) => fits(v) && ![...used].some((u) => voiceInfo(u)?.gender === gender && soundAlike(u, v.id))) ?? local.find(fits) ?? local.find((v) => v.gender === gender);
+    if (!pick) continue;
+    map[voice] = pick.id;
+    used.add(pick.id);
+  }
+  return map;
+}
