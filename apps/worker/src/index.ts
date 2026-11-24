@@ -24,7 +24,7 @@ import { cleanupExpiredUploads } from './media';
 import { fakeResponder, fakeVerifyBook } from './testing/fake-responder';
 
 export { cleanSpeakerLabels, episodeTokenAllowance, runJob, splitLongLines } from './pipeline';
-export { recoverBudgetStops } from './recover';
+export { recoverBudgetStops, releaseVoiceWaits } from './recover';
 export { cleanupExpiredUploads } from './media';
 export { ensureVoiceSamples } from './voice-samples';
 export { claimNextJob } from './queue';

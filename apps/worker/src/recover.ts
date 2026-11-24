@@ -26,3 +26,17 @@ export async function recoverBudgetStops(db: Db, now = new Date()): Promise<numb
   }
   return rows.length;
 }
+
+/**
+ * Podcasts that were left waiting for the voice service's daily allowance to reset are released: they are
+ * now voiced with stand-in voices when the allowance has run out, so there is nothing to wait for.
+ */
+export async function releaseVoiceWaits(db: Db, now = new Date()): Promise<number> {
+  const rows = await queryRows<{ id: string }>(
+    db,
+    sql`update generation_job set run_after = ${now}, updated_at = ${now}
+        where status = 'queued' and run_after > ${now} and error like 'Gemini speech is rate limited%'
+        returning id`,
+  );
+  return rows.length;
+}

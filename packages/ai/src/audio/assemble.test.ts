@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { createToneTts } from '../tts/tone';
 import type { SpeakOptions, TtsEngine } from '../tts/types';
 import { runFfmpeg } from './ffmpeg';
-import { assembleEpisode, levelMatch, measureDuration, pauseBefore, rms, seededRandom, suspectTake, trimSilence } from './assemble';
+import { assembleEpisode, levelMatch, MAX_TAKE_CHARS, measureDuration, pauseBefore, rms, seededRandom, suspectTake, trimSilence } from './assemble';
 
 const dir = mkdtempSync(join(tmpdir(), 'tm-audio-'));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -190,7 +190,7 @@ describe('natural voices: performed as a conversation', () => {
     const turns = [
       { voice: 'gemini:Sulafat', speaker: 'Sophie Lane', text: 'So here is the thing. [laughs]' },
       { voice: 'gemini:Charon', speaker: 'Charles', text: 'Go on.' },
-      ...Array.from({ length: 8 }, (_, i) => ({ voice: i % 2 ? 'gemini:Charon' : 'gemini:Sulafat', speaker: i % 2 ? 'Charles' : 'Sophie Lane', text: long })),
+      ...Array.from({ length: 16 }, (_, i) => ({ voice: i % 2 ? 'gemini:Charon' : 'gemini:Sulafat', speaker: i % 2 ? 'Charles' : 'Sophie Lane', text: long })),
       { voice: 'gemini:Sulafat', speaker: 'Sophie Lane', text: 'New section.', sectionBreak: true },
     ];
     const progress: number[] = [];
@@ -198,7 +198,7 @@ describe('natural voices: performed as a conversation', () => {
     const result = await assembleEpisode({ turns, tts, outFile: out, workDir: dir, onProgress: (d) => void progress.push(d) });
     expect(statSync(out).size).toBeGreaterThan(1000);
     expect(takes.length).toBeGreaterThanOrEqual(3);
-    for (const t of takes) expect(t.map((l) => l.text).join('').length).toBeLessThanOrEqual(1400 + long.length);
+    for (const t of takes) expect(t.map((l) => l.text).join('').length).toBeLessThanOrEqual(MAX_TAKE_CHARS + long.length);
     // The section's first line starts a take of its own.
     expect(takes.at(-1)!.map((l) => l.text)).toEqual(['New section.']);
     // First names label the speakers; performable cues are kept.

@@ -351,8 +351,11 @@ export async function measureDuration(file: string): Promise<number> {
   return Number(last[1]) * 3600 + Number(last[2]) * 60 + Number(last[3]);
 }
 
-/** Longest stretch of conversation performed in one take (characters): about a minute and a half of talk. */
-const MAX_TAKE_CHARS = 1400;
+/**
+ * Longest stretch of conversation performed in one take (characters): about three minutes of talk, well
+ * within what Gemini speaks in one request, so an episode needs few requests of its daily allowance.
+ */
+export const MAX_TAKE_CHARS = 2800;
 
 /** The episode can be performed as conversation: every voice belongs to an engine that does that. */
 function dialogueEngine(opts: AssembleOptions): boolean {

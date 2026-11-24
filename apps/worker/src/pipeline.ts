@@ -12,7 +12,7 @@ import {
   type ChatMessage,
 } from '@thinkmade/ai';
 import { getActivePrompts, indexSeriesEmbedding, queryRows, schema, settleCancelledSeries, type Db, type ModelStage } from '@thinkmade/db';
-import { APPROACHES, isGeminiVoice, castHosts, chooseApproach, chooseHosts, chooseShowFormat, distinctCast, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, HOST_IDS, languageInfo, languageInstruction, speaksLanguage, verifyCast, voiceInfo, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowApproach, type ShowFormat } from '@thinkmade/shared';
+import { APPROACHES, fallbackVoices, isGeminiVoice, castHosts, chooseApproach, chooseHosts, chooseShowFormat, distinctCast, DEFAULT_APP_SETTINGS, DEFAULT_PRODUCTION, episodeShowFormat, HOST_IDS, languageInfo, languageInstruction, speaksLanguage, verifyCast, voiceInfo, type GenerationOptions, type GenerationStage, type Host, type ListenerPreferences, type ShowApproach, type ShowFormat } from '@thinkmade/shared';
 import { JobCancelledError, LostLeaseError, PermanentJobError, type WorkerDeps } from './deps';
 import { storageTakeCache } from './take-cache';
 import { overusedModels, rankForVariety } from './model-variety';
@@ -88,6 +88,11 @@ export interface JobState {
   visitingGuests?: boolean;
   /** How this podcast is made, kept for every episode (unset when the listener described their own cast). */
   approach?: ShowApproach;
+  /**
+   * Stand-in voices (Gemini voice -> local voice) once Gemini's allowance ran out while this podcast was being
+   * voiced; its remaining episodes keep them, so hosts don't change voice part-way through.
+   */
+  voiceFallback?: Record<string, string>;
   /** Each episode's guest, cast once (by episode number). */
   episodeGuests?: Record<string, Host>;
   /** Episodes (by number) to plan again because a reviewer rejected them. */
@@ -176,6 +181,8 @@ const AUTO_RESTART_DELAYS = [300, 3600];
  * reset within 24 hours, so a podcast waits through a full day rather than failing.
  */
 const RATE_LIMIT_PATIENCE_MS = 36 * 3600_000;
+/** Longer than this, a used-up voice allowance isn't waited for: the podcast is voiced with stand-ins. */
+const VOICE_WAIT_LIMIT_MS = 10 * 60_000;
 /** Episodes planned per request. */
 const PLAN_BATCH = 3;
 
@@ -1198,12 +1205,18 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
       const workDir = join(deps.workDir, job.id);
       mkdirSync(workDir, { recursive: true });
       const outFile = join(workDir, `${episodeId}.mp3`);
-      const audio = await runner.run('synthesize', () =>
+      // Gemini's voices while its allowance lasts. Once it runs out for this podcast, the episode (and the rest of
+      // the podcast) is voiced with matched stand-ins instead of waiting for the allowance to reset.
+      const standIns = () => {
+        state.voiceFallback = fallbackVoices(hosts.map((h) => h.voice), { pool: allowed, existing: state.voiceFallback, others: hosts.filter((h) => !isGeminiVoice(h.voice)).map((h) => h.voice) });
+        return (v: string) => state.voiceFallback?.[v] ?? v;
+      };
+      const speakWith = (voiceFor: (v: string) => string) => runner.run('synthesize', () =>
         assembleEpisode({
           signal: stop.signal,
           takeCache: storageTakeCache(deps.storage),
           // Section boundaries get a longer breath; the rest of the pacing follows the lines themselves.
-          turns: done.flatMap((d, si) => d.segments.map((s, k) => ({ voice: voiceOf(s.speaker), speaker: nameFor(s.speaker), text: s.text, ...(si > 0 && k === 0 ? { sectionBreak: true } : {}) }))),
+          turns: done.flatMap((d, si) => d.segments.map((s, k) => ({ voice: voiceFor(voiceOf(s.speaker)), speaker: nameFor(s.speaker), text: s.text, ...(si > 0 && k === 0 ? { sectionBreak: true } : {}) }))),
           pacing: production.pacing,
           expressiveness: production.expressiveness,
           natural: options.naturalDelivery === true,
@@ -1218,6 +1231,26 @@ export async function runJob(job: ClaimedJob, deps: WorkerDeps): Promise<'succee
         }),
         ep.number,
       );
+      const usesGemini = hosts.some((h) => isGeminiVoice(h.voice));
+      let audio: Awaited<ReturnType<typeof speakWith>>;
+      if (usesGemini && Object.keys(state.voiceFallback ?? {}).length) {
+        audio = await speakWith(standIns());
+      } else {
+        try {
+          audio = await speakWith((v) => v);
+        } catch (err) {
+          // A short wait is waited out (the step is retried later); a used-up daily allowance is not.
+          if (!(usesGemini && err instanceof TtsRateLimitedError && err.retryAfterMs > VOICE_WAIT_LIMIT_MS)) throw err;
+          const voiceFor = standIns();
+          await saveState(db, job.id, state);
+          log('voice allowance used up: using stand-in voices for this podcast', { jobId: job.id, episode: ep.number, voices: state.voiceFallback });
+          audio = await speakWith(voiceFor);
+        }
+      }
+      if (usesGemini && Object.keys(state.voiceFallback ?? {}).length) {
+        // The episode shows the voices it was actually recorded with.
+        await db.update(schema.episode).set({ hosts: hosts.map((h) => ({ ...h, voice: state.voiceFallback?.[h.voice] ?? h.voice })) }).where(eq(schema.episode.id, episodeId));
+      }
       const audioKey = `audio/${seriesId}/${episodeId}.mp3`;
       await deps.storage.putFile(audioKey, outFile, 'audio/mpeg');
       rmSync(outFile, { force: true });
