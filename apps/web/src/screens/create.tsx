@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { BRAND } from '@thinkmade/shared';
-import { api, ApiError, type PublicSettings } from '../lib/api';
+import { api, ApiError, unreachableMessage, type PublicSettings } from '../lib/api';
 import { useSession } from '../lib/auth-client';
 import { InstallCard } from '../components/install';
 import { Button, Notice } from '../components/ui';
@@ -108,7 +108,7 @@ export function CreateScreen() {
             ? err.status === 415
               ? 'That file is not a photo or video we can read. Please choose a JPEG, PNG, HEIC, MP4 or MOV file.'
               : 'We could not start your podcasts. Please try again.'
-            : 'You seem to be offline. Please try again when connected.'),
+            : unreachableMessage(err)),
       );
     } finally {
       setBusy(false);
@@ -127,7 +127,7 @@ export function CreateScreen() {
         <CreateForm defaults={settings.data.podcast} media={settings.data.media} voices={settings.data.voices ?? []} {...(settings.data.features ? { features: settings.data.features } : {})} onCreate={(r) => void onCreate(r)} initialTopic={readDraft()} busy={busy} status={status} />
       ) : settings.isError ? (
         <Notice tone="error" role="alert">
-          ThinkMade can't reach its server right now. Check your connection and try again.
+          {unreachableMessage(settings.error)}
         </Notice>
       ) : (
         <p role="status" className="text-muted">

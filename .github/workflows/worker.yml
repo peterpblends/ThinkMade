@@ -55,8 +55,13 @@ jobs:
         # waiting to resume must never be stranded by the check.
         run: |
           url=$(printf '%s' "$DATABASE_URL" | sed -E 's/([?&])channel_binding=[^&]*&?/\1/; s/[?&]$//')
-          if n=$(psql "$url" -tAc "select count(*) from generation_job where (status = 'queued' and run_after <= now() + interval '40 minutes') or (status = 'running' and locked_until < now())" 2>/dev/null); then
+          if n=$(psql "$url" -tAc "select count(*) from generation_job where (status = 'queued' and run_after <= now() + interval '40 minutes') or (status = 'running' and locked_until < now())" 2>err.txt); then
             n=$(printf '%s' "$n" | tr -d '[:space:]')
+          elif grep -qiE 'quota|upgrade your plan|suspended|disabled' err.txt; then
+            # The database's plan allowance is used up: the app is down until it is raised. Fail loudly so the
+            # repository owner is emailed, rather than spending a runner on a worker that can't connect.
+            echo "::error::The database refused the connection because its plan allowance is used up (ThinkMade is down). Raise the Neon plan or wait for it to reset. $(head -c 300 err.txt)"
+            exit 1
           else
             echo "::warning::Couldn't check the queue; running the worker anyway."
             n=unknown

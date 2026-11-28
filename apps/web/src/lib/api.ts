@@ -15,13 +15,37 @@ export class ApiError extends Error {
 /** Fired when the server needs the person to agree to the current terms first. */
 export const TERMS_REQUIRED_EVENT = 'thinkmade:terms-required';
 
+/** A reply's JSON. An error page that isn't JSON (a platform error) still becomes an ApiError, not a crash. */
+function parseBody(text: string, ok: boolean): unknown {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    if (ok) throw err;
+    return null;
+  }
+}
+
+/**
+ * What to tell someone when the app can't load from the server: the server's own words when it is briefly
+ * unavailable (503), that they seem offline only when their device says so, and otherwise a plain retry.
+ */
+export function unreachableMessage(err: unknown): string {
+  if (err instanceof ApiError && err.status === 503) {
+    const message = (err.body as { message?: unknown } | null)?.message;
+    return typeof message === 'string' ? message : 'ThinkMade is briefly unavailable. Please try again in a little while.';
+  }
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return "You seem to be offline. Please try again when you're connected.";
+  return "ThinkMade can't reach its server right now. Please try again in a moment.";
+}
+
 /** Same-origin JSON fetch with cookies. Throws ApiError on non-2xx. */
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body !== undefined && !headers.has('content-type')) headers.set('content-type', 'application/json');
   const res = await fetch(path, { ...init, headers, credentials: 'same-origin' });
   const text = await res.text();
-  const body: unknown = text ? JSON.parse(text) : null;
+  const body = parseBody(text, res.ok);
   if (!res.ok) {
     const code = (body as { error?: string } | null)?.error ?? 'request_failed';
     throw new ApiError(res.status, code, body);
@@ -43,7 +67,7 @@ export async function streamApi<T>(path: string, body: unknown, onText: (soFar: 
   });
   if (!res.ok || !res.headers.get('content-type')?.includes('text/event-stream') || !res.body) {
     const text = await res.text();
-    const data: unknown = text ? JSON.parse(text) : null;
+    const data = parseBody(text, res.ok);
     if (!res.ok) throw new ApiError(res.status, (data as { error?: string } | null)?.error ?? 'request_failed', data);
     return data as T;
   }

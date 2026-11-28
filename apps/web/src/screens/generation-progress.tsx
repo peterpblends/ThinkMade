@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, CircleDashed, LoaderCircle, TriangleAlert } from 'lucide-react';
 import { Link, useParams } from 'react-router';
-import { api } from '../lib/api';
+import { api, ApiError, unreachableMessage } from '../lib/api';
 import { Button, Notice, PageHeader } from '../components/ui';
 
 export interface GenerationStatus {
@@ -137,7 +137,7 @@ export function GenerationProgressScreen() {
         <ProgressView data={q.data} onCancel={() => cancel.mutate()} cancelling={cancel.isPending} onRetry={() => retry.mutate()} retrying={retry.isPending} />
       ) : q.isError ? (
         <Notice tone="error" role="alert">
-          We couldn't find that request.
+          {q.error instanceof ApiError && q.error.status === 404 ? "We couldn't find that request." : unreachableMessage(q.error)}
         </Notice>
       ) : (
         <p role="status" className="text-muted">
