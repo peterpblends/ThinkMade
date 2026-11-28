@@ -21,6 +21,7 @@ import { libraryRoutes } from './routes/library';
 import { coachRoutes } from './routes/coach';
 import { plannerRoutes } from './routes/planner';
 import { discoverRoutes, sharePageRoutes } from './routes/discover';
+import { isDatabaseUnavailable, unavailableResponse } from './unavailable';
 
 export function createApp(ctx: AppContext) {
   const app = new Hono<{ Variables: AppVariables }>();
@@ -78,6 +79,7 @@ export function createApp(ctx: AppContext) {
 
   app.onError((err, c) => {
     console.error('[api] unhandled error', err);
+    if (isDatabaseUnavailable(err)) return unavailableResponse();
     return c.json({ error: 'internal_error' }, 500);
   });
   return app;

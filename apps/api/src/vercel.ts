@@ -6,6 +6,7 @@ import { getRequestListener } from '@hono/node-server';
 import { createApp } from './app';
 import { createContext } from './create-context';
 import { loadEnv } from './env';
+import { unavailableResponse } from './unavailable';
 
 let appPromise: Promise<ReturnType<typeof createApp>> | null = null;
 
@@ -25,6 +26,12 @@ function getApp() {
 }
 
 export default getRequestListener(async (request) => {
-  const app = await getApp();
+  let app: Awaited<ReturnType<typeof getApp>>;
+  try {
+    app = await getApp();
+  } catch {
+    // The database (or another service the API needs) is down: say so clearly; the next request tries again.
+    return unavailableResponse();
+  }
   return app.fetch(request);
 });
